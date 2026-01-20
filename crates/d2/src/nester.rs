@@ -5,7 +5,7 @@ use crate::brkga_nesting::run_brkga_nesting;
 use crate::ga_nesting::run_ga_nesting;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
-    compute_ifp, compute_nfp, find_bottom_left_placement, Nfp, NfpCache, PlacedGeometry,
+    compute_ifp_with_margin, compute_nfp, find_bottom_left_placement, Nfp, NfpCache, PlacedGeometry,
 };
 use crate::sa_nesting::run_sa_nesting;
 use u_nesting_core::brkga::BrkgaConfig;
@@ -169,8 +169,8 @@ impl Nester2D {
                 let mut best_placement: Option<(f64, f64, f64)> = None; // (x, y, rotation)
 
                 for &rotation in &rotation_angles {
-                    // Compute IFP for this geometry at this rotation
-                    let ifp = match compute_ifp(&boundary_polygon, geom, rotation) {
+                    // Compute IFP for this geometry at this rotation (with margin from boundary)
+                    let ifp = match compute_ifp_with_margin(&boundary_polygon, geom, rotation, margin) {
                         Ok(ifp) => ifp,
                         Err(_) => continue,
                     };

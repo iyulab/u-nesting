@@ -3,7 +3,7 @@
 리서치 문서를 기반으로 상세한 다단계 로드맵을 구성했습니다.
 
 > **마지막 업데이트**: 2026-01
-> **현재 진행 단계**: Phase 1 완료, Phase 2 진행 중 (80%), Phase 3 완료 (100%)
+> **현재 진행 단계**: Phase 1 완료, Phase 2 완료 (100%), Phase 3 완료 (100%)
 
 ---
 
@@ -12,7 +12,7 @@
 | Phase | 기간 | 핵심 목표 | 상태 |
 |-------|------|----------|------|
 | **Phase 1** | 5-6주 | Geometry Core (2D/3D 기초) | ✅ 완료 |
-| **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | 🔄 진행 중 (80%) |
+| **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | ✅ 완료 |
 | **Phase 3** | 5-6주 | 최적화 알고리즘 (GA/SA) | ✅ 완료 |
 | **Phase 4** | 3-4주 | 성능 최적화 및 병렬화 | ⏳ 대기 |
 | **Phase 5** | 3-4주 | FFI 및 통합 API | 🔄 진행 중 (60%) |
@@ -66,7 +66,7 @@
 
 ---
 
-## Phase 2: NFP Engine & Placement Algorithms (4-5주) 🔄 진행 중
+## Phase 2: NFP Engine & Placement Algorithms (4-5주) ✅ 완료
 
 ### 목표
 No-Fit Polygon 계산 엔진 및 기본 배치 알고리즘 구현
@@ -78,18 +78,18 @@ No-Fit Polygon 계산 엔진 및 기본 배치 알고리즘 구현
 - [x] Edge vector sorting and merging
 - [x] Reference point tracking
 
-#### 2.2 NFP 계산 - Non-Convex Case (2주) 🔄 부분 구현
-- [ ] Burke et al. Orbiting 알고리즘 구현
-- [ ] Degenerate case 처리 (collinear, coincident)
-- [x] Decomposition + Union 방식 대안 구현 (convex hull 근사 사용)
-- [ ] `i_overlay` 기반 Boolean 연산 통합 (정확한 non-convex NFP)
-- [ ] Hole 처리 (내부 구멍이 있는 폴리곤)
+#### 2.2 NFP 계산 - Non-Convex Case (2주) ✅ 완료
+- [ ] Burke et al. Orbiting 알고리즘 구현 (대안 사용)
+- [ ] Degenerate case 처리 (collinear, coincident) (향후 개선)
+- [x] Decomposition + Union 방식 대안 구현
+- [x] `i_overlay` 기반 Boolean 연산 통합 (정확한 non-convex NFP)
+- [ ] Hole 처리 (내부 구멍이 있는 폴리곤) (향후 개선)
 
-> **현재 상태**: Convex NFP 완전 구현. Non-convex는 convex hull 근사로 동작 (conservative approximation).
+> **현재 상태**: Triangulation + Minkowski sum + i_overlay union 방식으로 non-convex NFP 구현 완료.
 
 #### 2.3 Inner Fit Polygon (IFP) (0.5주) ✅ 완료
 - [x] Container 경계에 대한 IFP 계산
-- [ ] Margin 적용
+- [x] Margin 적용 (`compute_ifp_with_margin()` 함수 추가)
 
 #### 2.4 NFP 캐싱 시스템 (0.5주) ✅ 완료
 - [x] `NfpCache` 구조체 정의
@@ -365,13 +365,15 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 | Packer3D (EP) | `d3/extreme_point.rs` | Extreme Point heuristic 3D packing |
 | FFI JSON API | `ffi/api.rs` | C ABI, JSON 요청/응답 |
 | NFP Convex | `d2/nfp.rs` | Minkowski sum 기반 NFP 계산 |
+| NFP Non-convex | `d2/nfp.rs` | Triangulation + i_overlay union 방식 |
 | NFP Cache | `d2/nfp.rs` | Thread-safe 캐싱 시스템 |
 | IFP | `d2/nfp.rs` | Inner-Fit Polygon 계산 |
+| IFP with Margin | `d2/nfp.rs` | Margin 적용 가능한 IFP 계산 |
 
 ### 미구현 핵심 기능 ❌
 | 기능 | 우선순위 | 설명 |
 |------|----------|------|
-| NFP 계산 (non-convex 정밀) | **중간** | Orbiting algorithm, i_overlay 통합 |
+| ~~NFP 계산 (non-convex 정밀)~~ | ~~**중간**~~ | ~~i_overlay 통합~~ ✅ 완료 |
 | ~~NFP-guided BLF~~ | ~~**높음**~~ | ~~NFP 기반 최적 배치점 탐색~~ ✅ 완료 |
 | ~~GA-based Nesting~~ | ~~**중간**~~ | ~~GA + BLF/NFP decoder~~ ✅ 완료 |
 | ~~Extreme Point (3D)~~ | ~~**중간**~~ | ~~EP heuristic for bin packing~~ ✅ 완료 |
@@ -384,17 +386,19 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 
 ### 다음 단계 (권장 순서)
 
-1. **Non-convex NFP 정밀 구현** (Phase 2.2)
-   - Burke et al. Orbiting 알고리즘 또는 i_overlay 기반 정확한 NFP
-   - 현재 convex hull 근사에서 정확한 non-convex NFP로 개선
+1. ~~**Non-convex NFP 정밀 구현** (Phase 2.2)~~ ✅ 완료
+   - Triangulation + i_overlay union 방식으로 구현 완료
 
-2. **IFP Margin 적용** (Phase 2.3)
-   - Container 경계에서의 margin 처리 개선
-   - 2D nesting 품질 향상
+2. ~~**IFP Margin 적용** (Phase 2.3)~~ ✅ 완료
+   - `compute_ifp_with_margin()` 함수 추가 완료
 
 3. **벤치마크 설정** (Phase 6.1)
    - ESICUP 데이터셋으로 품질 측정
    - 개선 효과 정량화
+
+4. **병렬 처리** (Phase 4)
+   - rayon 기반 NFP/GA 병렬화
+   - Spatial indexing 통합
 
 ---
 

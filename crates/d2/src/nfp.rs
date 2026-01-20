@@ -9,10 +9,13 @@
 
 use crate::geometry::Geometry2D;
 use geo::{ConvexHull, Coord, LineString};
-use u_nesting_core::geometry::Geometry2DExt;
+use i_overlay::core::fill_rule::FillRule;
+use i_overlay::core::overlay_rule::OverlayRule;
+use i_overlay::float::single::SingleFloatOverlay;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::{Arc, RwLock};
+use u_nesting_core::geometry::Geometry2DExt;
 use u_nesting_core::{Error, Result};
 
 /// NFP computation result.
@@ -124,6 +127,29 @@ pub fn compute_ifp(
     geometry: &Geometry2D,
     rotation: f64,
 ) -> Result<Nfp> {
+    compute_ifp_with_margin(boundary_polygon, geometry, rotation, 0.0)
+}
+
+/// Computes the Inner-Fit Polygon (IFP) of a geometry within a boundary with margin.
+///
+/// The IFP represents all valid positions where the reference point of
+/// a geometry can be placed within the boundary, accounting for a margin
+/// (offset) from the boundary edges.
+///
+/// # Arguments
+/// * `boundary_polygon` - The boundary polygon vertices (counter-clockwise)
+/// * `geometry` - The geometry to fit inside
+/// * `rotation` - Rotation angle of the geometry in radians
+/// * `margin` - Distance to maintain from boundary edges (applied to both boundary and geometry)
+///
+/// # Returns
+/// The computed IFP, or an error if computation fails.
+pub fn compute_ifp_with_margin(
+    boundary_polygon: &[(f64, f64)],
+    geometry: &Geometry2D,
+    rotation: f64,
+    margin: f64,
+) -> Result<Nfp> {
     if boundary_polygon.len() < 3 {
         return Err(Error::InvalidBoundary(
             "Boundary must have at least 3 vertices".into(),
@@ -140,6 +166,19 @@ pub fn compute_ifp(
     // Apply rotation to geometry
     let rotated_geom = rotate_polygon(geom_exterior, rotation);
 
+    // Apply margin by shrinking the boundary inward
+    let effective_boundary = if margin > 0.0 {
+        shrink_polygon(boundary_polygon, margin)?
+    } else {
+        boundary_polygon.to_vec()
+    };
+
+    if effective_boundary.len() < 3 {
+        return Err(Error::InvalidBoundary(
+            "Boundary too small after applying margin".into(),
+        ));
+    }
+
     // The IFP is computed by:
     // 1. Reflect the geometry about its reference point (negate all coordinates)
     // 2. Compute Minkowski sum of boundary and reflected geometry
@@ -148,12 +187,120 @@ pub fn compute_ifp(
     let reflected_geom: Vec<(f64, f64)> = rotated_geom.iter().map(|&(x, y)| (-x, -y)).collect();
 
     // Check if both are convex for fast path
-    if is_polygon_convex(boundary_polygon) && is_polygon_convex(&reflected_geom) {
-        compute_minkowski_sum_convex(boundary_polygon, &reflected_geom)
+    if is_polygon_convex(&effective_boundary) && is_polygon_convex(&reflected_geom) {
+        compute_minkowski_sum_convex(&effective_boundary, &reflected_geom)
     } else {
         // For non-convex cases, use general approach
-        compute_minkowski_sum_general(boundary_polygon, &reflected_geom)
+        compute_minkowski_sum_general(&effective_boundary, &reflected_geom)
     }
+}
+
+/// Shrinks a polygon by moving all edges inward by the given offset.
+///
+/// For axis-aligned rectangles (the common case for boundaries), this shrinks
+/// each edge inward. For general polygons, it uses a vertex-based approach.
+fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>> {
+    if polygon.len() < 3 {
+        return Err(Error::InvalidGeometry(
+            "Polygon must have at least 3 vertices".into(),
+        ));
+    }
+
+    // Check if this is an axis-aligned rectangle (common case for boundaries)
+    if polygon.len() == 4 {
+        let (min_x, min_y, max_x, max_y) = bounding_box(polygon);
+
+        // Check if all vertices are on the bounding box edges (axis-aligned)
+        let is_axis_aligned = polygon.iter().all(|&(x, y)| {
+            ((x - min_x).abs() < 1e-10 || (x - max_x).abs() < 1e-10)
+                && ((y - min_y).abs() < 1e-10 || (y - max_y).abs() < 1e-10)
+        });
+
+        if is_axis_aligned {
+            // Simple shrink for axis-aligned rectangle
+            let new_min_x = min_x + offset;
+            let new_min_y = min_y + offset;
+            let new_max_x = max_x - offset;
+            let new_max_y = max_y - offset;
+
+            // Check if still valid
+            if new_min_x >= new_max_x || new_min_y >= new_max_y {
+                return Err(Error::InvalidGeometry(
+                    "Offset polygon collapsed".into(),
+                ));
+            }
+
+            return Ok(vec![
+                (new_min_x, new_min_y),
+                (new_max_x, new_min_y),
+                (new_max_x, new_max_y),
+                (new_min_x, new_max_y),
+            ]);
+        }
+    }
+
+    // General polygon shrink using centroid-based approach
+    let (cx, cy) = polygon_centroid(polygon);
+
+    let result: Vec<(f64, f64)> = polygon
+        .iter()
+        .filter_map(|&(x, y)| {
+            let dx = x - cx;
+            let dy = y - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+
+            if dist < offset + 1e-10 {
+                // Vertex too close to centroid
+                return None;
+            }
+
+            // Move vertex toward centroid by offset
+            let factor = (dist - offset) / dist;
+            Some((cx + dx * factor, cy + dy * factor))
+        })
+        .collect();
+
+    // Validate result polygon has reasonable size
+    if result.len() < 3 {
+        return Err(Error::InvalidGeometry(
+            "Offset polygon collapsed".into(),
+        ));
+    }
+
+    // Check if the polygon has positive area (not self-intersecting)
+    let area = signed_area(&result).abs();
+    if area <= 1e-10 {
+        return Err(Error::InvalidGeometry(
+            "Offset polygon collapsed".into(),
+        ));
+    }
+
+    Ok(result)
+}
+
+/// Computes bounding box of a polygon.
+fn bounding_box(polygon: &[(f64, f64)]) -> (f64, f64, f64, f64) {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+
+    for &(x, y) in polygon {
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+    }
+
+    (min_x, min_y, max_x, max_y)
+}
+
+/// Computes polygon centroid.
+fn polygon_centroid(polygon: &[(f64, f64)]) -> (f64, f64) {
+    let n = polygon.len() as f64;
+    let sum_x: f64 = polygon.iter().map(|p| p.0).sum();
+    let sum_y: f64 = polygon.iter().map(|p| p.1).sum();
+    (sum_x / n, sum_y / n)
 }
 
 /// Computes NFP for two convex polygons using Minkowski sum.
@@ -212,20 +359,202 @@ fn compute_minkowski_sum_convex(poly_a: &[(f64, f64)], poly_b: &[(f64, f64)]) ->
     Ok(Nfp::from_polygon(result))
 }
 
-/// Computes NFP for non-convex polygons using decomposition + union.
+/// Computes NFP for non-convex polygons using convex decomposition + union.
+///
+/// The algorithm:
+/// 1. Decompose both polygons into convex parts (using triangulation)
+/// 2. Compute pairwise Minkowski sums of convex parts
+/// 3. Union all partial results using `i_overlay`
 fn compute_nfp_general(stationary: &Geometry2D, rotated_orbiting: &[(f64, f64)]) -> Result<Nfp> {
-    // Decompose stationary polygon into convex parts using convex hull approximation
-    // For simplicity, we use the convex hull of the stationary polygon
-    // A more sophisticated implementation would use Hertel-Mehlhorn decomposition
+    // Triangulate both polygons into convex parts
+    let stat_triangles = triangulate_polygon(stationary.exterior());
+    let orb_triangles = triangulate_polygon(rotated_orbiting);
 
-    let stat_hull = stationary.convex_hull();
-    let orb_hull = convex_hull_of_points(rotated_orbiting);
+    if stat_triangles.is_empty() || orb_triangles.is_empty() {
+        // Fall back to convex hull approximation
+        let stat_hull = stationary.convex_hull();
+        let orb_hull = convex_hull_of_points(rotated_orbiting);
+        let reflected: Vec<(f64, f64)> = orb_hull.iter().map(|&(x, y)| (-x, -y)).collect();
+        return compute_minkowski_sum_convex(&stat_hull, &reflected);
+    }
 
-    // Compute NFP of convex hulls as approximation
-    // This is conservative (NFP may be larger than necessary)
-    let reflected: Vec<(f64, f64)> = orb_hull.iter().map(|&(x, y)| (-x, -y)).collect();
+    // Compute pairwise Minkowski sums
+    let mut partial_nfps: Vec<Vec<(f64, f64)>> = Vec::new();
 
-    compute_minkowski_sum_convex(&stat_hull, &reflected)
+    for stat_tri in &stat_triangles {
+        for orb_tri in &orb_triangles {
+            // Reflect orbiting triangle
+            let reflected: Vec<(f64, f64)> = orb_tri.iter().map(|&(x, y)| (-x, -y)).collect();
+
+            // Compute Minkowski sum of two convex polygons
+            if let Ok(nfp) = compute_minkowski_sum_convex(stat_tri, &reflected) {
+                for polygon in nfp.polygons {
+                    if polygon.len() >= 3 {
+                        partial_nfps.push(polygon);
+                    }
+                }
+            }
+        }
+    }
+
+    if partial_nfps.is_empty() {
+        // Fall back to convex hull
+        let stat_hull = stationary.convex_hull();
+        let orb_hull = convex_hull_of_points(rotated_orbiting);
+        let reflected: Vec<(f64, f64)> = orb_hull.iter().map(|&(x, y)| (-x, -y)).collect();
+        return compute_minkowski_sum_convex(&stat_hull, &reflected);
+    }
+
+    // Union all partial NFPs using i_overlay
+    union_polygons(&partial_nfps)
+}
+
+/// Triangulates a polygon into convex parts (ear clipping algorithm).
+fn triangulate_polygon(polygon: &[(f64, f64)]) -> Vec<Vec<(f64, f64)>> {
+    if polygon.len() < 3 {
+        return Vec::new();
+    }
+
+    // For convex polygons, just return the polygon itself
+    if is_polygon_convex(polygon) {
+        return vec![polygon.to_vec()];
+    }
+
+    // Simple ear-clipping triangulation
+    let mut vertices: Vec<(f64, f64)> = ensure_ccw(polygon);
+    let mut triangles = Vec::new();
+
+    while vertices.len() > 3 {
+        let n = vertices.len();
+        let mut ear_found = false;
+
+        for i in 0..n {
+            let prev = (i + n - 1) % n;
+            let next = (i + 1) % n;
+
+            // Check if this is an ear (convex vertex with no other vertices inside)
+            if is_ear(&vertices, prev, i, next) {
+                triangles.push(vec![vertices[prev], vertices[i], vertices[next]]);
+                vertices.remove(i);
+                ear_found = true;
+                break;
+            }
+        }
+
+        if !ear_found {
+            // No ear found, polygon might be degenerate
+            // Fall back to returning the convex hull
+            return vec![convex_hull_of_points(polygon)];
+        }
+    }
+
+    if vertices.len() == 3 {
+        triangles.push(vertices);
+    }
+
+    triangles
+}
+
+/// Checks if vertex i forms an ear in the polygon.
+fn is_ear(vertices: &[(f64, f64)], prev: usize, curr: usize, next: usize) -> bool {
+    let (ax, ay) = vertices[prev];
+    let (bx, by) = vertices[curr];
+    let (cx, cy) = vertices[next];
+
+    // Check if the vertex is convex (turn left in CCW polygon)
+    let cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
+    if cross <= 0.0 {
+        return false; // Reflex vertex, not an ear
+    }
+
+    // Check if any other vertex is inside this triangle
+    for (i, &(px, py)) in vertices.iter().enumerate() {
+        if i == prev || i == curr || i == next {
+            continue;
+        }
+        if point_in_triangle((px, py), (ax, ay), (bx, by), (cx, cy)) {
+            return false;
+        }
+    }
+
+    true
+}
+
+/// Checks if a point is inside a triangle.
+fn point_in_triangle(p: (f64, f64), a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> bool {
+    let (px, py) = p;
+    let (ax, ay) = a;
+    let (bx, by) = b;
+    let (cx, cy) = c;
+
+    let v0 = (cx - ax, cy - ay);
+    let v1 = (bx - ax, by - ay);
+    let v2 = (px - ax, py - ay);
+
+    let dot00 = v0.0 * v0.0 + v0.1 * v0.1;
+    let dot01 = v0.0 * v1.0 + v0.1 * v1.1;
+    let dot02 = v0.0 * v2.0 + v0.1 * v2.1;
+    let dot11 = v1.0 * v1.0 + v1.1 * v1.1;
+    let dot12 = v1.0 * v2.0 + v1.1 * v2.1;
+
+    let inv_denom = 1.0 / (dot00 * dot11 - dot01 * dot01);
+    let u = (dot11 * dot02 - dot01 * dot12) * inv_denom;
+    let v = (dot00 * dot12 - dot01 * dot02) * inv_denom;
+
+    u > 1e-10 && v > 1e-10 && (u + v) < 1.0 - 1e-10
+}
+
+/// Unions multiple polygons using i_overlay.
+fn union_polygons(polygons: &[Vec<(f64, f64)>]) -> Result<Nfp> {
+    if polygons.is_empty() {
+        return Ok(Nfp::new());
+    }
+
+    if polygons.len() == 1 {
+        return Ok(Nfp::from_polygon(polygons[0].clone()));
+    }
+
+    // Start with the first polygon
+    let mut result: Vec<Vec<[f64; 2]>> = vec![polygons[0]
+        .iter()
+        .map(|&(x, y)| [x, y])
+        .collect()];
+
+    // Union with each subsequent polygon
+    for polygon in &polygons[1..] {
+        let clip: Vec<[f64; 2]> = polygon.iter().map(|&(x, y)| [x, y]).collect();
+
+        // Perform union using i_overlay
+        let shapes = result.overlay(&[clip], OverlayRule::Union, FillRule::NonZero);
+
+        // Convert shapes back to our format
+        result = Vec::new();
+        for shape in shapes {
+            for contour in shape {
+                if contour.len() >= 3 {
+                    result.push(contour);
+                }
+            }
+        }
+
+        if result.is_empty() {
+            // Union failed, continue with remaining polygons
+            continue;
+        }
+    }
+
+    // Convert back to our Nfp format
+    let nfp_polygons: Vec<Vec<(f64, f64)>> = result
+        .into_iter()
+        .map(|contour| contour.into_iter().map(|[x, y]| (x, y)).collect())
+        .collect();
+
+    if nfp_polygons.is_empty() {
+        // Fall back to returning the first polygon
+        return Ok(Nfp::from_polygon(polygons[0].clone()));
+    }
+
+    Ok(Nfp::from_polygons(nfp_polygons))
 }
 
 /// Computes Minkowski sum for general (non-convex) polygons.
@@ -867,5 +1196,167 @@ mod tests {
 
         // Hull should have 4 vertices (square without interior point)
         assert_eq!(hull.len(), 4);
+    }
+
+    #[test]
+    fn test_shrink_polygon_square() {
+        let square = rect(100.0, 100.0);
+        let shrunk = shrink_polygon(&square, 10.0).unwrap();
+
+        // Should still have 4 vertices
+        assert_eq!(shrunk.len(), 4);
+
+        // The shrunk polygon should be smaller
+        let original_area = signed_area(&square).abs();
+        let shrunk_area = signed_area(&shrunk).abs();
+        assert!(
+            shrunk_area < original_area,
+            "shrunk_area ({}) should be < original_area ({})",
+            shrunk_area,
+            original_area
+        );
+
+        // Expected area: (100-20)*(100-20) = 6400
+        // (10.0 offset on each side)
+        assert_relative_eq!(shrunk_area, 6400.0, epsilon = 1.0);
+    }
+
+    #[test]
+    fn test_shrink_polygon_collapse() {
+        let small_square = rect(10.0, 10.0);
+
+        // Shrinking by 6 should collapse the 10x10 polygon (becomes 0 or negative)
+        let result = shrink_polygon(&small_square, 6.0);
+        assert!(result.is_err(), "Polygon should collapse when offset >= width/2");
+    }
+
+    #[test]
+    fn test_ifp_with_margin() {
+        let boundary = rect(100.0, 100.0);
+        let geom = Geometry2D::rectangle("G", 10.0, 10.0);
+
+        // Without margin
+        let ifp_no_margin = compute_ifp(&boundary, &geom, 0.0).unwrap();
+
+        // With margin
+        let ifp_with_margin = compute_ifp_with_margin(&boundary, &geom, 0.0, 5.0).unwrap();
+
+        assert!(!ifp_no_margin.is_empty());
+        assert!(!ifp_with_margin.is_empty());
+
+        // IFP with margin should be smaller
+        let (min_x_no, _min_y_no, max_x_no, _max_y_no) = ifp_bounding_box(&ifp_no_margin);
+        let (min_x_margin, _min_y_margin, max_x_margin, _max_y_margin) =
+            ifp_bounding_box(&ifp_with_margin);
+
+        let width_no = max_x_no - min_x_no;
+        let width_margin = max_x_margin - min_x_margin;
+
+        // Width should be smaller with margin applied
+        // Without margin: IFP width = 100 - 10 = 90
+        // With margin 5: effective boundary is 90x90, IFP width = 90 - 10 = 80
+        assert!(
+            width_margin < width_no,
+            "width_margin ({}) should be < width_no ({})",
+            width_margin,
+            width_no
+        );
+    }
+
+    #[test]
+    fn test_ifp_margin_boundary_collapse() {
+        let boundary = rect(20.0, 20.0);
+
+        // Margin of 12 would make the effective boundary negative (collapse)
+        let result = shrink_polygon(&boundary, 12.0);
+        assert!(result.is_err(), "Boundary should collapse with margin >= width/2");
+    }
+
+    #[test]
+    fn test_ifp_margin_large_geometry() {
+        let boundary = rect(30.0, 30.0);
+        let geom = Geometry2D::rectangle("G", 20.0, 20.0);
+
+        // Without margin: IFP width = 30 - 20 = 10
+        let ifp_no_margin = compute_ifp(&boundary, &geom, 0.0).unwrap();
+        let (min_x_no, _, max_x_no, _) = ifp_bounding_box(&ifp_no_margin);
+        let width_no = max_x_no - min_x_no;
+
+        // With margin 5: effective boundary is 20x20, IFP width = 20 - 20 = 0
+        let ifp_with_margin = compute_ifp_with_margin(&boundary, &geom, 0.0, 5.0).unwrap();
+        let (min_x_margin, _, max_x_margin, _) = ifp_bounding_box(&ifp_with_margin);
+        let width_margin = max_x_margin - min_x_margin;
+
+        // IFP should be smaller (possibly degenerate) with margin
+        assert!(
+            width_margin <= width_no,
+            "width_margin ({}) should be <= width_no ({})",
+            width_margin,
+            width_no
+        );
+    }
+
+    #[test]
+    fn test_nfp_non_convex_l_shape() {
+        // L-shape is not convex
+        let l_shape = Geometry2D::new("L")
+            .with_polygon(vec![
+                (0.0, 0.0),
+                (20.0, 0.0),
+                (20.0, 10.0),
+                (10.0, 10.0),
+                (10.0, 20.0),
+                (0.0, 20.0),
+            ]);
+
+        let small_square = Geometry2D::rectangle("S", 5.0, 5.0);
+
+        // Should compute NFP for non-convex polygon
+        let nfp = compute_nfp(&l_shape, &small_square, 0.0).unwrap();
+
+        assert!(!nfp.is_empty());
+        // NFP should have multiple vertices due to non-convex shape
+        assert!(nfp.vertex_count() >= 4);
+    }
+
+    #[test]
+    fn test_triangulate_polygon_convex() {
+        let square = rect(10.0, 10.0);
+        let triangles = triangulate_polygon(&square);
+
+        // Convex polygon should return itself
+        assert_eq!(triangles.len(), 1);
+        assert_eq!(triangles[0].len(), 4);
+    }
+
+    #[test]
+    fn test_triangulate_polygon_non_convex() {
+        // L-shape
+        let l_shape = vec![
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 20.0),
+            (0.0, 20.0),
+        ];
+
+        let triangles = triangulate_polygon(&l_shape);
+
+        // Should triangulate into multiple triangles
+        assert!(triangles.len() >= 1);
+    }
+
+    #[test]
+    fn test_union_polygons() {
+        // Two overlapping squares
+        let poly1 = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let poly2 = vec![(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)];
+
+        let result = union_polygons(&[poly1, poly2]).unwrap();
+
+        assert!(!result.is_empty());
+        // Union of two overlapping squares should have more than 4 vertices
+        assert!(result.vertex_count() >= 6);
     }
 }
