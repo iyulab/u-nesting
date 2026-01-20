@@ -3,7 +3,7 @@
 리서치 문서를 기반으로 상세한 다단계 로드맵을 구성했습니다.
 
 > **마지막 업데이트**: 2026-01
-> **현재 진행 단계**: Phase 1 완료, Phase 2 진행 중 (50%), Phase 3 진행 중 (20%)
+> **현재 진행 단계**: Phase 1 완료, Phase 2 진행 중 (70%), Phase 3 진행 중 (20%)
 
 ---
 
@@ -12,7 +12,7 @@
 | Phase | 기간 | 핵심 목표 | 상태 |
 |-------|------|----------|------|
 | **Phase 1** | 5-6주 | Geometry Core (2D/3D 기초) | ✅ 완료 |
-| **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | 🔄 진행 중 (50%) |
+| **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | 🔄 진행 중 (70%) |
 | **Phase 3** | 5-6주 | 최적화 알고리즘 (GA/SA) | 🔄 진행 중 (20%) |
 | **Phase 4** | 3-4주 | 성능 최적화 및 병렬화 | ⏳ 대기 |
 | **Phase 5** | 3-4주 | FFI 및 통합 API | 🔄 진행 중 (60%) |
@@ -102,7 +102,11 @@ No-Fit Polygon 계산 엔진 및 기본 배치 알고리즘 구현
   - Row-based placement
   - Margin/spacing 지원
   - Cancellation 지원
-- [ ] **NFP-guided BLF**: NFP 경계 위 최적점 탐색
+- [x] **NFP-guided BLF**: NFP 경계 위 최적점 탐색 - `d2/nester.rs`
+  - IFP 기반 유효 영역 계산
+  - NFP 기반 충돌 회피
+  - 다중 회전 각도 시도
+  - Bottom-left 우선 배치
 - [ ] **Deepest Bottom-Left Fill (DBLF)**: 개선된 BLF
 - [ ] **Touching Perimeter**: 접촉 최대화
 
@@ -310,6 +314,7 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 | Boundary2D | `d2/boundary.rs` | 직사각형, 폴리곤 경계 |
 | Boundary3D | `d3/boundary.rs` | Box 컨테이너, mass 제한 |
 | Nester2D (BLF) | `d2/nester.rs` | Row-based BLF 배치 |
+| Nester2D (NFP-guided) | `d2/nester.rs` | NFP 기반 최적 배치 |
 | Packer3D (Layer) | `d3/packer.rs` | Layer-based 배치 |
 | GA Framework | `core/ga.rs` | Individual, GaProblem, GaRunner |
 | FFI JSON API | `ffi/api.rs` | C ABI, JSON 요청/응답 |
@@ -321,7 +326,7 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 | 기능 | 우선순위 | 설명 |
 |------|----------|------|
 | NFP 계산 (non-convex 정밀) | **중간** | Orbiting algorithm, i_overlay 통합 |
-| NFP-guided BLF | **높음** | NFP 기반 최적 배치점 탐색 |
+| ~~NFP-guided BLF~~ | ~~**높음**~~ | ~~NFP 기반 최적 배치점 탐색~~ ✅ 완료 |
 | GA-based Nesting | **중간** | GA + BLF/NFP decoder |
 | Extreme Point (3D) | **중간** | EP heuristic for bin packing |
 | 병렬 처리 | **중간** | rayon 기반 NFP/GA 병렬화 |
@@ -333,19 +338,15 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 
 ### 다음 단계 (권장 순서)
 
-1. **NFP 기반 배치** (Phase 2.5)
-   - NFP-guided BLF 구현 (NFP 활용한 최적 배치점 탐색)
-   - 현재 row-based BLF보다 훨씬 높은 utilization 달성 가능
-
-2. **Non-convex NFP 정밀 구현** (Phase 2.2)
+1. **Non-convex NFP 정밀 구현** (Phase 2.2)
    - Burke et al. Orbiting 알고리즘 또는 i_overlay 기반 정확한 NFP
    - 현재 convex hull 근사에서 정확한 non-convex NFP로 개선
 
-3. **GA Nesting 통합** (Phase 3.3)
+2. **GA Nesting 통합** (Phase 3.3)
    - 이미 완성된 GA 프레임워크 활용
    - NestingProblem 구현 및 decoder 작성
 
-4. **벤치마크 설정** (Phase 6.1)
+3. **벤치마크 설정** (Phase 6.1)
    - ESICUP 데이터셋으로 품질 측정
    - 개선 효과 정량화
 

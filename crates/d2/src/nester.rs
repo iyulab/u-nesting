@@ -2,8 +2,11 @@
 
 use crate::boundary::Boundary2D;
 use crate::geometry::Geometry2D;
+use crate::nfp::{
+    compute_ifp, compute_nfp, find_bottom_left_placement, Nfp, NfpCache, PlacedGeometry,
+};
 use u_nesting_core::geometry::{Boundary, Geometry};
-use u_nesting_core::solver::{Config, ProgressCallback, Solver};
+use u_nesting_core::solver::{Config, ProgressCallback, Solver, Strategy};
 use u_nesting_core::{Placement, Result, SolveResult};
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +17,8 @@ use std::time::Instant;
 pub struct Nester2D {
     config: Config,
     cancelled: Arc<AtomicBool>,
+    #[allow(dead_code)] // Will be used for caching in future optimization
+    nfp_cache: NfpCache,
 }
 
 impl Nester2D {
@@ -22,6 +27,7 @@ impl Nester2D {
         Self {
             config,
             cancelled: Arc::new(AtomicBool::new(false)),
+            nfp_cache: NfpCache::new(),
         }
     }
 
@@ -110,6 +116,253 @@ impl Nester2D {
 
         Ok(result)
     }
+
+    /// NFP-guided Bottom-Left Fill algorithm.
+    ///
+    /// Uses No-Fit Polygons to find optimal placement positions that minimize
+    /// wasted space while ensuring no overlaps.
+    fn nfp_guided_blf(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+    ) -> Result<SolveResult<f64>> {
+        let start = Instant::now();
+        let mut result = SolveResult::new();
+        let mut placements = Vec::new();
+        let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
+
+        let margin = self.config.margin;
+        let spacing = self.config.spacing;
+
+        // Get boundary polygon with margin applied
+        let boundary_polygon = self.get_boundary_polygon_with_margin(boundary, margin);
+
+        let mut total_placed_area = 0.0;
+
+        // Sampling step for grid search (adaptive based on geometry size)
+        let sample_step = self.compute_sample_step(geometries);
+
+        for geom in geometries {
+            geom.validate()?;
+
+            // Get allowed rotation angles
+            let rotations = geom.rotations();
+            let rotation_angles: Vec<f64> = if rotations.is_empty() {
+                vec![0.0]
+            } else {
+                rotations
+            };
+
+            for instance in 0..geom.quantity() {
+                if self.cancelled.load(Ordering::Relaxed) {
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    return Ok(result);
+                }
+
+                // Try each rotation angle to find the best placement
+                let mut best_placement: Option<(f64, f64, f64)> = None; // (x, y, rotation)
+
+                for &rotation in &rotation_angles {
+                    // Compute IFP for this geometry at this rotation
+                    let ifp = match compute_ifp(&boundary_polygon, geom, rotation) {
+                        Ok(ifp) => ifp,
+                        Err(_) => continue,
+                    };
+
+                    if ifp.is_empty() {
+                        continue;
+                    }
+
+                    // Compute NFPs with all placed geometries
+                    let mut nfps: Vec<Nfp> = Vec::new();
+                    for placed in &placed_geometries {
+                        // Create a temporary geometry at the placed position
+                        let placed_exterior = placed.translated_exterior();
+                        let placed_geom = Geometry2D::new(format!("_placed_{}", placed.geometry.id()))
+                            .with_polygon(placed_exterior);
+
+                        // Compute NFP with spacing
+                        let nfp = match compute_nfp(&placed_geom, geom, rotation) {
+                            Ok(nfp) => {
+                                // Expand NFP by spacing amount
+                                self.expand_nfp(&nfp, spacing)
+                            }
+                            Err(_) => continue,
+                        };
+                        nfps.push(nfp);
+                    }
+
+                    // Shrink IFP by spacing from boundary
+                    let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
+
+                    // Find the bottom-left valid placement
+                    let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
+                    if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
+                        // Compare with current best (bottom-left preference)
+                        let is_better = match best_placement {
+                            None => true,
+                            Some((_, best_y, _)) => y < best_y - 1e-6,
+                        };
+                        if is_better {
+                            best_placement = Some((x, y, rotation));
+                        }
+                    }
+                }
+
+                // Place the geometry at the best position found
+                if let Some((x, y, rotation)) = best_placement {
+                    let placement = Placement::new_2d(
+                        geom.id().clone(),
+                        instance,
+                        x,
+                        y,
+                        rotation,
+                    );
+
+                    placements.push(placement);
+                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (x, y), rotation));
+                    total_placed_area += geom.measure();
+                } else {
+                    // Could not place this instance
+                    result.unplaced.push(geom.id().clone());
+                }
+            }
+        }
+
+        result.placements = placements;
+        result.boundaries_used = 1;
+        result.utilization = total_placed_area / boundary.measure();
+        result.computation_time_ms = start.elapsed().as_millis() as u64;
+
+        Ok(result)
+    }
+
+    /// Gets the boundary polygon with margin applied.
+    fn get_boundary_polygon_with_margin(
+        &self,
+        boundary: &Boundary2D,
+        margin: f64,
+    ) -> Vec<(f64, f64)> {
+        let (b_min, b_max) = boundary.aabb();
+
+        // Create a rectangular boundary polygon with margin
+        vec![
+            (b_min[0] + margin, b_min[1] + margin),
+            (b_max[0] - margin, b_min[1] + margin),
+            (b_max[0] - margin, b_max[1] - margin),
+            (b_min[0] + margin, b_max[1] - margin),
+        ]
+    }
+
+    /// Computes an adaptive sample step based on geometry sizes.
+    fn compute_sample_step(&self, geometries: &[Geometry2D]) -> f64 {
+        if geometries.is_empty() {
+            return 1.0;
+        }
+
+        // Use the smallest geometry dimension divided by 4 as sample step
+        let mut min_dim = f64::INFINITY;
+        for geom in geometries {
+            let (g_min, g_max) = geom.aabb();
+            let width = g_max[0] - g_min[0];
+            let height = g_max[1] - g_min[1];
+            min_dim = min_dim.min(width).min(height);
+        }
+
+        // Clamp sample step to reasonable range
+        (min_dim / 4.0).clamp(0.5, 10.0)
+    }
+
+    /// Expands an NFP by the given spacing amount.
+    fn expand_nfp(&self, nfp: &Nfp, spacing: f64) -> Nfp {
+        if spacing <= 0.0 {
+            return nfp.clone();
+        }
+
+        // Simple expansion: offset each polygon outward
+        // For a proper implementation, this should use polygon offsetting
+        // For now, we use a conservative approximation
+        let expanded_polygons: Vec<Vec<(f64, f64)>> = nfp
+            .polygons
+            .iter()
+            .map(|polygon| {
+                // Compute centroid
+                let (cx, cy) = polygon_centroid(polygon);
+
+                // Offset each vertex away from centroid
+                polygon
+                    .iter()
+                    .map(|&(x, y)| {
+                        let dx = x - cx;
+                        let dy = y - cy;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist > 1e-10 {
+                            let scale = (dist + spacing) / dist;
+                            (cx + dx * scale, cy + dy * scale)
+                        } else {
+                            (x, y)
+                        }
+                    })
+                    .collect()
+            })
+            .collect();
+
+        Nfp::from_polygons(expanded_polygons)
+    }
+
+    /// Shrinks an IFP by the given spacing amount.
+    fn shrink_ifp(&self, ifp: &Nfp, spacing: f64) -> Nfp {
+        if spacing <= 0.0 {
+            return ifp.clone();
+        }
+
+        // Simple shrinking: offset each polygon inward
+        let shrunk_polygons: Vec<Vec<(f64, f64)>> = ifp
+            .polygons
+            .iter()
+            .filter_map(|polygon| {
+                // Compute centroid
+                let (cx, cy) = polygon_centroid(polygon);
+
+                // Offset each vertex toward centroid
+                let shrunk: Vec<(f64, f64)> = polygon
+                    .iter()
+                    .map(|&(x, y)| {
+                        let dx = x - cx;
+                        let dy = y - cy;
+                        let dist = (dx * dx + dy * dy).sqrt();
+                        if dist > spacing + 1e-10 {
+                            let scale = (dist - spacing) / dist;
+                            (cx + dx * scale, cy + dy * scale)
+                        } else {
+                            // Point too close to centroid, collapse to centroid
+                            (cx, cy)
+                        }
+                    })
+                    .collect();
+
+                // Only keep polygon if it still has area
+                if shrunk.len() >= 3 {
+                    Some(shrunk)
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        Nfp::from_polygons(shrunk_polygons)
+    }
+}
+
+/// Computes the centroid of a polygon.
+fn polygon_centroid(polygon: &[(f64, f64)]) -> (f64, f64) {
+    if polygon.is_empty() {
+        return (0.0, 0.0);
+    }
+
+    let sum: (f64, f64) = polygon.iter().fold((0.0, 0.0), |acc, &(x, y)| (acc.0 + x, acc.1 + y));
+    let n = polygon.len() as f64;
+    (sum.0 / n, sum.1 / n)
 }
 
 impl Solver for Nester2D {
@@ -128,14 +381,15 @@ impl Solver for Nester2D {
         self.cancelled.store(false, Ordering::Relaxed);
 
         match self.config.strategy {
-            u_nesting_core::Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
+            Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
+            Strategy::NfpGuided => self.nfp_guided_blf(geometries, boundary),
             _ => {
-                // Fall back to BLF for unimplemented strategies
+                // Fall back to NFP-guided BLF for other strategies
                 log::warn!(
-                    "Strategy {:?} not yet implemented, using BottomLeftFill",
+                    "Strategy {:?} not yet implemented, using NfpGuided",
                     self.config.strategy
                 );
-                self.bottom_left_fill(geometries, boundary)
+                self.nfp_guided_blf(geometries, boundary)
             }
         }
     }
@@ -194,5 +448,119 @@ mod tests {
             assert!(p.position[0] >= 5.0);
             assert!(p.position[1] >= 5.0);
         }
+    }
+
+    #[test]
+    fn test_nfp_guided_basic() {
+        let geometries = vec![
+            Geometry2D::rectangle("R1", 20.0, 10.0).with_quantity(2),
+            Geometry2D::rectangle("R2", 15.0, 15.0).with_quantity(1),
+        ];
+
+        let boundary = Boundary2D::rectangle(100.0, 50.0);
+        let config = Config::default().with_strategy(Strategy::NfpGuided);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        assert!(result.utilization > 0.0);
+        assert_eq!(result.placements.len(), 3); // 2 + 1 = 3 pieces
+        assert!(result.unplaced.is_empty());
+    }
+
+    #[test]
+    fn test_nfp_guided_with_spacing() {
+        let geometries = vec![Geometry2D::rectangle("R1", 10.0, 10.0).with_quantity(4)];
+
+        let boundary = Boundary2D::rectangle(50.0, 50.0);
+        let config = Config::default()
+            .with_strategy(Strategy::NfpGuided)
+            .with_margin(2.0)
+            .with_spacing(3.0);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // All pieces should be placed
+        assert_eq!(result.placements.len(), 4);
+        assert!(result.unplaced.is_empty());
+
+        // Utilization should be positive
+        assert!(result.utilization > 0.0);
+    }
+
+    #[test]
+    fn test_nfp_guided_no_overlap() {
+        let geometries = vec![Geometry2D::rectangle("R1", 20.0, 20.0).with_quantity(3)];
+
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let config = Config::default().with_strategy(Strategy::NfpGuided);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        assert_eq!(result.placements.len(), 3);
+
+        // Verify no overlaps between placements
+        for i in 0..result.placements.len() {
+            for j in (i + 1)..result.placements.len() {
+                let p1 = &result.placements[i];
+                let p2 = &result.placements[j];
+
+                // Simple AABB overlap check for rectangles
+                let r1_min_x = p1.position[0];
+                let r1_max_x = p1.position[0] + 20.0;
+                let r1_min_y = p1.position[1];
+                let r1_max_y = p1.position[1] + 20.0;
+
+                let r2_min_x = p2.position[0];
+                let r2_max_x = p2.position[0] + 20.0;
+                let r2_min_y = p2.position[1];
+                let r2_max_y = p2.position[1] + 20.0;
+
+                // Check no overlap (with small tolerance for floating point)
+                let overlaps_x = r1_min_x < r2_max_x - 0.01 && r1_max_x > r2_min_x + 0.01;
+                let overlaps_y = r1_min_y < r2_max_y - 0.01 && r1_max_y > r2_min_y + 0.01;
+
+                assert!(
+                    !(overlaps_x && overlaps_y),
+                    "Placements {} and {} overlap",
+                    i,
+                    j
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_nfp_guided_utilization() {
+        // Perfect fit: 4 rectangles of 25x25 in a 100x50 boundary
+        let geometries = vec![Geometry2D::rectangle("R1", 25.0, 25.0).with_quantity(4)];
+
+        let boundary = Boundary2D::rectangle(100.0, 50.0);
+        let config = Config::default().with_strategy(Strategy::NfpGuided);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // All pieces should be placed
+        assert_eq!(result.placements.len(), 4);
+
+        // Utilization should be 50% (4 * 625 = 2500 / 5000)
+        assert!(result.utilization > 0.45);
+    }
+
+    #[test]
+    fn test_polygon_centroid() {
+        // Test the centroid calculation
+        let square = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let (cx, cy) = polygon_centroid(&square);
+        assert!((cx - 5.0).abs() < 0.01);
+        assert!((cy - 5.0).abs() < 0.01);
+
+        let triangle = vec![(0.0, 0.0), (6.0, 0.0), (3.0, 6.0)];
+        let (cx, cy) = polygon_centroid(&triangle);
+        assert!((cx - 3.0).abs() < 0.01);
+        assert!((cy - 2.0).abs() < 0.01);
     }
 }

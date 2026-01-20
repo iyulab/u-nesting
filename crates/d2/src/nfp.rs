@@ -413,6 +413,171 @@ fn convex_hull_of_points(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
 }
 
 // ============================================================================
+// NFP-guided placement helpers
+// ============================================================================
+
+/// Checks if a point is inside a polygon (using ray casting algorithm).
+pub fn point_in_polygon(point: (f64, f64), polygon: &[(f64, f64)]) -> bool {
+    let (px, py) = point;
+    let n = polygon.len();
+    let mut inside = false;
+
+    let mut j = n - 1;
+    for i in 0..n {
+        let (xi, yi) = polygon[i];
+        let (xj, yj) = polygon[j];
+
+        if ((yi > py) != (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi) {
+            inside = !inside;
+        }
+        j = i;
+    }
+
+    inside
+}
+
+/// Checks if a point is outside all given NFP polygons (not overlapping any placed piece).
+pub fn point_outside_all_nfps(point: (f64, f64), nfps: &[&Nfp]) -> bool {
+    for nfp in nfps {
+        for polygon in &nfp.polygons {
+            if point_in_polygon(point, polygon) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Finds the bottom-left valid placement point.
+///
+/// The valid region is defined as points that are:
+/// 1. Inside the IFP (Inner-Fit Polygon) - the boundary constraint
+/// 2. Outside all NFPs (No-Fit Polygons) - not overlapping placed pieces
+///
+/// # Arguments
+/// * `ifp` - The inner-fit polygon (valid positions within boundary)
+/// * `nfps` - List of NFPs with already placed pieces
+/// * `sample_step` - Grid sampling step size (smaller = more accurate but slower)
+///
+/// # Returns
+/// The bottom-left valid point, or None if no valid position exists.
+pub fn find_bottom_left_placement(
+    ifp: &Nfp,
+    nfps: &[&Nfp],
+    sample_step: f64,
+) -> Option<(f64, f64)> {
+    if ifp.is_empty() {
+        return None;
+    }
+
+    // First, try the vertices of the IFP (often optimal positions)
+    let mut candidates: Vec<(f64, f64)> = Vec::new();
+
+    for polygon in &ifp.polygons {
+        candidates.extend(polygon.iter().copied());
+    }
+
+    // Also collect NFP vertices as potential optimal positions
+    for nfp in nfps {
+        for polygon in &nfp.polygons {
+            candidates.extend(polygon.iter().copied());
+        }
+    }
+
+    // Find the bounding box of the IFP for grid sampling
+    let (min_x, min_y, max_x, max_y) = ifp_bounding_box(ifp);
+
+    // Add grid sample points
+    let mut y = min_y;
+    while y <= max_y {
+        let mut x = min_x;
+        while x <= max_x {
+            candidates.push((x, y));
+            x += sample_step;
+        }
+        y += sample_step;
+    }
+
+    // Filter candidates to those inside IFP and outside all NFPs
+    let valid_candidates: Vec<(f64, f64)> = candidates
+        .into_iter()
+        .filter(|&point| {
+            // Must be inside IFP
+            let in_ifp = ifp.polygons.iter().any(|p| point_in_polygon(point, p));
+            if !in_ifp {
+                return false;
+            }
+            // Must be outside all NFPs
+            point_outside_all_nfps(point, nfps)
+        })
+        .collect();
+
+    // Find bottom-left point (minimize y first, then x)
+    valid_candidates
+        .into_iter()
+        .min_by(|a, b| {
+            // Compare y first (bottom), then x (left)
+            match a.1.partial_cmp(&b.1) {
+                Some(std::cmp::Ordering::Equal) => {
+                    a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                }
+                Some(ord) => ord,
+                None => std::cmp::Ordering::Equal,
+            }
+        })
+}
+
+/// Computes the bounding box of an NFP.
+fn ifp_bounding_box(ifp: &Nfp) -> (f64, f64, f64, f64) {
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+
+    for polygon in &ifp.polygons {
+        for &(x, y) in polygon {
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+    }
+
+    (min_x, min_y, max_x, max_y)
+}
+
+/// Represents a placed geometry for NFP computation.
+#[derive(Debug, Clone)]
+pub struct PlacedGeometry {
+    /// The original geometry.
+    pub geometry: Geometry2D,
+    /// The placement position (x, y).
+    pub position: (f64, f64),
+    /// The rotation angle in radians.
+    pub rotation: f64,
+}
+
+impl PlacedGeometry {
+    /// Creates a new placed geometry.
+    pub fn new(geometry: Geometry2D, position: (f64, f64), rotation: f64) -> Self {
+        Self {
+            geometry,
+            position,
+            rotation,
+        }
+    }
+
+    /// Returns the translated polygon vertices.
+    pub fn translated_exterior(&self) -> Vec<(f64, f64)> {
+        let rotated = rotate_polygon(self.geometry.exterior(), self.rotation);
+        rotated
+            .into_iter()
+            .map(|(x, y)| (x + self.position.0, y + self.position.1))
+            .collect()
+    }
+}
+
+// ============================================================================
 // NFP Cache
 // ============================================================================
 
