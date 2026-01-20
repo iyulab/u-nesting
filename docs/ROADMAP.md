@@ -3,7 +3,7 @@
 리서치 문서를 기반으로 상세한 다단계 로드맵을 구성했습니다.
 
 > **마지막 업데이트**: 2026-01
-> **현재 진행 단계**: Phase 1 완료, Phase 2 진행 중 (70%), Phase 3 진행 중 (20%)
+> **현재 진행 단계**: Phase 1 완료, Phase 2 진행 중 (70%), Phase 3 진행 중 (50%)
 
 ---
 
@@ -13,7 +13,7 @@
 |-------|------|----------|------|
 | **Phase 1** | 5-6주 | Geometry Core (2D/3D 기초) | ✅ 완료 |
 | **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | 🔄 진행 중 (70%) |
-| **Phase 3** | 5-6주 | 최적화 알고리즘 (GA/SA) | 🔄 진행 중 (20%) |
+| **Phase 3** | 5-6주 | 최적화 알고리즘 (GA/SA) | 🔄 진행 중 (50%) |
 | **Phase 4** | 3-4주 | 성능 최적화 및 병렬화 | ⏳ 대기 |
 | **Phase 5** | 3-4주 | FFI 및 통합 API | 🔄 진행 중 (60%) |
 | **Phase 6** | 2-3주 | 벤치마크 및 릴리스 준비 | ⏳ 대기 |
@@ -150,13 +150,18 @@ Genetic Algorithm 및 Simulated Annealing 최적화 엔진 구현
 - [x] **Inversion Mutation**: 구간 반전
 - [x] Rotation gene 지원
 
-#### 3.3 2D Nesting GA (2주) ❌ 미구현
-- [ ] `NestingProblem` implementing `GaProblem`
-- [ ] Decoder: chromosome → placement sequence
-- [ ] Fitness function: utilization + penalty
-- [ ] Rotation gene integration with NFP
+#### 3.3 2D Nesting GA (2주) ✅ 완료
+- [x] `NestingProblem` implementing `GaProblem` - `d2/ga_nesting.rs`
+- [x] Decoder: chromosome → placement sequence (NFP-guided decoding)
+- [x] Fitness function: placement ratio + utilization
+- [x] Rotation gene integration with NFP
+- [x] `Strategy::GeneticAlgorithm` 지원 - `d2/nester.rs`
 
-> **Note**: GA 프레임워크는 완성되었으나, `Nester2D`에서 실제 사용하지 않음. `Strategy::GeneticAlgorithm` 선택 시 BLF로 fallback.
+> **구현 내용**:
+> - `NestingChromosome`: 배치 순서(permutation) + 회전 유전자
+> - Order Crossover (OX1) 및 Swap/Inversion/Rotation mutation
+> - NFP-guided decoder로 collision-free placement 생성
+> - Fitness = placement_ratio * 100 + utilization * 10
 
 #### 3.4 BRKGA 구현 (1주) ❌ 미구현
 - [ ] Random-key encoding
@@ -315,6 +320,7 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 | Boundary3D | `d3/boundary.rs` | Box 컨테이너, mass 제한 |
 | Nester2D (BLF) | `d2/nester.rs` | Row-based BLF 배치 |
 | Nester2D (NFP-guided) | `d2/nester.rs` | NFP 기반 최적 배치 |
+| Nester2D (GA) | `d2/nester.rs`, `d2/ga_nesting.rs` | GA 기반 최적화 |
 | Packer3D (Layer) | `d3/packer.rs` | Layer-based 배치 |
 | GA Framework | `core/ga.rs` | Individual, GaProblem, GaRunner |
 | FFI JSON API | `ffi/api.rs` | C ABI, JSON 요청/응답 |
@@ -327,7 +333,7 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 |------|----------|------|
 | NFP 계산 (non-convex 정밀) | **중간** | Orbiting algorithm, i_overlay 통합 |
 | ~~NFP-guided BLF~~ | ~~**높음**~~ | ~~NFP 기반 최적 배치점 탐색~~ ✅ 완료 |
-| GA-based Nesting | **중간** | GA + BLF/NFP decoder |
+| ~~GA-based Nesting~~ | ~~**중간**~~ | ~~GA + BLF/NFP decoder~~ ✅ 완료 |
 | Extreme Point (3D) | **중간** | EP heuristic for bin packing |
 | 병렬 처리 | **중간** | rayon 기반 NFP/GA 병렬화 |
 | Python Bindings | **낮음** | PyO3/maturin |
@@ -342,9 +348,9 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
    - Burke et al. Orbiting 알고리즘 또는 i_overlay 기반 정확한 NFP
    - 현재 convex hull 근사에서 정확한 non-convex NFP로 개선
 
-2. **GA Nesting 통합** (Phase 3.3)
-   - 이미 완성된 GA 프레임워크 활용
-   - NestingProblem 구현 및 decoder 작성
+2. **Extreme Point 3D** (Phase 2.6)
+   - 3D bin packing을 위한 EP heuristic 구현
+   - Layer packing보다 높은 utilization 달성 가능
 
 3. **벤치마크 설정** (Phase 6.1)
    - ESICUP 데이터셋으로 품질 측정

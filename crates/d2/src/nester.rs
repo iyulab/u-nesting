@@ -1,10 +1,12 @@
 //! 2D nesting solver.
 
 use crate::boundary::Boundary2D;
+use crate::ga_nesting::run_ga_nesting;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
     compute_ifp, compute_nfp, find_bottom_left_placement, Nfp, NfpCache, PlacedGeometry,
 };
+use u_nesting_core::ga::GaConfig;
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::{Config, ProgressCallback, Solver, Strategy};
 use u_nesting_core::{Placement, Result, SolveResult};
@@ -352,6 +354,33 @@ impl Nester2D {
 
         Nfp::from_polygons(shrunk_polygons)
     }
+
+    /// Genetic Algorithm based nesting optimization.
+    ///
+    /// Uses GA to optimize placement order and rotations, with NFP-guided
+    /// decoding for collision-free placements.
+    fn genetic_algorithm(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+    ) -> Result<SolveResult<f64>> {
+        // Configure GA with reasonable defaults
+        let ga_config = GaConfig::default()
+            .with_population_size(50)
+            .with_max_generations(100)
+            .with_crossover_rate(0.85)
+            .with_mutation_rate(0.15);
+
+        let result = run_ga_nesting(
+            geometries,
+            boundary,
+            &self.config,
+            ga_config,
+            self.cancelled.clone(),
+        );
+
+        Ok(result)
+    }
 }
 
 /// Computes the centroid of a polygon.
@@ -383,6 +412,9 @@ impl Solver for Nester2D {
         match self.config.strategy {
             Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
             Strategy::NfpGuided => self.nfp_guided_blf(geometries, boundary),
+            Strategy::GeneticAlgorithm => {
+                self.genetic_algorithm(geometries, boundary)
+            }
             _ => {
                 // Fall back to NFP-guided BLF for other strategies
                 log::warn!(
@@ -562,5 +594,42 @@ mod tests {
         let (cx, cy) = polygon_centroid(&triangle);
         assert!((cx - 3.0).abs() < 0.01);
         assert!((cy - 2.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_ga_strategy_basic() {
+        let geometries = vec![
+            Geometry2D::rectangle("R1", 20.0, 10.0).with_quantity(2),
+            Geometry2D::rectangle("R2", 15.0, 15.0).with_quantity(2),
+        ];
+
+        let boundary = Boundary2D::rectangle(100.0, 50.0);
+        let config = Config::default().with_strategy(Strategy::GeneticAlgorithm);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        assert!(result.utilization > 0.0);
+        assert!(!result.placements.is_empty());
+        // GA should report generations and fitness
+        assert!(result.generations.is_some());
+        assert!(result.best_fitness.is_some());
+        assert!(result.strategy == Some("GeneticAlgorithm".to_string()));
+    }
+
+    #[test]
+    fn test_ga_strategy_all_placed() {
+        // Easy case: 4 small rectangles in large boundary
+        let geometries = vec![Geometry2D::rectangle("R1", 20.0, 20.0).with_quantity(4)];
+
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let config = Config::default().with_strategy(Strategy::GeneticAlgorithm);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // All 4 pieces should fit
+        assert_eq!(result.placements.len(), 4);
+        assert!(result.unplaced.is_empty());
     }
 }

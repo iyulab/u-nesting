@@ -13,6 +13,7 @@
 //! - Configurable rotation and mirroring constraints
 
 pub mod boundary;
+pub mod ga_nesting;
 pub mod geometry;
 pub mod nester;
 pub mod nfp;
