@@ -3,7 +3,7 @@
 리서치 문서를 기반으로 상세한 다단계 로드맵을 구성했습니다.
 
 > **마지막 업데이트**: 2026-01-22
-> **현재 진행 단계**: Phase 7 완료 - Phase 8 대기
+> **현재 진행 단계**: Phase 10 진행 중 (10.1 완료)
 
 ---
 
@@ -19,9 +19,9 @@
 | **Phase 5** | 3-4주 | FFI 및 통합 API | ✅ 완료 (98%) |
 | **Phase 6** | 2-3주 | 벤치마크 및 릴리스 준비 | 🔄 릴리스 대기 (95%) |
 | **Phase 7** | 4-5주 | 알고리즘 품질 향상 (Robustness, GDRR, ALNS) | ✅ 완료 |
-| **Phase 8** | 3-4주 | Exact Methods (MILP, HiGHS) | ✅ **완료** |
-| **Phase 9** | 4-5주 | 3D 고급 기능 (Stability, Physics) | ✅ **완료** |
-| **Phase 10** | 5-6주 | 배포 확장 및 문서화 | ⬜ 후순위 |
+| **Phase 8** | 3-4주 | Exact Methods (MILP, HiGHS) | ✅ 완료 |
+| **Phase 9** | 4-5주 | 3D 고급 기능 (Stability, Physics) | ✅ 완료 |
+| **Phase 10** | 5-6주 | 배포 확장 및 문서화 | 🔄 **진행 중** (10.1 완료) |
 | **Phase 11** | 5-6주 | ML/AI 통합 (GNN, RL) | ⬜ 연구 단계 |
 
 **총 예상 기간: 29-37주**
@@ -747,7 +747,7 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 
 ---
 
-### Phase 10.1: FFI Callback Function Pointer 지원 (1주)
+### Phase 10.1: FFI Callback Function Pointer 지원 (1주) ✅ 완료
 
 #### 목표
 C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니즘 제공
@@ -755,29 +755,30 @@ C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니�
 #### 태스크
 
 ##### 10.1.1 C ABI 콜백 타입 정의 (1일)
-- [ ] `typedef void (*UnestingProgressCallback)(const char* progress_json)`
-- [ ] `ProgressCallbackContext` opaque 핸들 정의
+- [x] `typedef int (*UnestingProgressCallback)(const char* progress_json, void* user_data)`
+- [x] `CallbackWrapper` 구조체 정의
 
 ##### 10.1.2 FFI API 확장 (2일) - 의존: 10.1.1
-- [ ] `unesting_solve_2d_with_progress(request, callback, context, result)`
-- [ ] `unesting_solve_3d_with_progress(request, callback, context, result)`
-- [ ] 콜백 호출 주기 설정 파라미터 추가
+- [x] `unesting_solve_2d_with_progress(request, callback, user_data, result)`
+- [x] `unesting_solve_3d_with_progress(request, callback, user_data, result)`
+- [x] `unesting_solve_with_progress(request, callback, user_data, result)` (auto-detect)
 
 ##### 10.1.3 Thread-safe 콜백 래퍼 구현 (1일) - 의존: 10.1.2
-- [ ] unsafe extern "C" 콜백을 Rust closure로 변환
-- [ ] Panic guard 적용 (FFI boundary)
+- [x] unsafe extern "C" 콜백을 Rust closure로 변환
+- [x] Panic guard 적용 (FFI boundary)
+- [x] Cancellation 지원 (콜백에서 0 반환 시 취소)
 
 ##### 10.1.4 cbindgen 헤더 업데이트 (0.5일) - 의존: 10.1.3
-- [ ] `unesting.h`에 콜백 타입 및 함수 추가
+- [x] `cbindgen.toml`에 UNESTING_ERR_CANCELLED 추가
 
 ##### 10.1.5 C 사용 예제 작성 (0.5일) - 의존: 10.1.4
-- [ ] `examples/c/progress_callback.c`
+- [x] `examples/c/progress_callback.c`
 
 #### 산출물
 - `ffi/api.rs`: `_with_progress` 함수 추가
 - `ffi/callback.rs`: 콜백 타입 및 래퍼 (신규)
-- `include/unesting.h`: 콜백 타입 포함 헤더
-- `examples/c/`: C 예제 코드
+- `cbindgen.toml`: 콜백 타입 포함 설정
+- `examples/c/progress_callback.c`: C 예제 코드
 
 ---
 
@@ -1011,6 +1012,10 @@ Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
 | Robust Predicates | `core/robust.rs` | Shewchuk adaptive predicates, floating-point filter |
 | NFP Sliding Algorithm | `d2/nfp_sliding.rs` | Burke et al. 2007 sliding/orbiting algorithm |
 | NfpMethod Selection | `d2/nfp.rs` | MinkowskiSum 또는 Sliding 알고리즘 선택 |
+| Stability Analysis | `d3/stability.rs` | StabilityConstraint, PlacedBox, StabilityAnalyzer |
+| Physics Simulation | `d3/physics.rs` | PhysicsConfig, PhysicsSimulator, shaking compaction |
+| FFI Progress Callback | `ffi/callback.rs` | C ABI 콜백, 취소 지원, panic guard |
+| FFI with_progress API | `ffi/api.rs` | unesting_solve_*_with_progress 함수 |
 
 ### 미구현 핵심 기능 ❌
 | 기능 | 우선순위 | 설명 |

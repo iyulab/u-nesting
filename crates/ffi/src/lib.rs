@@ -7,11 +7,17 @@
 //!
 //! ## Functions
 //!
+//! ### Basic API
 //! - [`unesting_solve`] - Auto-detects 2D/3D mode and solves
 //! - [`unesting_solve_2d`] - Solves 2D nesting problems
 //! - [`unesting_solve_3d`] - Solves 3D bin packing problems
 //! - [`unesting_free_string`] - Frees result strings
 //! - [`unesting_version`] - Returns API version
+//!
+//! ### Progress Callback API
+//! - [`unesting_solve_with_progress`] - Auto-detects mode with progress callback
+//! - [`unesting_solve_2d_with_progress`] - 2D nesting with progress callback
+//! - [`unesting_solve_3d_with_progress`] - 3D packing with progress callback
 //!
 //! ## Error Codes
 //!
@@ -21,7 +27,28 @@
 //! | -1 | `UNESTING_ERR_NULL_PTR` | Null pointer passed |
 //! | -2 | `UNESTING_ERR_INVALID_JSON` | Invalid JSON input |
 //! | -3 | `UNESTING_ERR_SOLVE_FAILED` | Solver failed |
+//! | -4 | `UNESTING_ERR_CANCELLED` | Cancelled by callback |
 //! | -99 | `UNESTING_ERR_UNKNOWN` | Unknown error |
+//!
+//! ## Progress Callback
+//!
+//! The progress callback receives JSON with these fields:
+//!
+//! ```json
+//! {
+//!   "iteration": 10,
+//!   "total_iterations": 100,
+//!   "utilization": 0.75,
+//!   "best_fitness": 1.5,
+//!   "items_placed": 5,
+//!   "total_items": 10,
+//!   "elapsed_ms": 500,
+//!   "phase": "Optimizing",
+//!   "running": true
+//! }
+//! ```
+//!
+//! Return non-zero from callback to continue, zero to cancel.
 //!
 //! ## JSON Request Format (2D)
 //!
@@ -87,6 +114,29 @@
 //! | `sa` | ✓ | ✓ | Simulated Annealing |
 //! | `ep` | - | ✓ | Extreme Point heuristic |
 //!
+//! ## C Example (with Progress Callback)
+//!
+//! ```c
+//! #include "unesting.h"
+//! #include <stdio.h>
+//!
+//! int progress_callback(const char* json, void* user_data) {
+//!     printf("Progress: %s\n", json);
+//!     return 1; // Continue (return 0 to cancel)
+//! }
+//!
+//! int main() {
+//!     const char* request = "{\"geometries\": [...], \"boundary\": {...}}";
+//!     char* result = NULL;
+//!     int code = unesting_solve_2d_with_progress(request, progress_callback, NULL, &result);
+//!     if (code == UNESTING_OK) {
+//!         printf("Result: %s\n", result);
+//!     }
+//!     unesting_free_string(result);
+//!     return code;
+//! }
+//! ```
+//!
 //! ## C# Example
 //!
 //! ```csharp
@@ -104,7 +154,9 @@
 //! ```
 
 mod api;
+mod callback;
 mod types;
 
 pub use api::*;
+pub use callback::*;
 pub use types::*;
