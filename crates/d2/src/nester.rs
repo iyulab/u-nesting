@@ -12,7 +12,7 @@ use u_nesting_core::brkga::BrkgaConfig;
 use u_nesting_core::ga::GaConfig;
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::sa::SaConfig;
-use u_nesting_core::solver::{Config, ProgressCallback, Solver, Strategy};
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 use u_nesting_core::{Placement, Result, SolveResult};
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -244,24 +244,32 @@ impl Nester2D {
                         continue;
                     }
 
-                    // Compute NFPs with all placed geometries
+                    // Compute NFPs with all placed geometries (using cache)
                     let mut nfps: Vec<Nfp> = Vec::new();
                     for placed in &placed_geometries {
-                        // Create a temporary geometry at the placed position
-                        let placed_exterior = placed.translated_exterior();
-                        let placed_geom =
-                            Geometry2D::new(format!("_placed_{}", placed.geometry.id()))
-                                .with_polygon(placed_exterior);
+                        // Use cache for NFP computation (between original geometries at origin)
+                        // Key: (placed_geometry_id, current_geometry_id, rotation)
+                        let cache_key = (
+                            placed.geometry.id().as_str(),
+                            geom.id().as_str(),
+                            rotation - placed.rotation, // Relative rotation
+                        );
 
-                        // Compute NFP with spacing
-                        let nfp = match compute_nfp(&placed_geom, geom, rotation) {
-                            Ok(nfp) => {
-                                // Expand NFP by spacing amount
-                                self.expand_nfp(&nfp, spacing)
-                            }
-                            Err(_) => continue,
-                        };
-                        nfps.push(nfp);
+                        // Compute NFP at origin and cache it
+                        let nfp_at_origin =
+                            match self.nfp_cache.get_or_compute(cache_key, || {
+                                // Rotate placed geometry to its rotation
+                                let placed_at_origin = placed.geometry.clone();
+                                compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
+                            }) {
+                                Ok(nfp) => nfp,
+                                Err(_) => continue,
+                            };
+
+                        // Translate cached NFP to placed position and expand by spacing
+                        let translated_nfp = translate_nfp_exterior(&nfp_at_origin, placed.position);
+                        let expanded = self.expand_nfp(&translated_nfp, spacing);
+                        nfps.push(expanded);
                     }
 
                     // Shrink IFP by spacing from boundary
@@ -432,12 +440,12 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
-        // Configure GA with reasonable defaults
+        // Configure GA from solver config
         let ga_config = GaConfig::default()
-            .with_population_size(50)
-            .with_max_generations(100)
-            .with_crossover_rate(0.85)
-            .with_mutation_rate(0.15);
+            .with_population_size(self.config.population_size)
+            .with_max_generations(self.config.max_generations)
+            .with_crossover_rate(self.config.crossover_rate)
+            .with_mutation_rate(self.config.mutation_rate);
 
         let result = run_ga_nesting(
             geometries,
@@ -500,6 +508,297 @@ impl Nester2D {
 
         Ok(result)
     }
+
+    /// Bottom-Left Fill with progress callback.
+    fn bottom_left_fill_with_progress(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        callback: &ProgressCallback,
+    ) -> Result<SolveResult<f64>> {
+        let start = Instant::now();
+        let mut result = SolveResult::new();
+        let mut placements = Vec::new();
+
+        // Get boundary dimensions
+        let (b_min, b_max) = boundary.aabb();
+        let margin = self.config.margin;
+        let spacing = self.config.spacing;
+
+        let bound_min_x = b_min[0] + margin;
+        let bound_min_y = b_min[1] + margin;
+        let bound_max_x = b_max[0] - margin;
+        let bound_max_y = b_max[1] - margin;
+
+        let strip_width = bound_max_x - bound_min_x;
+        let strip_height = bound_max_y - bound_min_y;
+
+        let mut current_x = bound_min_x;
+        let mut current_y = bound_min_y;
+        let mut row_height = 0.0_f64;
+        let mut total_placed_area = 0.0;
+
+        // Count total pieces for progress
+        let total_pieces: usize = geometries.iter().map(|g| g.quantity()).sum();
+        let mut placed_count = 0usize;
+
+        // Initial progress callback
+        callback(ProgressInfo::new()
+            .with_phase("BLF Placement")
+            .with_items(0, total_pieces)
+            .with_elapsed(0));
+
+        for geom in geometries {
+            geom.validate()?;
+
+            let rotations = geom.rotations();
+            let rotation_angles: Vec<f64> = if rotations.is_empty() {
+                vec![0.0]
+            } else {
+                rotations
+            };
+
+            for instance in 0..geom.quantity() {
+                if self.cancelled.load(Ordering::Relaxed) {
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    callback(ProgressInfo::new()
+                        .with_phase("Cancelled")
+                        .with_items(placed_count, total_pieces)
+                        .with_elapsed(result.computation_time_ms)
+                        .finished());
+                    return Ok(result);
+                }
+
+                let mut best_fit: Option<(f64, f64, f64, f64, f64, [f64; 2])> = None;
+
+                for &rotation in &rotation_angles {
+                    let (g_min, g_max) = geom.aabb_at_rotation(rotation);
+                    let g_width = g_max[0] - g_min[0];
+                    let g_height = g_max[1] - g_min[1];
+
+                    if g_width > strip_width || g_height > strip_height {
+                        continue;
+                    }
+
+                    let mut place_x = current_x;
+                    let mut place_y = current_y;
+
+                    if place_x + g_width > bound_max_x {
+                        place_x = bound_min_x;
+                        place_y += row_height + spacing;
+                    }
+
+                    if place_y + g_height > bound_max_y {
+                        continue;
+                    }
+
+                    let score = if place_x == bound_min_x && place_y > current_y {
+                        place_y - bound_min_y + g_height
+                    } else {
+                        place_x - bound_min_x + g_width
+                    };
+
+                    let is_better = match &best_fit {
+                        None => true,
+                        Some((_, _, _, bx, by, _)) => {
+                            let best_score = if *bx == bound_min_x && *by > current_y {
+                                by - bound_min_y
+                            } else {
+                                bx - bound_min_x
+                            };
+                            score < best_score - 1e-6
+                        }
+                    };
+
+                    if is_better {
+                        best_fit = Some((rotation, g_width, g_height, place_x, place_y, g_min));
+                    }
+                }
+
+                if let Some((rotation, g_width, g_height, place_x, place_y, g_min)) = best_fit {
+                    if place_x == bound_min_x && place_y > current_y {
+                        row_height = 0.0;
+                    }
+
+                    let placement = Placement::new_2d(
+                        geom.id().clone(),
+                        instance,
+                        place_x - g_min[0],
+                        place_y - g_min[1],
+                        rotation,
+                    );
+
+                    placements.push(placement);
+                    total_placed_area += geom.measure();
+                    placed_count += 1;
+
+                    current_x = place_x + g_width + spacing;
+                    current_y = place_y;
+                    row_height = row_height.max(g_height);
+
+                    // Progress callback every piece
+                    callback(ProgressInfo::new()
+                        .with_phase("BLF Placement")
+                        .with_items(placed_count, total_pieces)
+                        .with_utilization(total_placed_area / boundary.measure())
+                        .with_elapsed(start.elapsed().as_millis() as u64));
+                } else {
+                    result.unplaced.push(geom.id().clone());
+                }
+            }
+        }
+
+        result.placements = placements;
+        result.boundaries_used = 1;
+        result.utilization = total_placed_area / boundary.measure();
+        result.computation_time_ms = start.elapsed().as_millis() as u64;
+
+        // Final progress callback
+        callback(ProgressInfo::new()
+            .with_phase("Complete")
+            .with_items(placed_count, total_pieces)
+            .with_utilization(result.utilization)
+            .with_elapsed(result.computation_time_ms)
+            .finished());
+
+        Ok(result)
+    }
+
+    /// NFP-guided BLF with progress callback.
+    fn nfp_guided_blf_with_progress(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        callback: &ProgressCallback,
+    ) -> Result<SolveResult<f64>> {
+        let start = Instant::now();
+        let mut result = SolveResult::new();
+        let mut placements = Vec::new();
+        let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
+
+        let margin = self.config.margin;
+        let spacing = self.config.spacing;
+        let boundary_polygon = self.get_boundary_polygon_with_margin(boundary, margin);
+
+        let mut total_placed_area = 0.0;
+        let sample_step = self.compute_sample_step(geometries);
+
+        // Count total pieces for progress
+        let total_pieces: usize = geometries.iter().map(|g| g.quantity()).sum();
+        let mut placed_count = 0usize;
+
+        // Initial progress callback
+        callback(ProgressInfo::new()
+            .with_phase("NFP Placement")
+            .with_items(0, total_pieces)
+            .with_elapsed(0));
+
+        for geom in geometries {
+            geom.validate()?;
+
+            let rotations = geom.rotations();
+            let rotation_angles: Vec<f64> = if rotations.is_empty() {
+                vec![0.0]
+            } else {
+                rotations
+            };
+
+            for instance in 0..geom.quantity() {
+                if self.cancelled.load(Ordering::Relaxed) {
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    callback(ProgressInfo::new()
+                        .with_phase("Cancelled")
+                        .with_items(placed_count, total_pieces)
+                        .with_elapsed(result.computation_time_ms)
+                        .finished());
+                    return Ok(result);
+                }
+
+                let mut best_placement: Option<(f64, f64, f64)> = None;
+
+                for &rotation in &rotation_angles {
+                    let ifp = match compute_ifp_with_margin(&boundary_polygon, geom, rotation, margin) {
+                        Ok(ifp) => ifp,
+                        Err(_) => continue,
+                    };
+
+                    if ifp.is_empty() {
+                        continue;
+                    }
+
+                    let mut nfps: Vec<Nfp> = Vec::new();
+                    for placed in &placed_geometries {
+                        // Use cache for NFP computation
+                        let cache_key = (
+                            placed.geometry.id().as_str(),
+                            geom.id().as_str(),
+                            rotation - placed.rotation,
+                        );
+
+                        let nfp_at_origin =
+                            match self.nfp_cache.get_or_compute(cache_key, || {
+                                let placed_at_origin = placed.geometry.clone();
+                                compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
+                            }) {
+                                Ok(nfp) => nfp,
+                                Err(_) => continue,
+                            };
+
+                        let translated_nfp = translate_nfp_exterior(&nfp_at_origin, placed.position);
+                        let expanded = self.expand_nfp(&translated_nfp, spacing);
+                        nfps.push(expanded);
+                    }
+
+                    let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
+                    let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
+
+                    if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
+                        let is_better = match best_placement {
+                            None => true,
+                            Some((best_x, best_y, _)) => {
+                                x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
+                            }
+                        };
+                        if is_better {
+                            best_placement = Some((x, y, rotation));
+                        }
+                    }
+                }
+
+                if let Some((x, y, rotation)) = best_placement {
+                    let placement = Placement::new_2d(geom.id().clone(), instance, x, y, rotation);
+                    placements.push(placement);
+                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (x, y), rotation));
+                    total_placed_area += geom.measure();
+                    placed_count += 1;
+
+                    // Progress callback every piece
+                    callback(ProgressInfo::new()
+                        .with_phase("NFP Placement")
+                        .with_items(placed_count, total_pieces)
+                        .with_utilization(total_placed_area / boundary.measure())
+                        .with_elapsed(start.elapsed().as_millis() as u64));
+                } else {
+                    result.unplaced.push(geom.id().clone());
+                }
+            }
+        }
+
+        result.placements = placements;
+        result.boundaries_used = 1;
+        result.utilization = total_placed_area / boundary.measure();
+        result.computation_time_ms = start.elapsed().as_millis() as u64;
+
+        // Final progress callback
+        callback(ProgressInfo::new()
+            .with_phase("Complete")
+            .with_items(placed_count, total_pieces)
+            .with_utilization(result.utilization)
+            .with_elapsed(result.computation_time_ms)
+            .finished());
+
+        Ok(result)
+    }
 }
 
 /// Computes the centroid of a polygon.
@@ -513,6 +812,22 @@ fn polygon_centroid(polygon: &[(f64, f64)]) -> (f64, f64) {
         .fold((0.0, 0.0), |acc, &(x, y)| (acc.0 + x, acc.1 + y));
     let n = polygon.len() as f64;
     (sum.0 / n, sum.1 / n)
+}
+
+/// Translates an NFP by the given offset.
+fn translate_nfp_exterior(nfp: &Nfp, offset: (f64, f64)) -> Nfp {
+    Nfp {
+        polygons: nfp
+            .polygons
+            .iter()
+            .map(|polygon| {
+                polygon
+                    .iter()
+                    .map(|(x, y)| (x + offset.0, y + offset.1))
+                    .collect()
+            })
+            .collect(),
+    }
 }
 
 impl Solver for Nester2D {
@@ -553,16 +868,24 @@ impl Solver for Nester2D {
         boundary: &Self::Boundary,
         callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
+        boundary.validate()?;
+
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
         match self.config.strategy {
+            Strategy::BottomLeftFill => {
+                self.bottom_left_fill_with_progress(geometries, boundary, &callback)
+            }
+            Strategy::NfpGuided => {
+                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)
+            }
             Strategy::GeneticAlgorithm => {
                 let ga_config = GaConfig::default()
-                    .with_population_size(50)
-                    .with_max_generations(100)
-                    .with_crossover_rate(0.85)
-                    .with_mutation_rate(0.15);
+                    .with_population_size(self.config.population_size)
+                    .with_max_generations(self.config.max_generations)
+                    .with_crossover_rate(self.config.crossover_rate)
+                    .with_mutation_rate(self.config.mutation_rate);
 
                 let result = run_ga_nesting_with_progress(
                     geometries,
@@ -575,9 +898,14 @@ impl Solver for Nester2D {
 
                 Ok(result)
             }
-            // For other strategies, fall back to solve without progress
-            // TODO: Add progress callback support for BRKGA and SA
-            _ => self.solve(geometries, boundary),
+            // For other strategies, use basic progress reporting
+            _ => {
+                log::warn!(
+                    "Strategy {:?} not yet implemented, using NfpGuided",
+                    self.config.strategy
+                );
+                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)
+            }
         }
     }
 
@@ -860,5 +1188,67 @@ mod tests {
 
         assert_eq!(result.placements.len(), 2);
         assert!(result.unplaced.is_empty());
+    }
+
+    #[test]
+    fn test_progress_callback_blf() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let geometries = vec![Geometry2D::rectangle("R1", 10.0, 10.0).with_quantity(4)];
+        let boundary = Boundary2D::rectangle(50.0, 50.0);
+        let config = Config::default().with_strategy(Strategy::BottomLeftFill);
+        let nester = Nester2D::new(config);
+
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let callback_count_clone = callback_count.clone();
+        let last_items_placed = Arc::new(AtomicUsize::new(0));
+        let last_items_placed_clone = last_items_placed.clone();
+
+        let callback: ProgressCallback = Box::new(move |info| {
+            callback_count_clone.fetch_add(1, Ordering::Relaxed);
+            last_items_placed_clone.store(info.items_placed, Ordering::Relaxed);
+        });
+
+        let result = nester.solve_with_progress(&geometries, &boundary, callback).unwrap();
+
+        // Verify callback was called (at least once per piece + initial + final)
+        let count = callback_count.load(Ordering::Relaxed);
+        assert!(count >= 5, "Expected at least 5 callbacks (1 initial + 4 pieces + 1 final), got {}", count);
+
+        // Verify final items_placed
+        let final_placed = last_items_placed.load(Ordering::Relaxed);
+        assert_eq!(final_placed, 4, "Should report 4 items placed");
+
+        // Verify result
+        assert_eq!(result.placements.len(), 4);
+    }
+
+    #[test]
+    fn test_progress_callback_nfp() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let geometries = vec![Geometry2D::rectangle("R1", 10.0, 10.0).with_quantity(2)];
+        let boundary = Boundary2D::rectangle(50.0, 50.0);
+        let config = Config::default().with_strategy(Strategy::NfpGuided);
+        let nester = Nester2D::new(config);
+
+        let callback_count = Arc::new(AtomicUsize::new(0));
+        let callback_count_clone = callback_count.clone();
+
+        let callback: ProgressCallback = Box::new(move |info| {
+            callback_count_clone.fetch_add(1, Ordering::Relaxed);
+            assert!(info.items_placed <= info.total_items);
+        });
+
+        let result = nester.solve_with_progress(&geometries, &boundary, callback).unwrap();
+
+        // Verify callback was called
+        let count = callback_count.load(Ordering::Relaxed);
+        assert!(count >= 3, "Expected at least 3 callbacks, got {}", count);
+
+        // Verify result
+        assert_eq!(result.placements.len(), 2);
     }
 }

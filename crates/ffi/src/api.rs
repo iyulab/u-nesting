@@ -380,3 +380,324 @@ fn build_config(request: Option<ConfigRequest>) -> Config {
 
     config
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_version() {
+        let version_ptr = unesting_version();
+        unsafe {
+            let version = CStr::from_ptr(version_ptr).to_str().unwrap();
+            // Note: Version is currently hardcoded as "1.0.0", should match Cargo.toml
+            assert!(!version.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_solve_2d_basic() {
+        let request = r#"{
+            "geometries": [
+                {"id": "rect1", "polygon": [[0,0], [10,0], [10,5], [0,5]], "quantity": 2}
+            ],
+            "boundary": {"width": 50, "height": 50}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_2d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            assert!(!result_ptr.is_null());
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+
+            assert!(response.success);
+            assert_eq!(response.placements.len(), 2);
+            assert!(response.utilization > 0.0);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_solve_3d_basic() {
+        let request = r#"{
+            "geometries": [
+                {"id": "box1", "dimensions": [10, 10, 10], "quantity": 2}
+            ],
+            "boundary": {"dimensions": [50, 50, 50]}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_3d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            assert!(!result_ptr.is_null());
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+
+            assert!(response.success);
+            assert_eq!(response.placements.len(), 2);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_solve_auto_detect_2d() {
+        let request = r#"{
+            "mode": "2d",
+            "geometries": [
+                {"id": "rect1", "polygon": [[0,0], [10,0], [10,5], [0,5]], "quantity": 1}
+            ],
+            "boundary": {"width": 50, "height": 50}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            assert!(!result_ptr.is_null());
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+
+            assert!(response.success);
+            assert_eq!(response.placements.len(), 1);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_solve_auto_detect_3d() {
+        let request = r#"{
+            "mode": "3d",
+            "geometries": [
+                {"id": "box1", "dimensions": [10, 10, 10], "quantity": 1}
+            ],
+            "boundary": {"dimensions": [50, 50, 50]}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            assert!(!result_ptr.is_null());
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+
+            assert!(response.success);
+            assert_eq!(response.placements.len(), 1);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_null_pointer_error() {
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            // Null request
+            let code = unesting_solve_2d(std::ptr::null(), &mut result_ptr);
+            assert_eq!(code, UNESTING_ERR_NULL_PTR);
+
+            // Null result pointer
+            let request = CString::new("{}").unwrap();
+            let code = unesting_solve_2d(request.as_ptr(), std::ptr::null_mut());
+            assert_eq!(code, UNESTING_ERR_NULL_PTR);
+        }
+    }
+
+    #[test]
+    fn test_invalid_json_error() {
+        let invalid_json = CString::new("not valid json {{{").unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_2d(invalid_json.as_ptr(), &mut result_ptr);
+            // Should return UNESTING_ERR_SOLVE_FAILED with error message in response
+            // or UNESTING_ERR_INVALID_JSON if parsing fails at JSON level
+            assert!(code == UNESTING_ERR_SOLVE_FAILED || code == UNESTING_ERR_INVALID_JSON);
+        }
+    }
+
+    #[test]
+    fn test_solve_with_config() {
+        let request = r#"{
+            "geometries": [
+                {"id": "rect1", "polygon": [[0,0], [10,0], [10,5], [0,5]], "quantity": 4}
+            ],
+            "boundary": {"width": 50, "height": 50},
+            "config": {
+                "strategy": "blf",
+                "spacing": 1.0,
+                "margin": 2.0
+            }
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_2d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+
+            assert!(response.success);
+            assert_eq!(response.placements.len(), 4);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_solve_2d_with_rotations() {
+        let request = r#"{
+            "geometries": [
+                {"id": "rect1", "polygon": [[0,0], [20,0], [20,5], [0,5]], "quantity": 2, "rotations": [0, 90]}
+            ],
+            "boundary": {"width": 30, "height": 50}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_2d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+
+            assert!(response.success);
+            // With rotation allowed, both should fit
+            assert_eq!(response.placements.len(), 2);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_free_null_string() {
+        // Should not crash when freeing null
+        unsafe {
+            unesting_free_string(std::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn test_internal_solve_2d() {
+        let json = r#"{
+            "geometries": [
+                {"id": "rect1", "polygon": [[0,0], [10,0], [10,5], [0,5]], "quantity": 1}
+            ],
+            "boundary": {"width": 50, "height": 50}
+        }"#;
+
+        let response = solve_2d_internal(json);
+        assert!(response.success);
+        assert_eq!(response.placements.len(), 1);
+    }
+
+    #[test]
+    fn test_internal_solve_3d() {
+        let json = r#"{
+            "geometries": [
+                {"id": "box1", "dimensions": [10, 10, 10], "quantity": 1}
+            ],
+            "boundary": {"dimensions": [50, 50, 50]}
+        }"#;
+
+        let response = solve_3d_internal(json);
+        assert!(response.success);
+        assert_eq!(response.placements.len(), 1);
+    }
+
+    #[test]
+    fn test_build_config_default() {
+        let config = build_config(None);
+        assert_eq!(config.spacing, 0.0);
+        assert_eq!(config.margin, 0.0);
+    }
+
+    #[test]
+    fn test_build_config_with_values() {
+        let request = Some(ConfigRequest {
+            strategy: Some("nfp".to_string()),
+            spacing: Some(2.5),
+            margin: Some(1.0),
+            time_limit_ms: Some(5000),
+            target_utilization: Some(0.8),
+            population_size: Some(200),
+            max_generations: Some(100),
+            crossover_rate: Some(0.9),
+            mutation_rate: Some(0.1),
+        });
+
+        let config = build_config(request);
+        assert_eq!(config.spacing, 2.5);
+        assert_eq!(config.margin, 1.0);
+        assert_eq!(config.time_limit_ms, 5000);
+        assert_eq!(config.target_utilization, Some(0.8));
+        assert_eq!(config.population_size, 200);
+        assert_eq!(config.max_generations, 100);
+        assert_eq!(config.crossover_rate, 0.9);
+        assert_eq!(config.mutation_rate, 0.1);
+        assert!(matches!(config.strategy, Strategy::NfpGuided));
+    }
+
+    #[test]
+    fn test_strategy_parsing() {
+        let strategies = vec![
+            ("blf", Strategy::BottomLeftFill),
+            ("bottomleftfill", Strategy::BottomLeftFill),
+            ("nfp", Strategy::NfpGuided),
+            ("nfpguided", Strategy::NfpGuided),
+            ("ga", Strategy::GeneticAlgorithm),
+            ("genetic", Strategy::GeneticAlgorithm),
+            ("geneticalgorithm", Strategy::GeneticAlgorithm),
+            ("sa", Strategy::SimulatedAnnealing),
+            ("simulatedannealing", Strategy::SimulatedAnnealing),
+            ("ep", Strategy::ExtremePoint),
+            ("extremepoint", Strategy::ExtremePoint),
+            ("unknown", Strategy::BottomLeftFill), // Default fallback
+        ];
+
+        for (name, expected) in strategies {
+            let request = Some(ConfigRequest {
+                strategy: Some(name.to_string()),
+                spacing: None,
+                margin: None,
+                time_limit_ms: None,
+                target_utilization: None,
+                population_size: None,
+                max_generations: None,
+                crossover_rate: None,
+                mutation_rate: None,
+            });
+            let config = build_config(request);
+            assert!(
+                std::mem::discriminant(&config.strategy) == std::mem::discriminant(&expected),
+                "Strategy '{}' should map to {:?}",
+                name,
+                expected
+            );
+        }
+    }
+}

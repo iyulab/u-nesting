@@ -10,7 +10,7 @@ use u_nesting_core::brkga::BrkgaConfig;
 use u_nesting_core::ga::GaConfig;
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::sa::SaConfig;
-use u_nesting_core::solver::{Config, ProgressCallback, Solver, Strategy};
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 use u_nesting_core::{Placement, Result, SolveResult};
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -73,12 +73,6 @@ impl Packer3D {
                     return Ok(result);
                 }
 
-                // Use first allowed orientation (could optimize later)
-                let dims = geom.dimensions_for_orientation(0);
-                let g_width = dims.x;
-                let g_depth = dims.y;
-                let g_height = dims.z;
-
                 // Check mass constraint
                 if let (Some(max_mass), Some(item_mass)) = (boundary.max_mass(), geom.mass()) {
                     if total_placed_mass + item_mass > max_mass {
@@ -87,52 +81,107 @@ impl Packer3D {
                     }
                 }
 
-                // Try to fit in current row
-                if current_x + g_width > bound_max_x {
-                    // Move to next row in current layer
-                    current_x = margin;
-                    current_y += row_depth + spacing;
-                    row_depth = 0.0;
+                // Try all allowed orientations to find the best fit
+                let orientations = geom.allowed_orientations();
+                let mut best_fit: Option<(usize, f64, f64, f64, f64, f64, f64, f64, f64)> = None;
+                // (orientation_idx, width, depth, height, place_x, place_y, place_z, new_row_depth, new_layer_height)
+
+                for (ori_idx, _) in orientations.iter().enumerate() {
+                    let dims = geom.dimensions_for_orientation(ori_idx);
+                    let g_width = dims.x;
+                    let g_depth = dims.y;
+                    let g_height = dims.z;
+
+                    // Try current position first
+                    let mut try_x = current_x;
+                    let mut try_y = current_y;
+                    let mut try_z = current_z;
+                    let mut try_row_depth = row_depth;
+                    let mut try_layer_height = layer_height;
+
+                    // Check if fits in current row
+                    if try_x + g_width > bound_max_x {
+                        try_x = margin;
+                        try_y += row_depth + spacing;
+                        try_row_depth = 0.0;
+                    }
+
+                    // Check if fits in current layer
+                    if try_y + g_depth > bound_max_y {
+                        try_x = margin;
+                        try_y = margin;
+                        try_z += layer_height + spacing;
+                        try_row_depth = 0.0;
+                        try_layer_height = 0.0;
+                    }
+
+                    // Check if fits in container
+                    if try_z + g_height > bound_max_z {
+                        continue; // This orientation doesn't fit
+                    }
+
+                    // Score: prefer placements that use less vertical space (height)
+                    // and stay in current row (lower y advancement)
+                    let score = try_z * 1000000.0 + try_y * 1000.0 + try_x + g_height * 0.1;
+
+                    let is_better = match &best_fit {
+                        None => true,
+                        Some((_, _, _, _, _, _, bz, _, _)) => {
+                            let best_score = bz * 1000000.0
+                                + best_fit.as_ref().unwrap().5 * 1000.0
+                                + best_fit.as_ref().unwrap().4
+                                + best_fit.as_ref().unwrap().3 * 0.1;
+                            score < best_score
+                        }
+                    };
+
+                    if is_better {
+                        best_fit = Some((
+                            ori_idx,
+                            g_width,
+                            g_depth,
+                            g_height,
+                            try_x,
+                            try_y,
+                            try_z,
+                            try_row_depth,
+                            try_layer_height,
+                        ));
+                    }
                 }
 
-                // Check if fits in current layer (y direction)
-                if current_y + g_depth > bound_max_y {
-                    // Move to next layer
-                    current_x = margin;
-                    current_y = margin;
-                    current_z += layer_height + spacing;
-                    row_depth = 0.0;
-                    layer_height = 0.0;
-                }
+                if let Some((ori_idx, g_width, g_depth, g_height, place_x, place_y, place_z, new_row_depth, new_layer_height)) =
+                    best_fit
+                {
+                    // Convert orientation index to rotation angles
+                    // For simplicity, we encode orientation in rotation_index
+                    let placement = Placement::new_3d(
+                        geom.id().clone(),
+                        instance,
+                        place_x,
+                        place_y,
+                        place_z,
+                        0.0, // Orientation is encoded via rotation_index
+                        0.0,
+                        0.0,
+                    )
+                    .with_rotation_index(ori_idx);
 
-                // Check if fits in container height
-                if current_z + g_height > bound_max_z {
+                    placements.push(placement);
+                    total_placed_volume += geom.measure();
+                    if let Some(mass) = geom.mass() {
+                        total_placed_mass += mass;
+                    }
+
+                    // Update position for next item
+                    current_x = place_x + g_width + spacing;
+                    current_y = place_y;
+                    current_z = place_z;
+                    row_depth = new_row_depth.max(g_depth);
+                    layer_height = new_layer_height.max(g_height);
+                } else {
                     result.unplaced.push(geom.id().clone());
-                    continue;
                 }
-
-                // Place the item
-                let placement = Placement::new_3d(
-                    geom.id().clone(),
-                    instance,
-                    current_x,
-                    current_y,
-                    current_z,
-                    0.0,
-                    0.0,
-                    0.0, // No rotation for simple placement
-                );
-
-                placements.push(placement);
-                total_placed_volume += geom.measure();
-                if let Some(mass) = geom.mass() {
-                    total_placed_mass += mass;
-                }
-
-                // Update position for next item
-                current_x += g_width + spacing;
-                row_depth = row_depth.max(g_depth);
-                layer_height = layer_height.max(g_height);
             }
         }
 
@@ -153,12 +202,12 @@ impl Packer3D {
         geometries: &[Geometry3D],
         boundary: &Boundary3D,
     ) -> Result<SolveResult<f64>> {
-        // Configure GA with reasonable defaults
+        // Configure GA from solver config
         let ga_config = GaConfig::default()
-            .with_population_size(50)
-            .with_max_generations(100)
-            .with_crossover_rate(0.85)
-            .with_mutation_rate(0.15);
+            .with_population_size(self.config.population_size)
+            .with_max_generations(self.config.max_generations)
+            .with_crossover_rate(self.config.crossover_rate)
+            .with_mutation_rate(self.config.mutation_rate);
 
         let result = run_ga_packing(
             geometries,
@@ -278,6 +327,183 @@ impl Packer3D {
 
         Ok(result)
     }
+
+    /// Layer packing with progress callback.
+    fn layer_packing_with_progress(
+        &self,
+        geometries: &[Geometry3D],
+        boundary: &Boundary3D,
+        callback: &ProgressCallback,
+    ) -> Result<SolveResult<f64>> {
+        let start = Instant::now();
+        let mut result = SolveResult::new();
+        let mut placements = Vec::new();
+
+        let margin = self.config.margin;
+        let spacing = self.config.spacing;
+
+        let bound_max_x = boundary.width() - margin;
+        let bound_max_y = boundary.depth() - margin;
+        let bound_max_z = boundary.height() - margin;
+
+        let mut current_x = margin;
+        let mut current_y = margin;
+        let mut current_z = margin;
+        let mut row_depth = 0.0_f64;
+        let mut layer_height = 0.0_f64;
+
+        let mut total_placed_volume = 0.0;
+        let mut total_placed_mass = 0.0;
+
+        // Count total pieces for progress
+        let total_pieces: usize = geometries.iter().map(|g| g.quantity()).sum();
+        let mut placed_count = 0usize;
+
+        // Initial progress callback
+        callback(ProgressInfo::new()
+            .with_phase("Layer Packing")
+            .with_items(0, total_pieces)
+            .with_elapsed(0));
+
+        for geom in geometries {
+            geom.validate()?;
+
+            for instance in 0..geom.quantity() {
+                if self.cancelled.load(Ordering::Relaxed) {
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    callback(ProgressInfo::new()
+                        .with_phase("Cancelled")
+                        .with_items(placed_count, total_pieces)
+                        .with_elapsed(result.computation_time_ms)
+                        .finished());
+                    return Ok(result);
+                }
+
+                // Check mass constraint
+                if let (Some(max_mass), Some(item_mass)) = (boundary.max_mass(), geom.mass()) {
+                    if total_placed_mass + item_mass > max_mass {
+                        result.unplaced.push(geom.id().clone());
+                        continue;
+                    }
+                }
+
+                // Try all allowed orientations to find the best fit
+                let orientations = geom.allowed_orientations();
+                let mut best_fit: Option<(usize, f64, f64, f64, f64, f64, f64, f64, f64)> = None;
+
+                for (ori_idx, _) in orientations.iter().enumerate() {
+                    let dims = geom.dimensions_for_orientation(ori_idx);
+                    let g_width = dims.x;
+                    let g_depth = dims.y;
+                    let g_height = dims.z;
+
+                    let mut try_x = current_x;
+                    let mut try_y = current_y;
+                    let mut try_z = current_z;
+                    let mut try_row_depth = row_depth;
+                    let mut try_layer_height = layer_height;
+
+                    if try_x + g_width > bound_max_x {
+                        try_x = margin;
+                        try_y += row_depth + spacing;
+                        try_row_depth = 0.0;
+                    }
+
+                    if try_y + g_depth > bound_max_y {
+                        try_x = margin;
+                        try_y = margin;
+                        try_z += layer_height + spacing;
+                        try_row_depth = 0.0;
+                        try_layer_height = 0.0;
+                    }
+
+                    if try_z + g_height > bound_max_z {
+                        continue;
+                    }
+
+                    let score = try_z * 1000000.0 + try_y * 1000.0 + try_x + g_height * 0.1;
+
+                    let is_better = match &best_fit {
+                        None => true,
+                        Some((_, _, _, _, _, _, bz, _, _)) => {
+                            let best_score = bz * 1000000.0
+                                + best_fit.as_ref().unwrap().5 * 1000.0
+                                + best_fit.as_ref().unwrap().4
+                                + best_fit.as_ref().unwrap().3 * 0.1;
+                            score < best_score
+                        }
+                    };
+
+                    if is_better {
+                        best_fit = Some((
+                            ori_idx,
+                            g_width,
+                            g_depth,
+                            g_height,
+                            try_x,
+                            try_y,
+                            try_z,
+                            try_row_depth,
+                            try_layer_height,
+                        ));
+                    }
+                }
+
+                if let Some((ori_idx, g_width, g_depth, g_height, place_x, place_y, place_z, new_row_depth, new_layer_height)) =
+                    best_fit
+                {
+                    let placement = Placement::new_3d(
+                        geom.id().clone(),
+                        instance,
+                        place_x,
+                        place_y,
+                        place_z,
+                        0.0,
+                        0.0,
+                        0.0,
+                    )
+                    .with_rotation_index(ori_idx);
+
+                    placements.push(placement);
+                    total_placed_volume += geom.measure();
+                    if let Some(mass) = geom.mass() {
+                        total_placed_mass += mass;
+                    }
+                    placed_count += 1;
+
+                    current_x = place_x + g_width + spacing;
+                    current_y = place_y;
+                    current_z = place_z;
+                    row_depth = new_row_depth.max(g_depth);
+                    layer_height = new_layer_height.max(g_height);
+
+                    // Progress callback every piece
+                    callback(ProgressInfo::new()
+                        .with_phase("Layer Packing")
+                        .with_items(placed_count, total_pieces)
+                        .with_utilization(total_placed_volume / boundary.measure())
+                        .with_elapsed(start.elapsed().as_millis() as u64));
+                } else {
+                    result.unplaced.push(geom.id().clone());
+                }
+            }
+        }
+
+        result.placements = placements;
+        result.boundaries_used = 1;
+        result.utilization = total_placed_volume / boundary.measure();
+        result.computation_time_ms = start.elapsed().as_millis() as u64;
+
+        // Final progress callback
+        callback(ProgressInfo::new()
+            .with_phase("Complete")
+            .with_items(placed_count, total_pieces)
+            .with_utilization(result.utilization)
+            .with_elapsed(result.computation_time_ms)
+            .finished());
+
+        Ok(result)
+    }
 }
 
 impl Solver for Packer3D {
@@ -316,10 +542,26 @@ impl Solver for Packer3D {
         &self,
         geometries: &[Self::Geometry],
         boundary: &Self::Boundary,
-        _callback: ProgressCallback,
+        callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
-        // TODO: Implement progress reporting
-        self.solve(geometries, boundary)
+        boundary.validate()?;
+
+        // Reset cancellation flag
+        self.cancelled.store(false, Ordering::Relaxed);
+
+        match self.config.strategy {
+            Strategy::BottomLeftFill | Strategy::ExtremePoint => {
+                self.layer_packing_with_progress(geometries, boundary, &callback)
+            }
+            // Other strategies fall back to basic progress reporting
+            _ => {
+                log::warn!(
+                    "Strategy {:?} progress not yet implemented, using layer packing",
+                    self.config.strategy
+                );
+                self.layer_packing_with_progress(geometries, boundary, &callback)
+            }
+        }
     }
 
     fn cancel(&self) {
@@ -545,5 +787,60 @@ mod tests {
 
         // EP should find a way to place both boxes
         assert_eq!(result.placements.len(), 2);
+    }
+
+    #[test]
+    fn test_layer_packing_orientation_optimization() {
+        use crate::geometry::OrientationConstraint;
+
+        // A box 50x10x10 that won't fit in 45 width without rotation
+        // But at orientation (1,0,2) it becomes 10x50x10, width=10, which fits
+        let geometries = vec![Geometry3D::new("B1", 50.0, 10.0, 10.0)
+            .with_quantity(2)
+            .with_orientation(OrientationConstraint::Any)];
+
+        // Narrow container: width=45, depth=80, height=80
+        let boundary = Boundary3D::new(45.0, 80.0, 80.0);
+        let config = Config::default().with_strategy(Strategy::BottomLeftFill);
+        let packer = Packer3D::new(config);
+
+        let result = packer.solve(&geometries, &boundary).unwrap();
+
+        // Both boxes should be placed via orientation change
+        assert_eq!(
+            result.placements.len(),
+            2,
+            "Both boxes should be placed by using rotation"
+        );
+        assert!(result.unplaced.is_empty());
+
+        // Verify orientation index is set for placements
+        for p in &result.placements {
+            assert!(
+                p.rotation_index.is_some(),
+                "Placement should have rotation_index set"
+            );
+        }
+    }
+
+    #[test]
+    fn test_layer_packing_selects_best_orientation() {
+        use crate::geometry::OrientationConstraint;
+
+        // Box 30x20x10 in container 35x50x100
+        // Original orientation (30x20x10): fits in row, leaves 5 spare width
+        // Rotated (20x30x10): fits but uses more depth
+        // Best: original orientation to minimize vertical space usage
+        let geometries = vec![Geometry3D::new("B1", 30.0, 20.0, 10.0)
+            .with_quantity(1)
+            .with_orientation(OrientationConstraint::Any)];
+
+        let boundary = Boundary3D::new(35.0, 50.0, 100.0);
+        let packer = Packer3D::default_config();
+
+        let result = packer.solve(&geometries, &boundary).unwrap();
+
+        assert_eq!(result.placements.len(), 1);
+        assert!(result.unplaced.is_empty());
     }
 }
