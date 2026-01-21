@@ -9,6 +9,7 @@ description = "Python bindings for U-Nesting spatial optimization engine"
 keywords = ["nesting", "bin-packing", "python", "pyo3"]
 categories = ["algorithms", "api-bindings"]
 rust-version.workspace = true
+publish = false  # Published to PyPI via maturin, not crates.io
 
 [lib]
 name = "u_nesting"

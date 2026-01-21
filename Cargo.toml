@@ -60,10 +60,10 @@ criterion = "0.5"
 pyo3 = { version = "0.22", features = ["extension-module"] }
 
 # Internal crates
-u-nesting-core = { path = "crates/core" }
-u-nesting-d2 = { path = "crates/d2" }
-u-nesting-d3 = { path = "crates/d3" }
-u-nesting-ffi = { path = "crates/ffi" }
+u-nesting-core = { version = "0.1.0", path = "crates/core" }
+u-nesting-d2 = { version = "0.1.0", path = "crates/d2" }
+u-nesting-d3 = { version = "0.1.0", path = "crates/d3" }
+u-nesting-ffi = { version = "0.1.0", path = "crates/ffi" }
 
 [profile.release]
 lto = true

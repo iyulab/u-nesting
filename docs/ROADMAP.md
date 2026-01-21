@@ -400,9 +400,10 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 
 #### 6.5 릴리스 준비 (0.5주) 🔄 진행 중
 - [x] CHANGELOG 작성 - `CHANGELOG.md`
-- [ ] 버전 태깅 (SemVer)
-- [ ] crates.io 배포
-- [ ] GitHub Release
+- [x] 버전 설정 (SemVer) - workspace version 0.1.0, 내부 크레이트 버전 의존성 추가
+- [x] crates.io 배포 준비 - `cargo publish --dry-run` 검증 완료 (core)
+- [ ] crates.io 실제 배포 (순서: core → d2 → d3 → ffi)
+- [ ] GitHub Release 태그 생성 (v0.1.0)
 
 ---
 
