@@ -26,6 +26,8 @@ pub enum Strategy {
     ExtremePoint,
     /// Goal-Driven Ruin and Recreate (GDRR).
     Gdrr,
+    /// Adaptive Large Neighborhood Search (ALNS).
+    Alns,
 }
 
 /// Common configuration for solvers.

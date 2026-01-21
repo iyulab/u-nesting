@@ -46,6 +46,7 @@
 //!
 //! - `serde`: Enable serialization/deserialization support
 
+pub mod alns;
 pub mod brkga;
 pub mod error;
 pub mod ga;
@@ -78,6 +79,10 @@ pub use sa::{
 pub use gdrr::{
     GdrrConfig, GdrrProblem, GdrrProgress, GdrrResult, GdrrRunner, GdrrSolution,
     RecreateResult, RecreateType, RuinResult, RuinType, RuinedItem,
+};
+pub use alns::{
+    AlnsConfig, AlnsProblem, AlnsProgress, AlnsResult, AlnsRunner, AlnsSolution,
+    DestroyOperatorId, DestroyResult, OperatorStats, RepairOperatorId, RepairResult,
 };
 pub use solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 pub use transform::{Transform2D, Transform3D, AABB2D, AABB3D};

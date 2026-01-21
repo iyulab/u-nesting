@@ -7,11 +7,13 @@ use crate::geometry::Geometry2D;
 use crate::nfp::{
     compute_ifp_with_margin, compute_nfp, find_bottom_left_placement, Nfp, NfpCache, PlacedGeometry,
 };
+use crate::alns_nesting::run_alns_nesting;
 use crate::gdrr_nesting::run_gdrr_nesting;
 use crate::sa_nesting::run_sa_nesting;
 use u_nesting_core::brkga::BrkgaConfig;
 use u_nesting_core::ga::GaConfig;
 use u_nesting_core::geometry::{Boundary, Geometry};
+use u_nesting_core::alns::AlnsConfig;
 use u_nesting_core::gdrr::GdrrConfig;
 use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
@@ -557,6 +559,32 @@ impl Nester2D {
         Ok(result)
     }
 
+    /// Adaptive Large Neighborhood Search (ALNS) optimization.
+    fn alns(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+    ) -> Result<SolveResult<f64>> {
+        // Configure ALNS with reasonable defaults
+        let alns_config = AlnsConfig::default()
+            .with_max_iterations(5000)
+            .with_time_limit_ms(self.config.time_limit_ms.max(30000))
+            .with_segment_size(100)
+            .with_scores(33.0, 9.0, 13.0)
+            .with_reaction_factor(0.1)
+            .with_temperature(100.0, 0.9995, 0.1);
+
+        let result = run_alns_nesting(
+            geometries,
+            boundary,
+            &self.config,
+            &alns_config,
+            self.cancelled.clone(),
+        );
+
+        Ok(result)
+    }
+
     /// Bottom-Left Fill with progress callback.
     fn bottom_left_fill_with_progress(
         &self,
@@ -932,6 +960,7 @@ impl Solver for Nester2D {
             Strategy::Brkga => self.brkga(geometries, boundary),
             Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
             Strategy::Gdrr => self.gdrr(geometries, boundary),
+            Strategy::Alns => self.alns(geometries, boundary),
             _ => {
                 // Fall back to NFP-guided BLF for other strategies
                 log::warn!(
@@ -1221,6 +1250,80 @@ mod tests {
 
         let boundary = Boundary2D::rectangle(100.0, 100.0);
         let config = Config::default().with_strategy(Strategy::Brkga);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // All 4 pieces should fit
+        assert_eq!(result.placements.len(), 4);
+        assert!(result.unplaced.is_empty());
+    }
+
+    #[test]
+    fn test_gdrr_strategy_basic() {
+        let geometries = vec![
+            Geometry2D::rectangle("R1", 20.0, 10.0).with_quantity(2),
+            Geometry2D::rectangle("R2", 15.0, 15.0).with_quantity(2),
+        ];
+
+        let boundary = Boundary2D::rectangle(100.0, 50.0);
+        let config = Config::default().with_strategy(Strategy::Gdrr);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        assert!(result.utilization > 0.0);
+        assert!(!result.placements.is_empty());
+        // GDRR should report iterations and fitness
+        assert!(result.iterations.is_some());
+        assert!(result.best_fitness.is_some());
+        assert!(result.strategy == Some("GDRR".to_string()));
+    }
+
+    #[test]
+    fn test_gdrr_strategy_all_placed() {
+        // Easy case: 4 small rectangles in large boundary
+        let geometries = vec![Geometry2D::rectangle("R1", 20.0, 20.0).with_quantity(4)];
+
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let config = Config::default().with_strategy(Strategy::Gdrr);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // All 4 pieces should fit
+        assert_eq!(result.placements.len(), 4);
+        assert!(result.unplaced.is_empty());
+    }
+
+    #[test]
+    fn test_alns_strategy_basic() {
+        let geometries = vec![
+            Geometry2D::rectangle("R1", 20.0, 10.0).with_quantity(2),
+            Geometry2D::rectangle("R2", 15.0, 15.0).with_quantity(2),
+        ];
+
+        let boundary = Boundary2D::rectangle(100.0, 50.0);
+        let config = Config::default().with_strategy(Strategy::Alns);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        assert!(result.utilization > 0.0);
+        assert!(!result.placements.is_empty());
+        // ALNS should report iterations and fitness
+        assert!(result.iterations.is_some());
+        assert!(result.best_fitness.is_some());
+        assert!(result.strategy == Some("ALNS".to_string()));
+    }
+
+    #[test]
+    fn test_alns_strategy_all_placed() {
+        // Easy case: 4 small rectangles in large boundary
+        let geometries = vec![Geometry2D::rectangle("R1", 20.0, 20.0).with_quantity(4)];
+
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let config = Config::default().with_strategy(Strategy::Alns);
         let nester = Nester2D::new(config);
 
         let result = nester.solve(&geometries, &boundary).unwrap();

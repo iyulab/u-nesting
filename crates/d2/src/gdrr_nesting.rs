@@ -676,6 +676,9 @@ pub fn run_gdrr_nesting(
     result.boundaries_used = if result.placements.is_empty() { 0 } else { 1 };
     result.utilization = gdrr_result.best_solution.utilization();
     result.computation_time_ms = gdrr_result.elapsed_ms;
+    result.iterations = Some(gdrr_result.iterations as u64);
+    result.best_fitness = Some(gdrr_result.best_fitness);
+    result.strategy = Some("GDRR".to_string());
 
     result
 }

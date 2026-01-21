@@ -60,6 +60,7 @@
 //!     .with_quantity(3);
 //! ```
 
+pub mod alns_nesting;
 pub mod boundary;
 pub mod brkga_nesting;
 pub mod ga_nesting;
