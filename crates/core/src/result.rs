@@ -116,6 +116,13 @@ impl<S> SolveResult<S> {
         self
     }
 
+    /// Removes duplicate entries from the unplaced list.
+    /// This is useful when multiple instances of the same geometry failed to place.
+    pub fn deduplicate_unplaced(&mut self) {
+        let mut seen = std::collections::HashSet::new();
+        self.unplaced.retain(|id| seen.insert(id.clone()));
+    }
+
     /// Computes placement statistics.
     pub fn placement_stats(&self) -> PlacementStats {
         PlacementStats::from_placements(&self.placements)
@@ -234,5 +241,24 @@ mod tests {
         assert_eq!(summary.total_placed, 1);
         assert_eq!(summary.utilization_percent, 75.0);
         assert_eq!(summary.strategy, "GA");
+    }
+
+    #[test]
+    fn test_deduplicate_unplaced() {
+        let mut result: SolveResult<f64> = SolveResult::new();
+        // Simulate multiple instances of same geometry failing to place
+        result.unplaced.push("G1".to_string());
+        result.unplaced.push("G1".to_string());
+        result.unplaced.push("G2".to_string());
+        result.unplaced.push("G1".to_string());
+        result.unplaced.push("G2".to_string());
+
+        assert_eq!(result.unplaced.len(), 5);
+
+        result.deduplicate_unplaced();
+
+        assert_eq!(result.unplaced.len(), 2);
+        assert!(result.unplaced.contains(&"G1".to_string()));
+        assert!(result.unplaced.contains(&"G2".to_string()));
     }
 }

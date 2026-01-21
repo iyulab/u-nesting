@@ -33,13 +33,22 @@ impl<S: RealField + Copy> RotationConstraint<S> {
     }
 
     /// Creates a constraint for n evenly-spaced rotations.
+    ///
+    /// # Panics
+    /// Panics if `n` exceeds the precision of the scalar type (unlikely in practice:
+    /// n > 2^24 for f32, n > 2^53 for f64).
     pub fn steps(n: usize) -> Self {
         if n == 0 {
             return Self::None;
         }
         let two_pi = S::two_pi();
-        let step = two_pi / S::from_usize(n).unwrap();
-        let angles: Vec<S> = (0..n).map(|i| step * S::from_usize(i).unwrap()).collect();
+        let step = two_pi
+            / S::from_usize(n).expect("n exceeds scalar precision (use n < 2^24 for f32)");
+        let angles: Vec<S> = (0..n)
+            .map(|i| {
+                step * S::from_usize(i).expect("index exceeds scalar precision")
+            })
+            .collect();
         Self::Discrete(angles)
     }
 

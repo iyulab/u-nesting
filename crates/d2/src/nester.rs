@@ -89,6 +89,17 @@ impl Nester2D {
                     return Ok(result);
                 }
 
+                // Check time limit (0 = unlimited)
+                if self.config.time_limit_ms > 0
+                    && start.elapsed().as_millis() as u64 >= self.config.time_limit_ms
+                {
+                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
+                    result.utilization = total_placed_area / boundary.measure();
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    result.placements = placements;
+                    return Ok(result);
+                }
+
                 // Find the best rotation for current position
                 let mut best_fit: Option<(f64, f64, f64, f64, f64, [f64; 2])> = None; // (rotation, width, height, x, y, g_min)
 
@@ -226,6 +237,17 @@ impl Nester2D {
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    return Ok(result);
+                }
+
+                // Check time limit (0 = unlimited)
+                if self.config.time_limit_ms > 0
+                    && start.elapsed().as_millis() as u64 >= self.config.time_limit_ms
+                {
+                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
+                    result.utilization = total_placed_area / boundary.measure();
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    result.placements = placements;
                     return Ok(result);
                 }
 
@@ -569,6 +591,22 @@ impl Nester2D {
                     return Ok(result);
                 }
 
+                // Check time limit (0 = unlimited)
+                if self.config.time_limit_ms > 0
+                    && start.elapsed().as_millis() as u64 >= self.config.time_limit_ms
+                {
+                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
+                    result.utilization = total_placed_area / boundary.measure();
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    result.placements = placements;
+                    callback(ProgressInfo::new()
+                        .with_phase("Time Limit Reached")
+                        .with_items(placed_count, total_pieces)
+                        .with_elapsed(result.computation_time_ms)
+                        .finished());
+                    return Ok(result);
+                }
+
                 let mut best_fit: Option<(f64, f64, f64, f64, f64, [f64; 2])> = None;
 
                 for &rotation in &rotation_angles {
@@ -714,6 +752,22 @@ impl Nester2D {
                     return Ok(result);
                 }
 
+                // Check time limit (0 = unlimited)
+                if self.config.time_limit_ms > 0
+                    && start.elapsed().as_millis() as u64 >= self.config.time_limit_ms
+                {
+                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
+                    result.utilization = total_placed_area / boundary.measure();
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    result.placements = placements;
+                    callback(ProgressInfo::new()
+                        .with_phase("Time Limit Reached")
+                        .with_items(placed_count, total_pieces)
+                        .with_elapsed(result.computation_time_ms)
+                        .finished());
+                    return Ok(result);
+                }
+
                 let mut best_placement: Option<(f64, f64, f64)> = None;
 
                 for &rotation in &rotation_angles {
@@ -845,7 +899,7 @@ impl Solver for Nester2D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        match self.config.strategy {
+        let mut result = match self.config.strategy {
             Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
             Strategy::NfpGuided => self.nfp_guided_blf(geometries, boundary),
             Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
@@ -859,7 +913,11 @@ impl Solver for Nester2D {
                 );
                 self.nfp_guided_blf(geometries, boundary)
             }
-        }
+        }?;
+
+        // Remove duplicate entries from unplaced list
+        result.deduplicate_unplaced();
+        Ok(result)
     }
 
     fn solve_with_progress(
@@ -873,12 +931,12 @@ impl Solver for Nester2D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        match self.config.strategy {
+        let mut result = match self.config.strategy {
             Strategy::BottomLeftFill => {
-                self.bottom_left_fill_with_progress(geometries, boundary, &callback)
+                self.bottom_left_fill_with_progress(geometries, boundary, &callback)?
             }
             Strategy::NfpGuided => {
-                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)
+                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)?
             }
             Strategy::GeneticAlgorithm => {
                 let ga_config = GaConfig::default()
@@ -887,16 +945,14 @@ impl Solver for Nester2D {
                     .with_crossover_rate(self.config.crossover_rate)
                     .with_mutation_rate(self.config.mutation_rate);
 
-                let result = run_ga_nesting_with_progress(
+                run_ga_nesting_with_progress(
                     geometries,
                     boundary,
                     &self.config,
                     ga_config,
                     self.cancelled.clone(),
                     callback,
-                );
-
-                Ok(result)
+                )
             }
             // For other strategies, use basic progress reporting
             _ => {
@@ -904,9 +960,13 @@ impl Solver for Nester2D {
                     "Strategy {:?} not yet implemented, using NfpGuided",
                     self.config.strategy
                 );
-                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)
+                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)?
             }
-        }
+        };
+
+        // Remove duplicate entries from unplaced list
+        result.deduplicate_unplaced();
+        Ok(result)
     }
 
     fn cancel(&self) {
@@ -1250,5 +1310,47 @@ mod tests {
 
         // Verify result
         assert_eq!(result.placements.len(), 2);
+    }
+
+    #[test]
+    fn test_time_limit_honored() {
+        // Create many geometries to ensure BLF takes measurable time
+        let geometries: Vec<Geometry2D> = (0..100)
+            .map(|i| Geometry2D::rectangle(&format!("R{}", i), 5.0, 5.0))
+            .collect();
+        let boundary = Boundary2D::rectangle(1000.0, 1000.0);
+
+        // Set a very short time limit (1ms) to ensure timeout
+        let config = Config::default()
+            .with_strategy(Strategy::BottomLeftFill)
+            .with_time_limit(1);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // With such a short time limit, we may not place all items
+        // The test verifies that the solver respects the time limit
+        assert!(
+            result.computation_time_ms <= 100, // Allow some margin for overhead
+            "Computation took too long: {}ms (expected <= 100ms with 1ms limit)",
+            result.computation_time_ms
+        );
+    }
+
+    #[test]
+    fn test_time_limit_zero_unlimited() {
+        // time_limit_ms = 0 means unlimited
+        let geometries = vec![Geometry2D::rectangle("R1", 10.0, 10.0).with_quantity(4)];
+        let boundary = Boundary2D::rectangle(50.0, 50.0);
+
+        let config = Config::default()
+            .with_strategy(Strategy::BottomLeftFill)
+            .with_time_limit(0); // Unlimited
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // Should place all items (no early exit)
+        assert_eq!(result.placements.len(), 4);
     }
 }

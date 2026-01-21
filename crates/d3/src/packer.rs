@@ -17,6 +17,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+/// Best fit candidate for 3D placement.
+/// (orientation_idx, width, depth, height, place_x, place_y, place_z, new_row_depth, new_layer_height)
+type BestFit3D = Option<(usize, f64, f64, f64, f64, f64, f64, f64, f64)>;
+
 /// 3D bin packing solver.
 pub struct Packer3D {
     config: Config,
@@ -73,6 +77,17 @@ impl Packer3D {
                     return Ok(result);
                 }
 
+                // Check time limit (0 = unlimited)
+                if self.config.time_limit_ms > 0
+                    && start.elapsed().as_millis() as u64 >= self.config.time_limit_ms
+                {
+                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
+                    result.utilization = total_placed_volume / boundary.measure();
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    result.placements = placements;
+                    return Ok(result);
+                }
+
                 // Check mass constraint
                 if let (Some(max_mass), Some(item_mass)) = (boundary.max_mass(), geom.mass()) {
                     if total_placed_mass + item_mass > max_mass {
@@ -83,7 +98,7 @@ impl Packer3D {
 
                 // Try all allowed orientations to find the best fit
                 let orientations = geom.allowed_orientations();
-                let mut best_fit: Option<(usize, f64, f64, f64, f64, f64, f64, f64, f64)> = None;
+                let mut best_fit: BestFit3D = None;
                 // (orientation_idx, width, depth, height, place_x, place_y, place_z, new_row_depth, new_layer_height)
 
                 for (ori_idx, _) in orientations.iter().enumerate() {
@@ -379,6 +394,22 @@ impl Packer3D {
                     return Ok(result);
                 }
 
+                // Check time limit (0 = unlimited)
+                if self.config.time_limit_ms > 0
+                    && start.elapsed().as_millis() as u64 >= self.config.time_limit_ms
+                {
+                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
+                    result.utilization = total_placed_volume / boundary.measure();
+                    result.computation_time_ms = start.elapsed().as_millis() as u64;
+                    result.placements = placements;
+                    callback(ProgressInfo::new()
+                        .with_phase("Time Limit Reached")
+                        .with_items(placed_count, total_pieces)
+                        .with_elapsed(result.computation_time_ms)
+                        .finished());
+                    return Ok(result);
+                }
+
                 // Check mass constraint
                 if let (Some(max_mass), Some(item_mass)) = (boundary.max_mass(), geom.mass()) {
                     if total_placed_mass + item_mass > max_mass {
@@ -389,7 +420,7 @@ impl Packer3D {
 
                 // Try all allowed orientations to find the best fit
                 let orientations = geom.allowed_orientations();
-                let mut best_fit: Option<(usize, f64, f64, f64, f64, f64, f64, f64, f64)> = None;
+                let mut best_fit: BestFit3D = None;
 
                 for (ori_idx, _) in orientations.iter().enumerate() {
                     let dims = geom.dimensions_for_orientation(ori_idx);
@@ -521,7 +552,7 @@ impl Solver for Packer3D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        match self.config.strategy {
+        let mut result = match self.config.strategy {
             Strategy::BottomLeftFill => self.layer_packing(geometries, boundary),
             Strategy::ExtremePoint => self.extreme_point(geometries, boundary),
             Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
@@ -535,7 +566,11 @@ impl Solver for Packer3D {
                 );
                 self.layer_packing(geometries, boundary)
             }
-        }
+        }?;
+
+        // Remove duplicate entries from unplaced list
+        result.deduplicate_unplaced();
+        Ok(result)
     }
 
     fn solve_with_progress(
@@ -549,9 +584,9 @@ impl Solver for Packer3D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        match self.config.strategy {
+        let mut result = match self.config.strategy {
             Strategy::BottomLeftFill | Strategy::ExtremePoint => {
-                self.layer_packing_with_progress(geometries, boundary, &callback)
+                self.layer_packing_with_progress(geometries, boundary, &callback)?
             }
             // Other strategies fall back to basic progress reporting
             _ => {
@@ -559,9 +594,13 @@ impl Solver for Packer3D {
                     "Strategy {:?} progress not yet implemented, using layer packing",
                     self.config.strategy
                 );
-                self.layer_packing_with_progress(geometries, boundary, &callback)
+                self.layer_packing_with_progress(geometries, boundary, &callback)?
             }
-        }
+        };
+
+        // Remove duplicate entries from unplaced list
+        result.deduplicate_unplaced();
+        Ok(result)
     }
 
     fn cancel(&self) {

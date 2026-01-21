@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// API version.
-pub const API_VERSION: &str = "1.0";
+/// API version from Cargo.toml.
+pub const API_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Request mode.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]

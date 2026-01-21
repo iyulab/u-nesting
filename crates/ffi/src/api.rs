@@ -156,13 +156,14 @@ pub unsafe extern "C" fn unesting_free_string(ptr: *mut c_char) {
     }
 }
 
-/// Returns the API version.
+/// Returns the API version from Cargo.toml.
 ///
 /// # Safety
 /// - The returned string is statically allocated and must not be freed
 #[no_mangle]
 pub extern "C" fn unesting_version() -> *const c_char {
-    static VERSION: &[u8] = b"1.0.0\0";
+    // Use version from Cargo.toml at compile time
+    static VERSION: &[u8] = concat!(env!("CARGO_PKG_VERSION"), "\0").as_bytes();
     VERSION.as_ptr() as *const c_char
 }
 
@@ -390,8 +391,8 @@ mod tests {
         let version_ptr = unesting_version();
         unsafe {
             let version = CStr::from_ptr(version_ptr).to_str().unwrap();
-            // Note: Version is currently hardcoded as "1.0.0", should match Cargo.toml
-            assert!(!version.is_empty());
+            // Version should match Cargo.toml (env!("CARGO_PKG_VERSION"))
+            assert_eq!(version, env!("CARGO_PKG_VERSION"));
         }
     }
 
