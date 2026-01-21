@@ -3,7 +3,7 @@
 리서치 문서를 기반으로 상세한 다단계 로드맵을 구성했습니다.
 
 > **마지막 업데이트**: 2026-01-21
-> **현재 진행 단계**: Phase 1 완료, Phase 2 완료 (100%), Phase 3 완료 (100%), Phase 4 완료 (75%), Phase 6.1 완료
+> **현재 진행 단계**: Phase 1 완료, Phase 2 완료 (100%), Phase 3 완료 (100%), Phase 4 완료 (75%), Phase 5.3 완료, Phase 6.1 완료
 
 ---
 
@@ -15,7 +15,7 @@
 | **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | ✅ 완료 |
 | **Phase 3** | 5-6주 | 최적화 알고리즘 (GA/SA) | ✅ 완료 |
 | **Phase 4** | 3-4주 | 성능 최적화 및 병렬화 | 🔄 진행 중 (75%) |
-| **Phase 5** | 3-4주 | FFI 및 통합 API | 🔄 진행 중 (60%) |
+| **Phase 5** | 3-4주 | FFI 및 통합 API | 🔄 진행 중 (70%) |
 | **Phase 6** | 2-3주 | 벤치마크 및 릴리스 준비 | 🔄 진행 중 (50%) |
 
 **총 예상 기간: 22-28주**
@@ -308,12 +308,17 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 - [ ] JSON Schema 문서화
 - [ ] Version 필드 추가
 
-#### 5.3 Progress Callback (0.5주) 🔄 부분 구현
+#### 5.3 Progress Callback (0.5주) ✅ 완료
 - [x] `ProgressCallback` type 정의 - `core/solver.rs`
-- [x] `ProgressInfo` 구조체
+- [x] `ProgressInfo` 구조체 (builder pattern 메서드 포함)
 - [x] `solve_with_progress()` 메서드 시그니처
-- [ ] 실제 progress reporting 구현
-- [ ] FFI callback function pointer 지원
+- [x] `GaProgress` 구조체 - `core/ga.rs`
+- [x] `GaRunner::run_with_progress()` 메서드
+- [x] `BrkgaProgress` 구조체 - `core/brkga.rs`
+- [x] `BrkgaRunner::run_with_progress()` 메서드
+- [x] `run_ga_nesting_with_progress()` 함수 - `d2/ga_nesting.rs`
+- [x] `Nester2D::solve_with_progress()` GA 전략 지원 - `d2/nester.rs`
+- [ ] FFI callback function pointer 지원 (향후 개선)
 
 #### 5.4 Python Bindings (1주) ❌ 미구현
 - [ ] `PyO3` 기반 바인딩
@@ -410,6 +415,9 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 | SA 병렬 재시작 | `core/sa.rs` | 다중 SA 인스턴스 병렬 실행 |
 | Spatial Index 2D | `d2/spatial_index.rs` | R*-tree 기반 2D 공간 인덱스 |
 | Spatial Index 3D | `d3/spatial_index.rs` | AABB 기반 3D 공간 인덱스 |
+| GA Progress Callback | `core/ga.rs` | GaProgress 구조체, run_with_progress() 메서드 |
+| BRKGA Progress Callback | `core/brkga.rs` | BrkgaProgress 구조체, run_with_progress() 메서드 |
+| ProgressInfo Builder | `core/solver.rs` | Builder pattern 메서드로 확장된 ProgressInfo |
 
 ### 미구현 핵심 기능 ❌
 | 기능 | 우선순위 | 설명 |
