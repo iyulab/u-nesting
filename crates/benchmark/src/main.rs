@@ -2,7 +2,10 @@
 
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
-use u_nesting_benchmark::{BenchmarkConfig, BenchmarkRunner, DatasetParser};
+use u_nesting_benchmark::{
+    create_phase0_scenarios, BenchmarkConfig, BenchmarkRunner, DatasetParser, ScenarioCategory,
+    ScenarioRunner, ScenarioRunnerConfig,
+};
 use u_nesting_core::Strategy;
 
 #[derive(Parser)]
@@ -113,6 +116,36 @@ enum Commands {
         /// Random seed for reproducibility
         #[arg(short, long, default_value = "42")]
         seed: u64,
+    },
+
+    /// Run Phase 0 quality validation scenarios
+    RunScenarios {
+        /// Category filter: 2d, 3d, or common
+        #[arg(short, long)]
+        category: Option<String>,
+
+        /// Specific scenario ID to run
+        #[arg(short = 'i', long)]
+        scenario_id: Option<String>,
+
+        /// Output directory for results
+        #[arg(short, long, default_value = "benchmark/results")]
+        output: PathBuf,
+
+        /// Datasets directory
+        #[arg(long, default_value = "datasets")]
+        datasets_dir: PathBuf,
+
+        /// Save scenario definitions to TOML
+        #[arg(long)]
+        save_scenarios: Option<PathBuf>,
+    },
+
+    /// List all Phase 0 scenarios
+    ListScenarios {
+        /// Filter by category: 2d, 3d, common
+        #[arg(short, long)]
+        category: Option<String>,
     },
 }
 
@@ -366,6 +399,111 @@ fn main() -> anyhow::Result<()> {
             }
 
             println!("\nGenerated {} synthetic datasets", datasets.len());
+        }
+
+        Commands::RunScenarios {
+            category,
+            scenario_id,
+            output,
+            datasets_dir,
+            save_scenarios,
+        } => {
+            let scenarios = create_phase0_scenarios();
+
+            // Save scenarios to TOML if requested
+            if let Some(toml_path) = save_scenarios {
+                let toml_str = toml::to_string_pretty(&scenarios)
+                    .map_err(|e| anyhow::anyhow!("Failed to serialize scenarios: {}", e))?;
+                std::fs::write(&toml_path, &toml_str)?;
+                println!("Scenarios saved to: {}", toml_path.display());
+            }
+
+            let config = ScenarioRunnerConfig {
+                datasets_dir,
+                results_dir: output.clone(),
+                verbose: true,
+                ..Default::default()
+            };
+
+            let runner = ScenarioRunner::new(config);
+
+            // Create output directory
+            std::fs::create_dir_all(&output)?;
+
+            let results = if let Some(id) = scenario_id {
+                // Run single scenario
+                if let Some(scenario) = scenarios.get_by_id(&id) {
+                    vec![runner.run_scenario(scenario)]
+                } else {
+                    anyhow::bail!("Unknown scenario ID: {}", id);
+                }
+            } else if let Some(cat_str) = category {
+                // Run by category
+                let cat = match cat_str.to_lowercase().as_str() {
+                    "2d" => ScenarioCategory::TwoD,
+                    "3d" => ScenarioCategory::ThreeD,
+                    "common" => ScenarioCategory::Common,
+                    _ => anyhow::bail!("Unknown category: {}. Use: 2d, 3d, or common", cat_str),
+                };
+                runner.run_by_category(&scenarios, cat)
+            } else {
+                // Run all scenarios
+                runner.run_all(&scenarios)
+            };
+
+            // Generate and print report
+            let report = runner.generate_report(&results);
+            report.print_summary();
+
+            // Save results
+            let results_path = output.join("scenario_results.json");
+            report.save_json(&results_path)?;
+            println!("\nResults saved to: {}", results_path.display());
+
+            // Save markdown report
+            let md_path = output.join("scenario_report.md");
+            std::fs::write(&md_path, report.to_markdown())?;
+            println!("Markdown report saved to: {}", md_path.display());
+        }
+
+        Commands::ListScenarios { category } => {
+            let scenarios = create_phase0_scenarios();
+
+            println!("\nPhase 0 Quality Validation Scenarios");
+            println!("{}", "=".repeat(60));
+
+            let filter_cat = category.as_ref().map(|c| match c.to_lowercase().as_str() {
+                "2d" => Some(ScenarioCategory::TwoD),
+                "3d" => Some(ScenarioCategory::ThreeD),
+                "common" => Some(ScenarioCategory::Common),
+                _ => None,
+            });
+
+            for scenario in &scenarios.scenarios {
+                if let Some(Some(cat)) = &filter_cat {
+                    if scenario.category != *cat {
+                        continue;
+                    }
+                }
+
+                println!(
+                    "\n{} ({:?}): {}",
+                    scenario.id, scenario.category, scenario.name
+                );
+                println!("  Purpose: {}", scenario.purpose);
+                println!("  Datasets: {}", scenario.datasets.len());
+                println!(
+                    "  Strategies: {:?}",
+                    scenario.strategies
+                );
+                println!("  Time limit: {}s", scenario.time_limit_secs);
+                println!("  Tags: {:?}", scenario.tags);
+            }
+
+            println!("\nTotal: {} scenarios", scenarios.scenarios.len());
+            println!("  2D: {}", scenarios.filter_by_category(ScenarioCategory::TwoD).len());
+            println!("  3D: {}", scenarios.filter_by_category(ScenarioCategory::ThreeD).len());
+            println!("  Common: {}", scenarios.filter_by_category(ScenarioCategory::Common).len());
         }
     }
 

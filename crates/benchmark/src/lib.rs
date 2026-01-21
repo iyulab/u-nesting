@@ -17,6 +17,8 @@ mod parser;
 mod result;
 mod runner;
 mod runner3d;
+mod scenario;
+mod scenario_runner;
 mod synthetic;
 
 // Analysis exports
@@ -36,3 +38,11 @@ pub use synthetic::{SyntheticDatasets, SyntheticGenerator};
 // 3D exports
 pub use dataset3d::{Dataset3D, Dataset3DInfo, InstanceClass, InstanceGenerator, Item3D};
 pub use runner3d::{BenchmarkConfig3D, BenchmarkRunner3D, BenchmarkSummary3D};
+
+// Scenario exports
+pub use scenario::{
+    create_phase0_scenarios, CriterionResult, DatasetRef, Defect, DefectCategory, DefectSeverity,
+    Scenario, ScenarioCategory, ScenarioResult, ScenarioRunResult, ScenarioSet, StrategyRef,
+    SuccessCriteria,
+};
+pub use scenario_runner::{ScenarioReport, ScenarioRunner, ScenarioRunnerConfig};
