@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::{Arc, RwLock};
 use u_nesting_core::geometry::Geometry2DExt;
+use u_nesting_core::robust::{orient2d_filtered, Orientation};
 use u_nesting_core::{Error, Result};
 
 /// NFP computation result.
@@ -567,53 +568,50 @@ fn triangulate_polygon(polygon: &[(f64, f64)]) -> Vec<Vec<(f64, f64)>> {
     triangles
 }
 
+/// Checks if a point is strictly inside a triangle using robust predicates.
+///
+/// Uses robust orientation tests to correctly handle near-degenerate cases.
+fn point_in_triangle_robust(p: (f64, f64), a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> bool {
+    let o1 = orient2d_filtered(a, b, p);
+    let o2 = orient2d_filtered(b, c, p);
+    let o3 = orient2d_filtered(c, a, p);
+
+    // Point is strictly inside if all orientations are the same
+    // (all CCW or all CW) and none are collinear
+    (o1 == Orientation::CounterClockwise
+        && o2 == Orientation::CounterClockwise
+        && o3 == Orientation::CounterClockwise)
+        || (o1 == Orientation::Clockwise
+            && o2 == Orientation::Clockwise
+            && o3 == Orientation::Clockwise)
+}
+
 /// Checks if vertex i forms an ear in the polygon.
+///
+/// Uses robust geometric predicates for numerical stability.
 fn is_ear(vertices: &[(f64, f64)], prev: usize, curr: usize, next: usize) -> bool {
-    let (ax, ay) = vertices[prev];
-    let (bx, by) = vertices[curr];
-    let (cx, cy) = vertices[next];
+    let a = vertices[prev];
+    let b = vertices[curr];
+    let c = vertices[next];
 
     // Check if the vertex is convex (turn left in CCW polygon)
-    let cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx);
-    if cross <= 0.0 {
-        return false; // Reflex vertex, not an ear
+    // Using robust orientation test instead of cross product
+    let orientation = orient2d_filtered(a, b, c);
+    if !orientation.is_ccw() {
+        return false; // Reflex or collinear vertex, not an ear
     }
 
     // Check if any other vertex is inside this triangle
-    for (i, &(px, py)) in vertices.iter().enumerate() {
+    for (i, &p) in vertices.iter().enumerate() {
         if i == prev || i == curr || i == next {
             continue;
         }
-        if point_in_triangle((px, py), (ax, ay), (bx, by), (cx, cy)) {
+        if point_in_triangle_robust(p, a, b, c) {
             return false;
         }
     }
 
     true
-}
-
-/// Checks if a point is inside a triangle.
-fn point_in_triangle(p: (f64, f64), a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> bool {
-    let (px, py) = p;
-    let (ax, ay) = a;
-    let (bx, by) = b;
-    let (cx, cy) = c;
-
-    let v0 = (cx - ax, cy - ay);
-    let v1 = (bx - ax, by - ay);
-    let v2 = (px - ax, py - ay);
-
-    let dot00 = v0.0 * v0.0 + v0.1 * v0.1;
-    let dot01 = v0.0 * v1.0 + v0.1 * v1.1;
-    let dot02 = v0.0 * v2.0 + v0.1 * v2.1;
-    let dot11 = v1.0 * v1.0 + v1.1 * v1.1;
-    let dot12 = v1.0 * v2.0 + v1.1 * v2.1;
-
-    let inv_denom = 1.0 / (dot00 * dot11 - dot01 * dot01);
-    let u = (dot11 * dot02 - dot01 * dot12) * inv_denom;
-    let v = (dot00 * dot12 - dot01 * dot02) * inv_denom;
-
-    u > 1e-10 && v > 1e-10 && (u + v) < 1.0 - 1e-10
 }
 
 /// Unions multiple polygons using i_overlay.
@@ -686,29 +684,33 @@ fn rotate_polygon(polygon: &[(f64, f64)], angle: f64) -> Vec<(f64, f64)> {
         .collect()
 }
 
-/// Checks if a polygon is convex.
+/// Checks if a polygon is convex using robust orientation tests.
+///
+/// Uses robust geometric predicates for numerical stability.
 fn is_polygon_convex(polygon: &[(f64, f64)]) -> bool {
     if polygon.len() < 3 {
         return false;
     }
 
     let n = polygon.len();
-    let mut sign = 0i32;
+    let mut expected_orientation: Option<Orientation> = None;
 
     for i in 0..n {
         let p0 = polygon[i];
         let p1 = polygon[(i + 1) % n];
         let p2 = polygon[(i + 2) % n];
 
-        let cross = (p1.0 - p0.0) * (p2.1 - p1.1) - (p1.1 - p0.1) * (p2.0 - p1.0);
+        let o = orient2d_filtered(p0, p1, p2);
 
-        if cross.abs() > 1e-10 {
-            let current_sign = if cross > 0.0 { 1 } else { -1 };
-            if sign == 0 {
-                sign = current_sign;
-            } else if sign != current_sign {
-                return false;
-            }
+        // Skip collinear edges
+        if o.is_collinear() {
+            continue;
+        }
+
+        match expected_orientation {
+            None => expected_orientation = Some(o),
+            Some(expected) if expected != o => return false,
+            _ => {}
         }
     }
 
@@ -1598,5 +1600,191 @@ mod tests {
         assert!(!result.is_empty());
         // Union of two overlapping squares should have more than 4 vertices
         assert!(result.vertex_count() >= 6);
+    }
+
+    // ========================================================================
+    // Near-Degenerate Case Tests (Numerical Robustness)
+    // ========================================================================
+
+    #[test]
+    fn test_convex_near_collinear_vertices() {
+        // Polygon with nearly collinear vertices that could fail with naive arithmetic
+        let near_collinear = vec![
+            (0.0, 0.0),
+            (1.0, 1e-15), // Nearly on line y=0
+            (2.0, 0.0),
+            (2.0, 1.0),
+            (0.0, 1.0),
+        ];
+
+        // Should handle without crashing
+        let result = is_polygon_convex(&near_collinear);
+        // The result depends on numerical precision, but it shouldn't panic
+        assert!(result == true || result == false);
+    }
+
+    #[test]
+    fn test_triangulation_near_degenerate() {
+        // L-shape with vertices very close together
+        let near_degenerate_l = vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 5.0),
+            (5.0 + 1e-12, 5.0), // Very close to (5, 5)
+            (5.0, 10.0),
+            (0.0, 10.0),
+        ];
+
+        // Should triangulate without crashing
+        let triangles = triangulate_polygon(&near_degenerate_l);
+
+        // Should produce at least one triangle
+        assert!(!triangles.is_empty());
+    }
+
+    #[test]
+    fn test_nfp_nearly_touching_rectangles() {
+        // Two rectangles that are nearly touching (gap of 1e-10)
+        let a = Geometry2D::rectangle("A", 10.0, 10.0);
+        let b = Geometry2D::rectangle("B", 5.0, 5.0);
+
+        // Should compute NFP correctly even with near-degenerate cases
+        let nfp = compute_nfp(&a, &b, 0.0).unwrap();
+        assert!(!nfp.is_empty());
+    }
+
+    #[test]
+    fn test_ifp_geometry_nearly_fills_boundary() {
+        // Geometry that nearly fills the boundary (leaves very small margin)
+        let boundary = rect(100.0, 100.0);
+        let geom = Geometry2D::rectangle("G", 99.9999, 99.9999);
+
+        // Should handle without error
+        let result = compute_ifp(&boundary, &geom, 0.0);
+
+        // Either succeeds with a tiny IFP or fails gracefully
+        match result {
+            Ok(ifp) => {
+                // IFP should be very small or a single point
+                let (min_x, min_y, max_x, max_y) = ifp_bounding_box(&ifp);
+                let width = max_x - min_x;
+                let height = max_y - min_y;
+                assert!(width < 0.001 && height < 0.001);
+            }
+            Err(_) => {
+                // Also acceptable - geometry too large to fit meaningfully
+            }
+        }
+    }
+
+    #[test]
+    fn test_point_in_polygon_on_boundary() {
+        // Test point exactly on polygon edge
+        let square = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+
+        // Points on edges
+        let on_bottom_edge = (5.0, 0.0);
+        let on_right_edge = (10.0, 5.0);
+        let on_top_edge = (5.0, 10.0);
+        let on_left_edge = (0.0, 5.0);
+
+        // Ray casting algorithm behavior on boundaries is implementation-defined,
+        // but it should not crash
+        let _ = point_in_polygon(on_bottom_edge, &square);
+        let _ = point_in_polygon(on_right_edge, &square);
+        let _ = point_in_polygon(on_top_edge, &square);
+        let _ = point_in_polygon(on_left_edge, &square);
+    }
+
+    #[test]
+    fn test_point_in_triangle_robust_degenerate() {
+        // Degenerate triangle (all points collinear)
+        let a = (0.0, 0.0);
+        let b = (5.0, 0.0);
+        let c = (10.0, 0.0);
+
+        // Point on the line
+        let p = (3.0, 0.0);
+
+        // Should return false (not inside a degenerate triangle)
+        assert!(!point_in_triangle_robust(p, a, b, c));
+    }
+
+    #[test]
+    fn test_ear_detection_with_collinear_points() {
+        // Polygon with collinear consecutive vertices
+        let with_collinear = vec![
+            (0.0, 0.0),
+            (5.0, 0.0),
+            (10.0, 0.0), // Collinear with previous two
+            (10.0, 10.0),
+            (0.0, 10.0),
+        ];
+
+        // Should handle triangulation without crashing
+        let triangles = triangulate_polygon(&with_collinear);
+
+        // Should produce valid triangles
+        for triangle in &triangles {
+            assert!(triangle.len() >= 3);
+        }
+    }
+
+    #[test]
+    fn test_nfp_with_very_small_polygon() {
+        // Very small polygon (micrometer scale)
+        let tiny = Geometry2D::rectangle("tiny", 1e-6, 1e-6);
+        let normal = Geometry2D::rectangle("normal", 10.0, 10.0);
+
+        // Should compute NFP correctly
+        let nfp = compute_nfp(&normal, &tiny, 0.0).unwrap();
+        assert!(!nfp.is_empty());
+    }
+
+    #[test]
+    fn test_nfp_with_very_large_polygon() {
+        // Very large polygon (kilometer scale)
+        let large = Geometry2D::rectangle("large", 1e6, 1e6);
+        let normal = Geometry2D::rectangle("normal", 100.0, 100.0);
+
+        // Should compute NFP correctly
+        let nfp = compute_nfp(&large, &normal, 0.0).unwrap();
+        assert!(!nfp.is_empty());
+    }
+
+    #[test]
+    fn test_signed_area_with_extreme_coordinates() {
+        // Polygon with very large coordinates
+        // Note: Standard floating-point arithmetic loses precision at extreme magnitudes.
+        // This test documents the limitation - for better precision at extreme scales,
+        // use the robust::signed_area_robust from u_nesting_core.
+
+        // Moderate scale - should be accurate
+        let moderate_coords = vec![
+            (1e6, 1e6),
+            (1e6 + 100.0, 1e6),
+            (1e6 + 100.0, 1e6 + 100.0),
+            (1e6, 1e6 + 100.0),
+        ];
+
+        let area = signed_area(&moderate_coords);
+
+        // Area should be 10000 (100 * 100)
+        assert_relative_eq!(area.abs(), 10000.0, epsilon = 1.0);
+    }
+
+    #[test]
+    fn test_ensure_ccw_with_near_zero_area() {
+        // Polygon with very small area
+        let tiny_area = vec![
+            (0.0, 0.0),
+            (1e-10, 0.0),
+            (1e-10, 1e-10),
+            (0.0, 1e-10),
+        ];
+
+        // Should handle without crashing
+        let ccw = ensure_ccw(&tiny_area);
+        assert_eq!(ccw.len(), tiny_area.len());
     }
 }

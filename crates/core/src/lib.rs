@@ -53,6 +53,7 @@ pub mod geometry;
 pub mod memory;
 pub mod placement;
 pub mod result;
+pub mod robust;
 pub mod sa;
 pub mod solver;
 pub mod transform;

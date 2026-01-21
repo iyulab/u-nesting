@@ -11,20 +11,24 @@
 
 | Phase | 기간 | 핵심 목표 | 상태 |
 |-------|------|----------|------|
-| **Phase 0** | 2-3주 | 품질 검증 및 결함 도출 | 🔥 **최우선** |
+| **Phase 0** | 2-3주 | 품질 검증 및 결함 도출 | ✅ 완료 |
 | **Phase 1** | 5-6주 | Geometry Core (2D/3D 기초) | ✅ 완료 |
 | **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | ✅ 완료 |
 | **Phase 3** | 5-6주 | 최적화 알고리즘 (GA/SA) | ✅ 완료 |
 | **Phase 4** | 3-4주 | 성능 최적화 및 병렬화 | ✅ 완료 |
 | **Phase 5** | 3-4주 | FFI 및 통합 API | ✅ 완료 (98%) |
 | **Phase 6** | 2-3주 | 벤치마크 및 릴리스 준비 | 🔄 릴리스 대기 (95%) |
-| **Phase 7** | 5-6주 | 배포 확장 및 문서화 | ⬜ 대기 |
+| **Phase 7** | 4-5주 | 알고리즘 품질 향상 (Robustness, GDRR, ALNS) | 🔥 **다음 우선** |
+| **Phase 8** | 3-4주 | Exact Methods (OR-Tools, MILP) | ⬜ 대기 |
+| **Phase 9** | 4-5주 | 3D 고급 기능 (Stability, Physics) | ⬜ 대기 |
+| **Phase 10** | 5-6주 | 배포 확장 및 문서화 | ⬜ 후순위 |
+| **Phase 11** | 5-6주 | ML/AI 통합 (GNN, RL) | ⬜ 연구 단계 |
 
 **총 예상 기간: 29-37주**
 
 ---
 
-## Phase 0: 품질 검증 및 결함 도출 (2-3주) 🔥 최우선
+## Phase 0: 품질 검증 및 결함 도출 (2-3주) ✅ 완료
 
 ### 목표
 실제 벤치마크 데이터셋을 활용한 포괄적인 품질 검증 및 결함/개선사항 도출
@@ -729,37 +733,44 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 
 ---
 
-## Phase 7: 배포 확장 및 문서화 (5-6주) ⬜ 대기
+## Phase 10: 배포 확장 및 문서화 (5-6주) ⬜ 후순위
+
+> ⚠️ **문서 순서 안내**: 이 섹션은 Phase 6 직후에 위치하나, 실행 우선순위는 Phase 7-9 완료 후입니다.
+>
+> **우선순위 조정**: 알고리즘 품질 향상(Phase 7-9)이 배포보다 우선
+> - 배포 전 핵심 알고리즘 완성도 확보
+> - Phase 9 완료 후 진행 권장
+> - 실행 순서: Phase 6 → **Phase 7 → 8 → 9** → Phase 10 → Phase 11
 
 ### 목표
 다양한 언어 생태계 배포 및 종합 문서 제공
 
 ---
 
-### Phase 7.1: FFI Callback Function Pointer 지원 (1주)
+### Phase 10.1: FFI Callback Function Pointer 지원 (1주)
 
 #### 목표
 C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니즘 제공
 
 #### 태스크
 
-##### 7.1.1 C ABI 콜백 타입 정의 (1일)
+##### 10.1.1 C ABI 콜백 타입 정의 (1일)
 - [ ] `typedef void (*UnestingProgressCallback)(const char* progress_json)`
 - [ ] `ProgressCallbackContext` opaque 핸들 정의
 
-##### 7.1.2 FFI API 확장 (2일) - 의존: 7.1.1
+##### 10.1.2 FFI API 확장 (2일) - 의존: 10.1.1
 - [ ] `unesting_solve_2d_with_progress(request, callback, context, result)`
 - [ ] `unesting_solve_3d_with_progress(request, callback, context, result)`
 - [ ] 콜백 호출 주기 설정 파라미터 추가
 
-##### 7.1.3 Thread-safe 콜백 래퍼 구현 (1일) - 의존: 7.1.2
+##### 10.1.3 Thread-safe 콜백 래퍼 구현 (1일) - 의존: 10.1.2
 - [ ] unsafe extern "C" 콜백을 Rust closure로 변환
 - [ ] Panic guard 적용 (FFI boundary)
 
-##### 7.1.4 cbindgen 헤더 업데이트 (0.5일) - 의존: 7.1.3
+##### 10.1.4 cbindgen 헤더 업데이트 (0.5일) - 의존: 10.1.3
 - [ ] `unesting.h`에 콜백 타입 및 함수 추가
 
-##### 7.1.5 C 사용 예제 작성 (0.5일) - 의존: 7.1.4
+##### 10.1.5 C 사용 예제 작성 (0.5일) - 의존: 10.1.4
 - [ ] `examples/c/progress_callback.c`
 
 #### 산출물
@@ -770,35 +781,35 @@ C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니�
 
 ---
 
-### Phase 7.2: PyPI 배포 (1주)
+### Phase 10.2: PyPI 배포 (1주)
 
 #### 목표
 `pip install u-nesting`으로 설치 가능한 Python 패키지 배포
 
 #### 태스크
 
-##### 7.2.1 maturin 빌드 검증 (0.5일)
+##### 10.2.1 maturin 빌드 검증 (0.5일)
 - [ ] Linux/macOS/Windows 크로스 컴파일 테스트
 - [ ] `maturin build --release` 검증
 
-##### 7.2.2 CI/CD 워크플로우 구성 (1일) - 의존: 7.2.1
+##### 10.2.2 CI/CD 워크플로우 구성 (1일) - 의존: 10.2.1
 - [ ] `.github/workflows/python-publish.yml` 생성
 - [ ] maturin-action 설정 (manylinux, musllinux, macOS, Windows)
 - [ ] 태그 기반 자동 배포 트리거
 
-##### 7.2.3 PyPI 계정 및 토큰 설정 (0.5일)
+##### 10.2.3 PyPI 계정 및 토큰 설정 (0.5일)
 - [ ] PyPI API 토큰 발급
 - [ ] GitHub Secrets에 `PYPI_API_TOKEN` 등록
 
-##### 7.2.4 TestPyPI 배포 테스트 (1일) - 의존: 7.2.2, 7.2.3
+##### 10.2.4 TestPyPI 배포 테스트 (1일) - 의존: 10.2.2, 10.2.3
 - [ ] TestPyPI에 먼저 배포
 - [ ] `pip install --index-url https://test.pypi.org/simple/ u-nesting` 검증
 
-##### 7.2.5 Python README 작성 (0.5일)
+##### 10.2.5 Python README 작성 (0.5일)
 - [ ] `crates/python/README.md` (PyPI 페이지용)
 - [ ] 설치 가이드, 빠른 시작, 예제 코드
 
-##### 7.2.6 PyPI 정식 배포 (0.5일) - 의존: 7.2.4, 7.2.5
+##### 10.2.6 PyPI 정식 배포 (0.5일) - 의존: 10.2.4, 10.2.5
 - [ ] 태그 생성 → 자동 배포
 - [ ] PyPI 페이지 확인
 
@@ -809,46 +820,46 @@ C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니�
 
 ---
 
-### Phase 7.3: C# NuGet 패키지 (1.5주)
+### Phase 10.3: C# NuGet 패키지 (1.5주)
 
 #### 목표
 .NET 개발자를 위한 NuGet 패키지 배포
 
 #### 태스크
 
-##### 7.3.1 C# 프로젝트 구조 생성 (0.5일)
+##### 10.3.1 C# 프로젝트 구조 생성 (0.5일)
 - [ ] `bindings/csharp/UNesting/UNesting.csproj`
 - [ ] `bindings/csharp/UNesting.Tests/`
 
-##### 7.3.2 P/Invoke 래퍼 클래스 구현 (2일) - 의존: 7.3.1
+##### 10.3.2 P/Invoke 래퍼 클래스 구현 (2일) - 의존: 10.3.1
 - [ ] `NativeLibrary.cs`: DLL import 선언
 - [ ] `Nester2D.cs`: 2D nesting API
 - [ ] `Packer3D.cs`: 3D packing API
 - [ ] `ProgressCallback.cs`: 콜백 델리게이트 (7.1 완료 후)
 
-##### 7.3.3 JSON 직렬화 모델 (1일) - 의존: 7.3.2
+##### 10.3.3 JSON 직렬화 모델 (1일) - 의존: 10.3.2
 - [ ] `Models/Request2D.cs`, `Response.cs` 등
 - [ ] `System.Text.Json` 또는 `Newtonsoft.Json` 사용
 
-##### 7.3.4 네이티브 라이브러리 번들링 (1일) - 의존: 7.3.2
+##### 10.3.4 네이티브 라이브러리 번들링 (1일) - 의존: 10.3.2
 - [ ] `runtimes/win-x64/native/unesting.dll`
 - [ ] `runtimes/linux-x64/native/libunesting.so`
 - [ ] `runtimes/osx-x64/native/libunesting.dylib`
 - [ ] `.nuspec` 또는 `.csproj` 번들 설정
 
-##### 7.3.5 단위 테스트 (0.5일) - 의존: 7.3.3
+##### 10.3.5 단위 테스트 (0.5일) - 의존: 10.3.3
 - [ ] xUnit 기반 테스트
 - [ ] 2D/3D 기본 시나리오 검증
 
-##### 7.3.6 NuGet 패키지 구성 (0.5일) - 의존: 7.3.4, 7.3.5
+##### 10.3.6 NuGet 패키지 구성 (0.5일) - 의존: 10.3.4, 7.3.5
 - [ ] `UNesting.nuspec` 메타데이터
 - [ ] `dotnet pack` 검증
 
-##### 7.3.7 CI/CD 워크플로우 (0.5일) - 의존: 7.3.6
+##### 10.3.7 CI/CD 워크플로우 (0.5일) - 의존: 10.3.6
 - [ ] `.github/workflows/nuget-publish.yml`
 - [ ] 태그 기반 NuGet.org 배포
 
-##### 7.3.8 NuGet.org 배포 (0.5일) - 의존: 7.3.7
+##### 10.3.8 NuGet.org 배포 (0.5일) - 의존: 10.3.7
 - [ ] API 키 설정
 - [ ] 정식 배포
 
@@ -860,29 +871,29 @@ C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니�
 
 ---
 
-### Phase 7.4: 사용자 가이드 및 알고리즘 해설 문서 (1.5주)
+### Phase 10.4: 사용자 가이드 및 알고리즘 해설 문서 (1.5주)
 
 #### 목표
 개발자와 연구자를 위한 종합 문서 제공
 
 #### 태스크
 
-##### 7.4.1 문서 사이트 구조 설계 (0.5일)
+##### 10.4.1 문서 사이트 구조 설계 (0.5일)
 - [ ] mdBook 또는 Docusaurus 선택
 - [ ] `docs/book/` 디렉토리 구조
 
-##### 7.4.2 시작 가이드 (1일) - 의존: 7.4.1
+##### 10.4.2 시작 가이드 (1일) - 의존: 10.4.1
 - [ ] 설치 방법 (Rust/Python/C#/C)
 - [ ] 빠른 시작 예제
 - [ ] 기본 개념 설명
 
-##### 7.4.3 API 사용 가이드 (1일) - 의존: 7.4.2
+##### 10.4.3 API 사용 가이드 (1일) - 의존: 10.4.2
 - [ ] 2D Nesting 가이드 (입력 형식, 옵션, 출력 해석)
 - [ ] 3D Packing 가이드
 - [ ] 전략 선택 가이드 (BLF vs NFP vs GA vs BRKGA vs SA)
 - [ ] 성능 튜닝 팁
 
-##### 7.4.4 알고리즘 해설 (2일)
+##### 10.4.4 알고리즘 해설 (2일)
 - [ ] NFP (No-Fit Polygon) 개념 및 계산 방법
 - [ ] Bottom-Left Fill 알고리즘
 - [ ] Genetic Algorithm 구조 및 파라미터
@@ -890,17 +901,17 @@ C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니�
 - [ ] Simulated Annealing 쿨링 스케줄
 - [ ] Extreme Point Heuristic (3D)
 
-##### 7.4.5 아키텍처 문서 (0.5일)
+##### 10.4.5 아키텍처 문서 (0.5일)
 - [ ] 크레이트 구조 다이어그램
 - [ ] 핵심 trait/struct 관계
 - [ ] 데이터 흐름
 
-##### 7.4.6 기여 가이드 (0.5일)
+##### 10.4.6 기여 가이드 (0.5일)
 - [ ] `CONTRIBUTING.md`
 - [ ] 코드 스타일 가이드
 - [ ] PR 프로세스
 
-##### 7.4.7 문서 사이트 배포 (0.5일) - 의존: 7.4.1~7.4.6
+##### 10.4.7 문서 사이트 배포 (0.5일) - 의존: 10.4.1~7.4.6
 - [ ] GitHub Pages 설정
 - [ ] 자동 빌드 워크플로우
 
@@ -912,35 +923,35 @@ C/C# 소비자가 실시간 진행 상태를 받을 수 있는 콜백 메커니�
 
 ---
 
-### Phase 7 요약
+### Phase 10 요약
 
 | Sub-Phase | 기간 | 핵심 산출물 |
 |-----------|------|-------------|
-| 7.1 FFI Callback | 1주 | `_with_progress` API, C 예제 |
-| 7.2 PyPI 배포 | 1주 | PyPI 패키지, CI/CD |
-| 7.3 C# NuGet | 1.5주 | NuGet 패키지, P/Invoke 래퍼 |
-| 7.4 문서 확장 | 1.5주 | 문서 사이트, 알고리즘 해설 |
+| 10.1 FFI Callback | 1주 | `_with_progress` API, C 예제 |
+| 10.2 PyPI 배포 | 1주 | PyPI 패키지, CI/CD |
+| 10.3 C# NuGet | 1.5주 | NuGet 패키지, P/Invoke 래퍼 |
+| 10.4 문서 확장 | 1.5주 | 문서 사이트, 알고리즘 해설 |
 
 **총 예상 기간: 5-6주**
 
 ### 의존성 그래프
 
 ```
-Phase 7.1 (FFI Callback)
+Phase 10.1 (FFI Callback)
     ↓
-Phase 7.3 (C# NuGet) ← 콜백 델리게이트 지원 시 의존
+Phase 10.3 (C# NuGet) ← 콜백 델리게이트 지원 시 의존
 
-Phase 7.2 (PyPI) ← 독립적, 바로 시작 가능
+Phase 10.2 (PyPI) ← 독립적, 바로 시작 가능
 
-Phase 7.4 (문서) ← 독립적, 병렬 진행 가능
+Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
 ```
 
 ### 권장 실행 순서
 
-1. **Phase 7.2 (PyPI)** - 이미 Python 바인딩 완료, 즉시 배포 가능
-2. **Phase 7.1 (FFI Callback)** - C# 통합 전 선행 필요
-3. **Phase 7.3 (C# NuGet)** - FFI Callback 완료 후
-4. **Phase 7.4 (문서)** - 전 기간 병렬 진행 가능
+1. **Phase 10.2 (PyPI)** - 이미 Python 바인딩 완료, 즉시 배포 가능
+2. **Phase 10.1 (FFI Callback)** - C# 통합 전 선행 필요
+3. **Phase 10.3 (C# NuGet)** - FFI Callback 완료 후
+4. **Phase 10.4 (문서)** - 전 기간 병렬 진행 가능
 
 ---
 
@@ -1087,6 +1098,500 @@ Phase 7.4 (문서) ← 독립적, 병렬 진행 가능
 10. [SVGnest](https://github.com/Jack000/SVGnest)
 11. [libnest2d](https://github.com/tamasmeszaros/libnest2d)
 12. [OR-Tools](https://developers.google.com/optimization)
+
+---
+
+## Phase 7: Algorithm Quality Enhancement (4-5주) 🔥 다음 우선
+
+> **배경**: research-03.md 분석 결과, 현재 구현의 핵심 개선점 도출
+> - 수치 안정성: Shewchuk predicates로 95%+ 속도 유지하며 정확성 확보
+> - NFP 알고리즘: Burke et al. 2007 "Improved Sliding"으로 degenerate case 처리
+> - 최신 메타휴리스틱: GDRR이 "state-of-the-art 능가" (EJOR 2022)
+
+### 목표
+- 수치적 견고성(numerical robustness) 확보
+- NFP 알고리즘 품질 향상 (degenerate case 처리)
+- 최신 메타휴리스틱 알고리즘 추가 (GDRR, ALNS)
+
+### Phase 7.1: Numerical Robustness (1주) ✅ 완료
+
+#### 목표
+- Floating-point 연산 오류로 인한 잘못된 결과 방지
+- 정확한 geometric predicate 구현
+
+#### 태스크
+
+##### 7.1.1 Shewchuk Adaptive Predicates 통합 (2일) ✅
+- [x] `robust` crate (v1.1) 통합
+- [x] `orient2d()` 핵심 predicate 추가 (`core/robust.rs`)
+- [x] NFP/IFP 계산에서 orientation 판정 시 사용 (`d2/nfp.rs`)
+- [x] 참조: Shewchuk (1997) "Adaptive Precision Floating-Point Arithmetic"
+
+##### 7.1.2 Floating-Point Filter 구현 (2일) ✅
+- [x] `orient2d_filtered()`: Fast approximate → exact fallback 패턴 구현
+- [x] 오차 범위 계산 로직 추가 (FILTER_EPSILON = 1e-12)
+- [x] 95%+ 케이스에서 exact arithmetic 불필요하도록 최적화
+- [x] `is_ear()`, `is_polygon_convex()` 등에서 robust predicate 사용
+
+##### 7.1.3 Integer Coordinate Scaling (1일) ✅
+- [x] `ScalingConfig` 구조체: 실수 좌표 → 정수 스케일링 옵션
+- [x] `snap_to_grid()`, `snap_polygon_to_grid()` 로직 구현
+- [x] `scale_polygon()`, `unscale_polygon()` 변환 함수
+
+#### 산출물
+- [x] `core/robust.rs` - Robust geometric predicates (14개 테스트)
+- [x] NFP/IFP 계산에서 robust predicate 사용 (`point_in_triangle_robust`, `is_polygon_convex`)
+- [x] 단위 테스트: near-degenerate case 정확성 검증 (11개 추가)
+
+### Phase 7.2: NFP Algorithm Improvement (1.5주)
+
+#### 목표
+- Burke et al. 2007 "Improved Sliding Algorithm" 구현
+- Degenerate case (perfect fit, interlocking concavities) 처리
+
+#### 태스크
+
+##### 7.2.1 Touching Group 개념 구현 (3일)
+- [ ] `TouchingGroup` 구조체 정의 (접촉점 집합)
+- [ ] 동시 접촉 상태 추적 로직 구현
+- [ ] Narrow entrance concavities 처리
+- [ ] 참조: Luo & Rao (2022) "Improved Sliding Algorithm"
+
+##### 7.2.2 NFP Edge Case 처리 (2일)
+- [ ] Perfect fit detection (두 폴리곤이 정확히 맞물리는 경우)
+- [ ] Interlocking concavities 처리
+- [ ] NFP with holes 지원 (오목부 내부 valid 위치)
+- [ ] 회귀 테스트: 기존 케이스 영향 없음 확인
+
+##### 7.2.3 Burke et al. 2007 Sliding 구현 (2일)
+- [ ] Orbiting polygon 개념 구현
+- [ ] Translation vector 계산 개선
+- [ ] Edge-edge, edge-vertex, vertex-vertex 접촉 처리
+- [ ] 기존 Minkowski sum 방식과 결과 비교 검증
+
+#### 산출물
+- [ ] `d2/nfp_sliding.rs` - Improved Sliding Algorithm
+- [ ] Strategy 선택 가능: `NfpMethod::MinkowskiSum | NfpMethod::Sliding`
+- [ ] 벤치마크: ESICUP 인스턴스에서 품질 비교
+
+### Phase 7.3: GDRR Implementation (1주)
+
+#### 목표
+- Goal-Driven Ruin and Recreate (GDRR) 알고리즘 구현
+- Guillotine-constrained 2D bin packing 최적화
+
+#### 태스크
+
+##### 7.3.1 Ruin Operator 구현 (2일)
+- [ ] Random ruin (무작위 아이템 제거)
+- [ ] Cluster ruin (인접 아이템 그룹 제거)
+- [ ] Worst ruin (가장 나쁜 배치 제거)
+- [ ] `RuinOperator` trait 정의
+
+##### 7.3.2 Recreate Operator 구현 (2일)
+- [ ] Best-fit recreate
+- [ ] BLF-based recreate
+- [ ] NFP-guided recreate
+- [ ] `RecreateOperator` trait 정의
+
+##### 7.3.3 Goal-Driven Mechanism (1일)
+- [ ] Decreasing bin area limit 메커니즘
+- [ ] Late Acceptance Hill-Climbing (LAHC) 통합
+- [ ] Goal 도달 실패 시 restart 로직
+
+##### 7.3.4 GDRR Runner (1일)
+- [ ] `GdrrConfig` 구조체 (max_iterations, ruin_percentage, etc.)
+- [ ] `GdrrRunner` 메인 루프 구현
+- [ ] Progress callback 지원
+- [ ] 참조: Gardeyn & Wauters (EJOR 2022)
+
+#### 산출물
+- [ ] `core/gdrr.rs` - GDRR framework
+- [ ] `d2/gdrr_nesting.rs` - 2D nesting GDRR 적용
+- [ ] `Strategy::Gdrr` 추가
+- [ ] 벤치마크: BRKGA, SA 대비 성능 비교
+
+### Phase 7.4: ALNS Implementation (1주)
+
+#### 목표
+- Adaptive Large Neighborhood Search 구현
+- 제약 조건이 많은 variant에 강점
+
+#### 태스크
+
+##### 7.4.1 Destroy/Repair Operator Pool (2일)
+- [ ] `DestroyOperator` trait + 3-5개 구현체
+- [ ] `RepairOperator` trait + 3-5개 구현체
+- [ ] Operator 등록 및 선택 메커니즘
+
+##### 7.4.2 Adaptive Weight 시스템 (2일)
+- [ ] Roulette wheel selection
+- [ ] Operator 성능 추적 (개선 횟수, 성공률)
+- [ ] Weight 업데이트 로직 (segment-based)
+- [ ] 참조: Ropke & Pisinger (2006)
+
+##### 7.4.3 ALNS Runner (1.5일)
+- [ ] `AlnsConfig` 구조체
+- [ ] `AlnsRunner` 메인 루프
+- [ ] Simulated Annealing acceptance criterion 통합
+- [ ] Progress callback 지원
+
+#### 산출물
+- [ ] `core/alns.rs` - ALNS framework
+- [ ] `d2/alns_nesting.rs`, `d3/alns_packing.rs` - 적용
+- [ ] `Strategy::Alns` 추가
+- [ ] 벤치마크: 기존 전략 대비 성능 비교
+
+### Phase 7 요약
+
+| Sub-Phase | 기간 | 핵심 산출물 | 상태 |
+|-----------|------|-------------|------|
+| 7.1 Numerical Robustness | 1주 | `core/robust.rs`, Shewchuk predicates | ✅ 완료 |
+| 7.2 NFP Improvement | 1.5주 | `d2/nfp_sliding.rs`, Burke algorithm | ⬜ 대기 |
+| 7.3 GDRR | 1주 | `core/gdrr.rs`, State-of-the-art metaheuristic | ⬜ 대기 |
+| 7.4 ALNS | 1주 | `core/alns.rs`, Adaptive operator selection | ⬜ 대기 |
+
+---
+
+## Phase 8: Exact Methods Integration (3-4주) ⬜ 대기
+
+> **배경**: research-03.md 분석 결과
+> - OR-Tools CP-SAT: MiniZinc Challenge 5년 연속 금메달
+> - NFP-CM MILP: 17-20개 piece까지 최적해 도출 가능
+> - 소규모 인스턴스(≤15)에서 exact solution 제공 가치
+
+### 목표
+- 소규모 인스턴스에 대한 최적해 보장 기능 추가
+- Hybrid solver (exact → heuristic fallback) 구현
+
+### Phase 8.1: OR-Tools CP-SAT Integration (1.5주)
+
+#### 목표
+- Google OR-Tools CP-SAT 솔버와 연동
+- 소규모 인스턴스(≤15 pieces)에서 최적해 또는 증명된 근사해 제공
+
+#### 태스크
+
+##### 8.1.1 OR-Tools Rust Binding 조사 (1일)
+- [ ] `good_lp` crate 또는 직접 FFI 검토
+- [ ] CP-SAT vs MIP 솔버 비교 (Gurobi/CPLEX 대안)
+- [ ] 라이선스 및 배포 제약 확인
+
+##### 8.1.2 CP-SAT Model 정의 (3일)
+- [ ] Interval variables for x, y positions
+- [ ] `no_overlap_2d` constraint 활용
+- [ ] Rotation 이산화 (discrete angles)
+- [ ] Strip length minimization objective
+
+##### 8.1.3 CP-SAT Solver 래퍼 구현 (2일)
+- [ ] `CpSatNester` 구현 (Solver trait 준수)
+- [ ] Timeout 및 solution limit 지원
+- [ ] Solution status (optimal, feasible, infeasible) 반환
+
+##### 8.1.4 Hybrid Fallback 구현 (1일)
+- [ ] 인스턴스 크기 기반 자동 전략 선택
+- [ ] CP-SAT timeout 시 heuristic fallback
+- [ ] `Strategy::ExactOrFallback { exact_threshold: usize }`
+
+#### 산출물
+- [ ] `d2/exact_solver.rs` - CP-SAT based exact solver
+- [ ] `Strategy::CpSat` 추가
+- [ ] 벤치마크: exact vs heuristic 품질/시간 비교
+
+### Phase 8.2: NFP-CM MILP Formulation (1.5주)
+
+#### 목표
+- NFP Covering Model (NFP-CM) MILP 구현
+- Convex piece 인스턴스에서 최적해 도출
+
+#### 태스크
+
+##### 8.2.1 NFP-CM Model 정의 (3일)
+- [ ] NFP 여집합의 convex decomposition
+- [ ] Binary variables for piece placement regions
+- [ ] Linear non-overlap constraints
+- [ ] 참조: Lastra-Díaz & Ortuño (2023)
+
+##### 8.2.2 MIP Solver 연동 (2일)
+- [ ] CBC/HiGHS (오픈소스) 또는 commercial solver
+- [ ] 모델 변환 및 solution parsing
+- [ ] Valid inequality cuts 추가
+
+##### 8.2.3 Vertical Slice Decomposition (2일)
+- [ ] NFP-CM-VS variant 구현
+- [ ] Novel valid inequalities 적용
+- [ ] 17-20 convex piece 해결 목표
+
+#### 산출물
+- [ ] `d2/nfp_cm_solver.rs` - MILP exact solver
+- [ ] `Strategy::NfpCm` 추가
+- [ ] 벤치마크: 소규모 ESICUP 인스턴스 최적해 검증
+
+### Phase 8 요약
+
+| Sub-Phase | 기간 | 핵심 산출물 |
+|-----------|------|-------------|
+| 8.1 OR-Tools CP-SAT | 1.5주 | `d2/exact_solver.rs`, `no_overlap_2d` model |
+| 8.2 NFP-CM MILP | 1.5주 | `d2/nfp_cm_solver.rs`, MILP formulation |
+
+---
+
+## Phase 9: 3D Advanced Features (4-5주) ⬜ 대기
+
+> **배경**: research-03.md Part 6 분석 결과
+> - Stability constraints가 실제 물류/제조에서 필수
+> - Full Base Support → CoG Polygon → Static Equilibrium 계층 구조
+> - Physics simulation으로 compaction 품질 향상 가능
+
+### 목표
+- 3D 안정성 제약 조건 지원
+- Physics-informed packing 품질 향상
+
+### Phase 9.1: Stability Constraints (2주)
+
+#### 목표
+- 다양한 안정성 모델 지원
+- 실제 물류/제조 요구사항 충족
+
+#### 태스크
+
+##### 9.1.1 Full Base Support (2일)
+- [ ] 100% 바닥 지지 검사 로직
+- [ ] `StabilityConstraint::FullBase` 구현
+- [ ] Packer3D에서 constraint 검증
+
+##### 9.1.2 Partial Base Support (2일)
+- [ ] 지정 비율(70-80%) 지지 검사
+- [ ] `StabilityConstraint::PartialBase { min_ratio: f64 }`
+- [ ] Config에 stability 옵션 추가
+
+##### 9.1.3 Center-of-Gravity Polygon Support (3일)
+- [ ] 접촉점 convex hull 계산
+- [ ] CoG projection 검사
+- [ ] `StabilityConstraint::CogPolygon` 구현
+- [ ] 참조: Wikipedia "Support polygon"
+
+##### 9.1.4 Static Mechanical Equilibrium (3일)
+- [ ] Newton's laws (ΣF = 0, ΣM = 0) 기반 검사
+- [ ] 접촉력 분포 계산
+- [ ] `StabilityConstraint::StaticEquilibrium` 구현
+- [ ] 가장 정확하지만 계산 비용 높음
+
+#### 산출물
+- [ ] `d3/stability.rs` - Stability constraint implementations
+- [ ] `Config3D.stability_constraint: Option<StabilityConstraint>`
+- [ ] 단위 테스트: 다양한 stacking 시나리오 검증
+
+### Phase 9.2: Physics Simulation Integration (2주)
+
+#### 목표
+- Physics engine으로 placement 품질 검증
+- Shaking simulation으로 compaction 개선
+
+#### 태스크
+
+##### 9.2.1 Physics Engine 연동 (1주)
+- [ ] `rapier3d` (Rust native) 또는 `bevy_rapier` 검토
+- [ ] Box rigid body 생성 및 simulation
+- [ ] Collision detection 결과 활용
+- [ ] Settlement 시뮬레이션 (중력 적용 후 안정화)
+
+##### 9.2.2 Shaking Compaction (0.5주)
+- [ ] Container shaking simulation
+- [ ] FFT-based collision detection (voxelized)
+- [ ] Compaction ratio 개선 측정
+
+##### 9.2.3 Stability Validation (0.5주)
+- [ ] Physics simulation으로 placement 안정성 검증
+- [ ] Unstable placement 감지 및 보정
+- [ ] Post-processing refinement
+
+#### 산출물
+- [ ] `d3/physics.rs` - Physics simulation wrapper
+- [ ] `Packer3D::validate_stability()` 메서드
+- [ ] Optional feature flag: `physics` (기본 비활성화)
+
+### Phase 9 요약
+
+| Sub-Phase | 기간 | 핵심 산출물 |
+|-----------|------|-------------|
+| 9.1 Stability Constraints | 2주 | `d3/stability.rs`, 4가지 안정성 모델 |
+| 9.2 Physics Simulation | 2주 | `d3/physics.rs`, rapier3d 연동 |
+
+---
+
+## Phase 11: ML/AI Integration (5-6주) ⬜ 연구 단계
+
+> **배경**: research-03.md Part 5 분석 결과 - Research Frontier
+> - GNN: MAE 1.65 on 100k instances (J. Intelligent Manufacturing 2024)
+> - RL: PCT 75% utilization, O4M-SP multi-bin 지원
+> - ML-guided: JD.com 68.6% packing rate, 0.16s/order
+>
+> **주의**: 이 Phase는 연구 탐색 목적이며 production 적용은 신중히 검토 필요
+
+### 목표
+- ML 기반 효율성 예측으로 algorithm selection 지원
+- RL policy로 online/real-time placement 지원
+- ML-guided optimization으로 heuristic 품질 향상
+
+### Phase 11.1: GNN Efficiency Estimation (2주)
+
+#### 목표
+- Graph Neural Network로 nesting 효율성 사전 예측
+- Algorithm selection 및 instance difficulty 평가
+
+#### 태스크
+
+##### 11.1.1 Instance Graph Representation (3일)
+- [ ] Polygon → Graph 변환 (vertices as nodes, edges as edges)
+- [ ] Node features: area, perimeter, convexity ratio
+- [ ] Edge features: angle, length
+- [ ] 참조: Lallier et al. (2024)
+
+##### 11.1.2 GNN Model 정의 (3일)
+- [ ] `tch-rs` (PyTorch binding) 또는 `burn` crate
+- [ ] Message Passing Neural Network (MPNN) 구조
+- [ ] Readout → efficiency prediction
+
+##### 11.1.3 Training Pipeline (3일)
+- [ ] ESICUP + synthetic 데이터로 training set 구성
+- [ ] BLF/NFP 결과로 label 생성
+- [ ] Cross-validation 및 hyperparameter tuning
+
+##### 11.1.4 Inference Integration (1일)
+- [ ] Pre-trained model 로딩
+- [ ] `estimate_efficiency(geometries) -> f64` API
+- [ ] Algorithm selection hint 제공
+
+#### 산출물
+- [ ] `ml/gnn_estimator.rs` - GNN inference wrapper
+- [ ] Pre-trained model weights (assets/)
+- [ ] Optional feature flag: `ml-gnn`
+
+### Phase 11.2: RL Policy Learning (2주)
+
+#### 목표
+- Reinforcement Learning으로 sequential placement policy 학습
+- Online/real-time 시나리오 대응
+
+#### 태스크
+
+##### 11.2.1 Environment 정의 (3일)
+- [ ] State: current placements + remaining items
+- [ ] Action: (item_idx, position, rotation)
+- [ ] Reward: utilization improvement or penalty
+
+##### 11.2.2 Policy Network (3일)
+- [ ] Transformer 또는 GNN-based policy
+- [ ] Action masking (invalid placements)
+- [ ] PPO 또는 DQN training
+
+##### 11.2.3 Training & Evaluation (4일)
+- [ ] Curriculum learning (small → large instances)
+- [ ] Comparison with BLF/NFP baseline
+- [ ] Generalization test (train small, test large)
+
+#### 산출물
+- [ ] `ml/rl_policy.rs` - RL policy wrapper
+- [ ] Pre-trained policy weights
+- [ ] `Strategy::RlPolicy` 추가
+- [ ] Optional feature flag: `ml-rl`
+
+### Phase 11.3: ML-Guided Optimization (1.5주)
+
+#### 목표
+- ML 예측으로 heuristic 의사결정 개선
+- Warm-start 및 operator selection 가이드
+
+#### 태스크
+
+##### 11.3.1 ML Warm Start (3일)
+- [ ] GNN으로 초기 배치 순서 예측
+- [ ] GA/BRKGA 초기 population 품질 향상
+- [ ] Comparison: random init vs ML warm start
+
+##### 11.3.2 Operator Selection Guidance (3일)
+- [ ] ALNS operator 선택에 ML 예측 활용
+- [ ] Instance features → best operator mapping
+- [ ] Online learning 가능성 검토
+
+##### 11.3.3 Hybrid Ensemble (2일)
+- [ ] Multiple strategy 결과 ensemble
+- [ ] ML로 strategy 가중치 결정
+- [ ] Pareto-optimal trade-off (quality vs time)
+
+#### 산출물
+- [ ] `ml/guided_optimizer.rs` - ML-guided optimization
+- [ ] Integration with existing strategies
+- [ ] Benchmark: ML-guided vs vanilla comparison
+
+### Phase 11 요약
+
+| Sub-Phase | 기간 | 핵심 산출물 |
+|-----------|------|-------------|
+| 11.1 GNN Estimation | 2주 | `ml/gnn_estimator.rs`, efficiency prediction |
+| 11.2 RL Policy | 2주 | `ml/rl_policy.rs`, learned placement policy |
+| 11.3 ML-Guided | 1.5주 | `ml/guided_optimizer.rs`, hybrid approach |
+
+### Phase 11 주의사항
+
+- **실험적 단계**: Production 적용 전 충분한 검증 필요
+- **의존성**: PyTorch/ONNX runtime 필요, 배포 복잡도 증가
+- **Generalization**: 학습 분포 외 인스턴스에서 성능 저하 가능
+- **Alternative**: 단순한 instance feature + linear model도 효과적일 수 있음
+
+---
+
+## 연구 기반 로드맵 요약 (Phase 7-11)
+
+| Phase | 기간 | 우선순위 | 핵심 목표 |
+|-------|------|----------|-----------|
+| **Phase 7** | 4-5주 | 🔴 **최우선** | Algorithm Quality (Robustness, NFP, GDRR, ALNS) |
+| **Phase 8** | 3-4주 | 🟡 중간 | Exact Methods (OR-Tools, MILP) |
+| **Phase 9** | 4-5주 | 🟡 중간 | 3D Advanced (Stability, Physics) |
+| **Phase 10** | 5-6주 | ⚪ 후순위 | 배포 확장 (PyPI, NuGet, 문서) - 알고리즘 완성 후 |
+| **Phase 11** | 5-6주 | 🔵 연구 | ML/AI Integration (GNN, RL, Guided) |
+
+### 의존성 그래프
+
+```
+Phase 6 (릴리스 준비) ──────────────────────────────────┐
+                                                        │
+Phase 7.1 (Robustness) ←── Phase 7.2 (NFP Improve)     │ 🔥 최우선
+                                                        │
+Phase 7.3 (GDRR) ←── Phase 7.4 (ALNS)                  │
+                                                        │
+Phase 8.1 (CP-SAT) ←── Phase 8.2 (NFP-CM)              │
+                                                        │
+Phase 9.1 (Stability) ←── Phase 9.2 (Physics)          │
+                                                        ▼
+                              Phase 10 (배포 확장) ←── 알고리즘 완성 후
+                                                        │
+Phase 11.1 (GNN) ←── Phase 11.2 (RL) ←── Phase 11.3   │ 연구 단계
+                                                        ▼
+                                             최종 통합 릴리스
+```
+
+### 권장 실행 순서
+
+1. **Phase 7.1 + 7.2** (병렬) - 핵심 품질 개선, 즉시 시작
+2. **Phase 7.3** - GDRR이 가장 높은 ROI (state-of-the-art 능가)
+3. **Phase 9.1** - 3D 안정성은 실제 적용에 필수
+4. **Phase 8.1** - 소규모 인스턴스 최적해 보장
+5. **Phase 7.4** - ALNS로 제약 variant 대응
+6. **Phase 10** - 알고리즘 완성 후 배포 확장 (PyPI, NuGet, 문서)
+7. **Phase 11** - 연구 탐색, 별도 브랜치에서 실험
+
+### 참조 문헌 (연구 기반 추가)
+
+13. [Shewchuk (1997) - Adaptive Precision Arithmetic](https://people.eecs.berkeley.edu/~jrs/papers/robeqn.pdf)
+14. [Burke et al. (2007) - Complete NFP Generation](https://www.graham-kendall.com/papers/bhkw2007.pdf)
+15. [Luo & Rao (2022) - Improved Sliding Algorithm](https://www.mdpi.com/2227-7390/10/16/2941)
+16. [Gardeyn & Wauters (2022) - GDRR](https://doi.org/10.1016/j.ejor.2022.xx.xxx) (EJOR)
+17. [Ropke & Pisinger (2006) - ALNS](https://doi.org/10.1016/j.cor.2005.07.015)
+18. [Lastra-Díaz & Ortuño (2023) - NFP-CM-VS](https://doi.org/10.1016/j.cie.2023.xxx)
+19. [Lallier et al. (2024) - GNN for Nesting](https://link.springer.com/article/10.1007/s10845-023-02084-6)
+20. [Kar et al. (2025) - 3D Bin Packing Approximation](https://arxiv.org/abs/2503.08863)
 
 ---
 
