@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net6.0;net7.0;net8.0;netstandard2.0</TargetFrameworks>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>UNesting</RootNamespace>
+    <AssemblyName>UNesting</AssemblyName>
+
+    <!-- NuGet Package Metadata -->
+    <PackageId>UNesting</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>iyulab</Authors>
+    <Company>iyulab</Company>
+    <Product>UNesting</Product>
+    <Description>2D/3D spatial optimization engine for nesting and bin packing problems. High-performance Rust library with C# bindings.</Description>
+    <PackageTags>nesting;bin-packing;optimization;geometry;2d;3d;cad;manufacturing</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/iyulab/U-Nesting</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/iyulab/U-Nesting</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+
+    <!-- Build Configuration -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="\" />
+
+    <!-- Native library bundling -->
+    <None Include="runtimes\win-x64\native\u_nesting_ffi.dll" Pack="true" PackagePath="runtimes\win-x64\native\" Condition="Exists('runtimes\win-x64\native\u_nesting_ffi.dll')" />
+    <None Include="runtimes\linux-x64\native\libu_nesting_ffi.so" Pack="true" PackagePath="runtimes\linux-x64\native\" Condition="Exists('runtimes\linux-x64\native\libu_nesting_ffi.so')" />
+    <None Include="runtimes\osx-x64\native\libu_nesting_ffi.dylib" Pack="true" PackagePath="runtimes\osx-x64\native\" Condition="Exists('runtimes\osx-x64\native\libu_nesting_ffi.dylib')" />
+    <None Include="runtimes\osx-arm64\native\libu_nesting_ffi.dylib" Pack="true" PackagePath="runtimes\osx-arm64\native\" Condition="Exists('runtimes\osx-arm64\native\libu_nesting_ffi.dylib')" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
