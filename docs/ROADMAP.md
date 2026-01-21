@@ -2,8 +2,8 @@
 
 리서치 문서를 기반으로 상세한 다단계 로드맵을 구성했습니다.
 
-> **마지막 업데이트**: 2026-01-20
-> **현재 진행 단계**: Phase 1 완료, Phase 2 완료 (100%), Phase 3 완료 (100%), Phase 4 완료 (부분), Phase 6.1 완료
+> **마지막 업데이트**: 2026-01-21
+> **현재 진행 단계**: Phase 1 완료, Phase 2 완료 (100%), Phase 3 완료 (100%), Phase 4 완료 (75%), Phase 6.1 완료
 
 ---
 
@@ -14,9 +14,9 @@
 | **Phase 1** | 5-6주 | Geometry Core (2D/3D 기초) | ✅ 완료 |
 | **Phase 2** | 4-5주 | NFP 엔진 및 배치 알고리즘 | ✅ 완료 |
 | **Phase 3** | 5-6주 | 최적화 알고리즘 (GA/SA) | ✅ 완료 |
-| **Phase 4** | 3-4주 | 성능 최적화 및 병렬화 | 🔄 진행 중 (50%) |
+| **Phase 4** | 3-4주 | 성능 최적화 및 병렬화 | 🔄 진행 중 (75%) |
 | **Phase 5** | 3-4주 | FFI 및 통합 API | 🔄 진행 중 (60%) |
-| **Phase 6** | 2-3주 | 벤치마크 및 릴리스 준비 | ⏳ 대기 |
+| **Phase 6** | 2-3주 | 벤치마크 및 릴리스 준비 | 🔄 진행 중 (50%) |
 
 **총 예상 기간: 22-28주**
 
@@ -259,12 +259,17 @@ Genetic Algorithm 및 Simulated Annealing 최적화 엔진 구현
 > - 각 실행은 독립적인 RNG 사용
 > - 가장 좋은 결과 반환
 
-#### 4.5 Spatial Indexing (1주) ❌ 미구현
-- [ ] `rstar` R*-tree 통합 (2D)
-- [ ] `parry3d` BVH 활용 (3D)
-- [ ] Broad-phase collision culling
+#### 4.5 Spatial Indexing (1주) ✅ 완료
+- [x] `rstar` R*-tree 통합 (2D) - `d2/spatial_index.rs`
+- [x] Custom AABB 기반 인덱스 (3D) - `d3/spatial_index.rs`
+- [x] Broad-phase collision query API
 
-> **Note**: `rstar` 의존성은 추가됨, 실제 통합 필요
+> **구현 내용**:
+> - `SpatialIndex2D`: R*-tree 기반 2D 공간 인덱스
+> - `SpatialIndex3D`: AABB 리스트 기반 3D 공간 인덱스
+> - 회전 지원 AABB 계산
+> - Margin/spacing 지원 충돌 쿼리
+> - 향후 solver 통합에서 활용 예정
 
 #### 4.6 Memory Optimization (1주) ❌ 미구현
 - [ ] Arena allocation (`bumpalo`) for temporary polygons
@@ -403,6 +408,8 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 | GA 병렬 평가 | `core/ga.rs` | Population fitness 병렬 평가 |
 | BRKGA 병렬 평가 | `core/brkga.rs` | Population fitness 병렬 평가 |
 | SA 병렬 재시작 | `core/sa.rs` | 다중 SA 인스턴스 병렬 실행 |
+| Spatial Index 2D | `d2/spatial_index.rs` | R*-tree 기반 2D 공간 인덱스 |
+| Spatial Index 3D | `d3/spatial_index.rs` | AABB 기반 3D 공간 인덱스 |
 
 ### 미구현 핵심 기능 ❌
 | 기능 | 우선순위 | 설명 |
@@ -412,7 +419,7 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 | ~~GA-based Nesting~~ | ~~**중간**~~ | ~~GA + BLF/NFP decoder~~ ✅ 완료 |
 | ~~Extreme Point (3D)~~ | ~~**중간**~~ | ~~EP heuristic for bin packing~~ ✅ 완료 |
 | ~~병렬 처리~~ | ~~**중간**~~ | ~~rayon 기반 NFP/GA 병렬화~~ ✅ 완료 |
-| Spatial Indexing | **중간** | R*-tree/BVH 통합 |
+| ~~Spatial Indexing~~ | ~~**중간**~~ | ~~R*-tree/AABB 통합~~ ✅ 완료 |
 | Python Bindings | **낮음** | PyO3/maturin |
 
 ---
@@ -434,14 +441,19 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
 
 4. ~~**병렬 처리** (Phase 4)~~ ✅ 완료
    - rayon 기반 NFP/GA/BRKGA/SA 병렬화 완료
-   - Spatial indexing 통합 (향후)
 
-5. **Spatial Indexing** (Phase 4.5)
-   - R*-tree/BVH 기반 충돌 검사 최적화
+5. ~~**Spatial Indexing** (Phase 4.5)~~ ✅ 완료
+   - R*-tree 기반 2D 공간 인덱스 구현
+   - AABB 기반 3D 공간 인덱스 구현
+   - 향후 solver에 통합하여 broad-phase collision culling 적용 예정
 
 6. **3D 벤치마크** (Phase 6.2)
    - Martello et al. (2000) 데이터셋
    - BPPLIB 1D 인스턴스
+
+7. **Memory Optimization** (Phase 4.6)
+   - Arena allocation
+   - Geometry instancing
 
 ---
 
