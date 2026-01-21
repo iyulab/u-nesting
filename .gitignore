@@ -28,6 +28,7 @@ crates/ffi/include/
 # Benchmarks
 *.json
 !benches/**/*.json
+!docs/json-schema/*.json
 
 # Coverage
 lcov.info

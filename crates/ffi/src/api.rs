@@ -173,6 +173,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         Ok(r) => r,
         Err(e) => {
             return SolveResponse {
+                version: API_VERSION.to_string(),
                 success: false,
                 error: Some(format!("Invalid JSON: {}", e)),
                 placements: Vec::new(),
@@ -220,6 +221,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         Boundary2D::new(vertices)
     } else {
         return SolveResponse {
+            version: API_VERSION.to_string(),
             success: false,
             error: Some("Invalid boundary: specify width/height or polygon".into()),
             placements: Vec::new(),
@@ -237,6 +239,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
     let nester = Nester2D::new(config);
     match nester.solve(&geometries, &boundary) {
         Ok(result) => SolveResponse {
+            version: API_VERSION.to_string(),
             success: true,
             error: None,
             placements: result.placements.into_iter().map(Into::into).collect(),
@@ -246,6 +249,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             computation_time_ms: result.computation_time_ms,
         },
         Err(e) => SolveResponse {
+            version: API_VERSION.to_string(),
             success: false,
             error: Some(e.to_string()),
             placements: Vec::new(),
@@ -262,6 +266,7 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
         Ok(r) => r,
         Err(e) => {
             return SolveResponse {
+                version: API_VERSION.to_string(),
                 success: false,
                 error: Some(format!("Invalid JSON: {}", e)),
                 placements: Vec::new(),
@@ -311,6 +316,7 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
     let packer = Packer3D::new(config);
     match packer.solve(&geometries, &boundary) {
         Ok(result) => SolveResponse {
+            version: API_VERSION.to_string(),
             success: true,
             error: None,
             placements: result.placements.into_iter().map(Into::into).collect(),
@@ -320,6 +326,7 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
             computation_time_ms: result.computation_time_ms,
         },
         Err(e) => SolveResponse {
+            version: API_VERSION.to_string(),
             success: false,
             error: Some(e.to_string()),
             placements: Vec::new(),

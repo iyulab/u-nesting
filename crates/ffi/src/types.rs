@@ -165,6 +165,9 @@ pub struct ConfigRequest {
 /// Response for solve operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolveResponse {
+    /// API version.
+    pub version: String,
+
     /// Whether the operation succeeded.
     pub success: bool,
 
@@ -227,6 +230,7 @@ impl From<u_nesting_core::Placement<f64>> for PlacementResponse {
 impl<S: Into<f64> + Copy> From<u_nesting_core::SolveResult<S>> for SolveResponse {
     fn from(r: u_nesting_core::SolveResult<S>) -> Self {
         Self {
+            version: API_VERSION.to_string(),
             success: true,
             error: None,
             placements: Vec::new(), // Converted separately due to type constraints

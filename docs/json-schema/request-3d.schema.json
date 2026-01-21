@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iyulab/U-Nesting/docs/json-schema/request-3d.schema.json",
+  "title": "U-Nesting 3D Request",
+  "description": "Request schema for 3D bin packing problems",
+  "type": "object",
+  "required": ["geometries", "boundary"],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "const": "3d",
+      "description": "Mode indicator (required for auto-detect)"
+    },
+    "version": {
+      "type": "string",
+      "description": "API version",
+      "default": "1.0"
+    },
+    "geometries": {
+      "type": "array",
+      "description": "List of boxes to pack",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Geometry3D"
+      }
+    },
+    "boundary": {
+      "$ref": "#/$defs/Boundary3D"
+    },
+    "config": {
+      "$ref": "#/$defs/Config"
+    }
+  },
+  "$defs": {
+    "Geometry3D": {
+      "type": "object",
+      "description": "A 3D box geometry",
+      "required": ["id", "dimensions"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this geometry"
+        },
+        "dimensions": {
+          "type": "array",
+          "description": "Box dimensions [width, depth, height]",
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Number of copies to place",
+          "minimum": 1,
+          "default": 1
+        },
+        "mass": {
+          "type": "number",
+          "description": "Mass of the box (for weight constraints)",
+          "minimum": 0
+        },
+        "orientation": {
+          "type": "string",
+          "description": "Orientation constraint",
+          "enum": ["any", "upright", "fixed"],
+          "default": "any"
+        }
+      }
+    },
+    "Boundary3D": {
+      "type": "object",
+      "description": "Container (bin) definition",
+      "required": ["dimensions"],
+      "properties": {
+        "dimensions": {
+          "type": "array",
+          "description": "Container dimensions [width, depth, height]",
+          "items": { "type": "number", "exclusiveMinimum": 0 },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "max_mass": {
+          "type": "number",
+          "description": "Maximum total mass allowed in the container",
+          "exclusiveMinimum": 0
+        },
+        "gravity": {
+          "type": "boolean",
+          "description": "Enable gravity constraints (items must be supported)",
+          "default": false
+        },
+        "stability": {
+          "type": "boolean",
+          "description": "Enable stability constraints",
+          "default": false
+        }
+      }
+    },
+    "Config": {
+      "type": "object",
+      "description": "Solver configuration",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "Optimization strategy",
+          "enum": ["blf", "bottomleftfill", "ga", "genetic", "geneticalgorithm", "brkga", "sa", "simulatedannealing", "ep", "extremepoint"],
+          "default": "blf"
+        },
+        "spacing": {
+          "type": "number",
+          "description": "Minimum spacing between boxes",
+          "minimum": 0,
+          "default": 0
+        },
+        "margin": {
+          "type": "number",
+          "description": "Margin from container walls",
+          "minimum": 0,
+          "default": 0
+        },
+        "time_limit_ms": {
+          "type": "integer",
+          "description": "Maximum computation time in milliseconds (0 = unlimited)",
+          "minimum": 0,
+          "default": 30000
+        },
+        "target_utilization": {
+          "type": "number",
+          "description": "Target utilization ratio (0.0-1.0). Solver stops if reached.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "population_size": {
+          "type": "integer",
+          "description": "Population size for GA/BRKGA",
+          "minimum": 10,
+          "default": 100
+        },
+        "max_generations": {
+          "type": "integer",
+          "description": "Maximum generations for GA/BRKGA",
+          "minimum": 1,
+          "default": 500
+        },
+        "crossover_rate": {
+          "type": "number",
+          "description": "Crossover rate for GA (0.0-1.0)",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.85
+        },
+        "mutation_rate": {
+          "type": "number",
+          "description": "Mutation rate for GA (0.0-1.0)",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.05
+        }
+      }
+    }
+  }
+}

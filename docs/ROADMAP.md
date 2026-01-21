@@ -320,7 +320,7 @@ C#/Python 소비자를 위한 안정적인 FFI 인터페이스
   - [x] `request-2d.schema.json` - 2D 요청 스키마
   - [x] `request-3d.schema.json` - 3D 요청 스키마
   - [x] `response.schema.json` - 응답 스키마
-- [ ] Version 필드 추가
+- [x] Version 필드 추가 - `SolveResponse`에 API 버전 포함
 
 #### 5.3 Progress Callback (0.5주) ✅ 완료
 - [x] `ProgressCallback` type 정의 - `core/solver.rs`

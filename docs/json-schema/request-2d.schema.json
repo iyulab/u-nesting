@@ -1,0 +1,188 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iyulab/U-Nesting/docs/json-schema/request-2d.schema.json",
+  "title": "U-Nesting 2D Request",
+  "description": "Request schema for 2D polygon nesting problems",
+  "type": "object",
+  "required": ["geometries", "boundary"],
+  "properties": {
+    "mode": {
+      "type": "string",
+      "const": "2d",
+      "description": "Mode indicator (optional, auto-detected)"
+    },
+    "version": {
+      "type": "string",
+      "description": "API version",
+      "default": "1.0"
+    },
+    "geometries": {
+      "type": "array",
+      "description": "List of geometries to place",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/Geometry2D"
+      }
+    },
+    "boundary": {
+      "$ref": "#/$defs/Boundary2D"
+    },
+    "config": {
+      "$ref": "#/$defs/Config"
+    }
+  },
+  "$defs": {
+    "Geometry2D": {
+      "type": "object",
+      "description": "A 2D polygon geometry",
+      "required": ["id", "polygon"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for this geometry"
+        },
+        "polygon": {
+          "type": "array",
+          "description": "Exterior vertices as [[x, y], ...]",
+          "minItems": 3,
+          "items": {
+            "type": "array",
+            "items": { "type": "number" },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        },
+        "holes": {
+          "type": "array",
+          "description": "Interior holes (optional)",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": { "type": "number" },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "minItems": 3
+          }
+        },
+        "quantity": {
+          "type": "integer",
+          "description": "Number of copies to place",
+          "minimum": 1,
+          "default": 1
+        },
+        "rotations": {
+          "type": "array",
+          "description": "Allowed rotation angles in degrees",
+          "items": { "type": "number" },
+          "examples": [[0, 90, 180, 270]]
+        },
+        "allow_flip": {
+          "type": "boolean",
+          "description": "Whether flipping/mirroring is allowed",
+          "default": false
+        }
+      }
+    },
+    "Boundary2D": {
+      "type": "object",
+      "description": "Container boundary definition",
+      "oneOf": [
+        {
+          "properties": {
+            "width": {
+              "type": "number",
+              "description": "Width of rectangular boundary",
+              "exclusiveMinimum": 0
+            },
+            "height": {
+              "type": "number",
+              "description": "Height of rectangular boundary",
+              "exclusiveMinimum": 0
+            }
+          },
+          "required": ["width", "height"]
+        },
+        {
+          "properties": {
+            "polygon": {
+              "type": "array",
+              "description": "Arbitrary boundary polygon",
+              "items": {
+                "type": "array",
+                "items": { "type": "number" },
+                "minItems": 2,
+                "maxItems": 2
+              },
+              "minItems": 3
+            }
+          },
+          "required": ["polygon"]
+        }
+      ]
+    },
+    "Config": {
+      "type": "object",
+      "description": "Solver configuration",
+      "properties": {
+        "strategy": {
+          "type": "string",
+          "description": "Optimization strategy",
+          "enum": ["blf", "bottomleftfill", "nfp", "nfpguided", "ga", "genetic", "geneticalgorithm", "brkga", "sa", "simulatedannealing"],
+          "default": "blf"
+        },
+        "spacing": {
+          "type": "number",
+          "description": "Minimum spacing between geometries",
+          "minimum": 0,
+          "default": 0
+        },
+        "margin": {
+          "type": "number",
+          "description": "Margin from boundary edges",
+          "minimum": 0,
+          "default": 0
+        },
+        "time_limit_ms": {
+          "type": "integer",
+          "description": "Maximum computation time in milliseconds (0 = unlimited)",
+          "minimum": 0,
+          "default": 30000
+        },
+        "target_utilization": {
+          "type": "number",
+          "description": "Target utilization ratio (0.0-1.0). Solver stops if reached.",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "population_size": {
+          "type": "integer",
+          "description": "Population size for GA/BRKGA",
+          "minimum": 10,
+          "default": 100
+        },
+        "max_generations": {
+          "type": "integer",
+          "description": "Maximum generations for GA/BRKGA",
+          "minimum": 1,
+          "default": 500
+        },
+        "crossover_rate": {
+          "type": "number",
+          "description": "Crossover rate for GA (0.0-1.0)",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.85
+        },
+        "mutation_rate": {
+          "type": "number",
+          "description": "Mutation rate for GA (0.0-1.0)",
+          "minimum": 0,
+          "maximum": 1,
+          "default": 0.05
+        }
+      }
+    }
+  }
+}

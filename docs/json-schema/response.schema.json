@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/iyulab/U-Nesting/docs/json-schema/response.schema.json",
+  "title": "U-Nesting Response",
+  "description": "Response schema for all solve operations",
+  "type": "object",
+  "required": ["version", "success", "placements", "boundaries_used", "utilization", "computation_time_ms"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "API version (e.g., '1.0')",
+      "pattern": "^[0-9]+\\.[0-9]+$"
+    },
+    "success": {
+      "type": "boolean",
+      "description": "Whether the operation succeeded"
+    },
+    "error": {
+      "type": "string",
+      "description": "Error message (only present on failure)"
+    },
+    "placements": {
+      "type": "array",
+      "description": "List of placements for successfully placed geometries",
+      "items": {
+        "$ref": "#/$defs/Placement"
+      }
+    },
+    "boundaries_used": {
+      "type": "integer",
+      "description": "Number of boundaries/bins used",
+      "minimum": 0
+    },
+    "utilization": {
+      "type": "number",
+      "description": "Space utilization ratio (0.0-1.0)",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "unplaced": {
+      "type": "array",
+      "description": "IDs of geometries that could not be placed",
+      "items": { "type": "string" }
+    },
+    "computation_time_ms": {
+      "type": "integer",
+      "description": "Total computation time in milliseconds",
+      "minimum": 0
+    }
+  },
+  "$defs": {
+    "Placement": {
+      "type": "object",
+      "description": "Placement of a single geometry instance",
+      "required": ["geometry_id", "instance", "position", "rotation", "boundary_index"],
+      "properties": {
+        "geometry_id": {
+          "type": "string",
+          "description": "ID of the placed geometry"
+        },
+        "instance": {
+          "type": "integer",
+          "description": "Instance index (0-based, for geometries with quantity > 1)",
+          "minimum": 0
+        },
+        "position": {
+          "type": "array",
+          "description": "Position coordinates [x, y] for 2D or [x, y, z] for 3D",
+          "items": { "type": "number" },
+          "minItems": 2,
+          "maxItems": 3
+        },
+        "rotation": {
+          "type": "array",
+          "description": "Rotation angles in radians. 2D: [angle], 3D: [rx, ry, rz]",
+          "items": { "type": "number" },
+          "minItems": 1,
+          "maxItems": 3
+        },
+        "boundary_index": {
+          "type": "integer",
+          "description": "Index of the boundary/bin this geometry is placed in",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}
