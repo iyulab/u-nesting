@@ -19,9 +19,11 @@ pub mod ga_packing;
 pub mod geometry;
 pub mod packer;
 pub mod sa_packing;
+pub mod spatial_index;
 
 // Re-exports
 pub use boundary::Boundary3D;
 pub use geometry::Geometry3D;
 pub use packer::Packer3D;
+pub use spatial_index::{Aabb3D, SpatialEntry3D, SpatialIndex3D};
 pub use u_nesting_core::{Config, Error, Placement, Result, SolveResult, Strategy};

@@ -19,11 +19,13 @@ pub mod geometry;
 pub mod nester;
 pub mod nfp;
 pub mod sa_nesting;
+pub mod spatial_index;
 
 // Re-exports
 pub use boundary::Boundary2D;
 pub use geometry::Geometry2D;
 pub use nester::Nester2D;
+pub use spatial_index::{SpatialEntry2D, SpatialIndex2D};
 pub use u_nesting_core::{
     Boundary, Boundary2DExt, Config, Error, Geometry, Geometry2DExt, Placement, Result,
     RotationConstraint, SolveResult, Solver, Strategy, Transform2D, AABB2D,
