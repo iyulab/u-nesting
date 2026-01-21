@@ -22,7 +22,7 @@
 | **Phase 8** | 3-4주 | Exact Methods (MILP, HiGHS) | ✅ 완료 |
 | **Phase 9** | 4-5주 | 3D 고급 기능 (Stability, Physics) | ✅ 완료 |
 | **Phase 10** | 5-6주 | 배포 확장 및 문서화 | ✅ 완료 |
-| **Phase 11** | 5-6주 | ML/AI 통합 (GNN, RL) | ⬜ 연구 단계 |
+| **Phase 11** | 5-6주 | ML/AI 통합 (GNN, RL) | 📝 연구 분석 완료 |
 
 **총 예상 기간: 29-37주**
 
@@ -1447,7 +1447,7 @@ Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
 
 ---
 
-## Phase 11: ML/AI Integration (5-6주) ⬜ 연구 단계
+## Phase 11: ML/AI Integration (5-6주) 📝 연구 분석 완료
 
 > **배경**: research-03.md Part 5 분석 결과 - Research Frontier
 > - GNN: MAE 1.65 on 100k instances (J. Intelligent Manufacturing 2024)
@@ -1455,6 +1455,10 @@ Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
 > - ML-guided: JD.com 68.6% packing rate, 0.16s/order
 >
 > **주의**: 이 Phase는 연구 탐색 목적이며 production 적용은 신중히 검토 필요
+>
+> **연구 결과**: `docs/research/phase11-ml-ai-research.md` 참조
+> - 권장 순서: 11.3 (ML-Guided) → 11.1 (GNN) → 11.2 (RL, 실험적)
+> - 즉시 적용 가능: Rule-based strategy selection, Heuristic warm start
 
 ### 목표
 - ML 기반 효율성 예측으로 algorithm selection 지원
