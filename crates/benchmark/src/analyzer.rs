@@ -681,6 +681,7 @@ mod tests {
             "shapes0".into(),
             Strategy::BottomLeftFill,
             100.0,
+            40.0, // strip_height
             40,
             43,
             500,
@@ -690,6 +691,7 @@ mod tests {
             "shapes0".into(),
             Strategy::NfpGuided,
             95.0,
+            40.0, // strip_height
             43,
             43,
             1500,
@@ -699,6 +701,7 @@ mod tests {
             "shapes0".into(),
             Strategy::GeneticAlgorithm,
             90.0,
+            40.0, // strip_height
             43,
             43,
             5000,

@@ -6,6 +6,14 @@ use std::io::Write;
 use std::path::Path;
 use u_nesting_core::Strategy;
 
+/// Placement info for JSON output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlacementInfo {
+    pub geometry_id: usize,
+    pub position: [f64; 2],
+    pub rotation: f64,
+}
+
 /// Result of a single benchmark run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunResult {
@@ -17,6 +25,8 @@ pub struct RunResult {
     pub strategy: String,
     /// Strip length achieved (lower is better)
     pub strip_length: f64,
+    /// Strip height (boundary height)
+    pub strip_height: f64,
     /// Number of pieces placed
     pub pieces_placed: usize,
     /// Total pieces in the problem
@@ -31,6 +41,9 @@ pub struct RunResult {
     pub best_known: Option<f64>,
     /// Gap from best known (percentage)
     pub gap_percent: Option<f64>,
+    /// Placement coordinates (optional, for visualization)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub placements: Option<Vec<PlacementInfo>>,
 }
 
 impl RunResult {
@@ -40,6 +53,7 @@ impl RunResult {
         instance: String,
         strategy: Strategy,
         strip_length: f64,
+        strip_height: f64,
         pieces_placed: usize,
         total_pieces: usize,
         time_ms: u64,
@@ -55,6 +69,7 @@ impl RunResult {
             instance,
             strategy: format!("{:?}", strategy),
             strip_length,
+            strip_height,
             pieces_placed,
             total_pieces,
             utilization,
@@ -62,7 +77,14 @@ impl RunResult {
             iterations: None,
             best_known: None,
             gap_percent: None,
+            placements: None,
         }
+    }
+
+    /// Sets the placements for visualization.
+    pub fn with_placements(mut self, placements: Vec<PlacementInfo>) -> Self {
+        self.placements = Some(placements);
+        self
     }
 
     /// Sets the best known solution and calculates gap.
@@ -324,6 +346,7 @@ mod tests {
             "shapes0".to_string(),
             Strategy::BottomLeftFill,
             100.0,
+            40.0, // strip_height
             43,
             43,
             1500,

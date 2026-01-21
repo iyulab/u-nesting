@@ -160,6 +160,7 @@ impl BenchmarkRunner3D {
                             format!("run_{}", run_idx + 1),
                             *strategy,
                             bins_used as f64, // bins used as primary metric
+                            0.0, // no strip_height for 3D
                             solve_result.placements.len(),
                             geometries.len(),
                             elapsed,

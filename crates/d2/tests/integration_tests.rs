@@ -300,7 +300,8 @@ mod nester_tests {
 
         // Only 1 piece can fit in a 100x100 boundary
         assert_eq!(result.placements.len(), 1);
-        assert_eq!(result.unplaced.len(), 4); // 4 pieces couldn't be placed
+        // unplaced contains unique geometry IDs (after deduplication)
+        assert_eq!(result.unplaced.len(), 1); // 1 geometry ID couldn't be fully placed
     }
 
     #[test]

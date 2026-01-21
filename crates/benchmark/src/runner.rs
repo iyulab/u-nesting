@@ -154,15 +154,28 @@ impl BenchmarkRunner {
                         // Calculate actual strip length (max x of all placements)
                         let strip_length = self.calculate_strip_length(&solve_result, &geometries);
 
+                        // Convert placements to PlacementInfo for JSON output
+                        let placement_infos: Vec<crate::result::PlacementInfo> = solve_result
+                            .placements
+                            .iter()
+                            .map(|p| crate::result::PlacementInfo {
+                                geometry_id: p.geometry_id.parse().unwrap_or(0),
+                                position: [p.position[0], p.position[1]],
+                                rotation: p.rotation.first().copied().unwrap_or(0.0),
+                            })
+                            .collect();
+
                         let mut run_result = RunResult::new(
                             dataset.name.clone(),
                             format!("run_{}", run_idx + 1),
                             *strategy,
                             strip_length,
+                            dataset.strip_height,
                             solve_result.placements.len(),
                             geometries.len(),
                             elapsed,
-                        );
+                        )
+                        .with_placements(placement_infos);
 
                         if let Some(best) = dataset.best_known {
                             run_result = run_result.with_best_known(best);
