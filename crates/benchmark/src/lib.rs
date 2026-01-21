@@ -5,7 +5,9 @@
 //! - MPV (Martello-Pisinger-Vigo) instance generator for 3D bin packing
 //! - Benchmark runner with multiple strategies
 //! - Result recording and comparison
+//! - Result analysis and report generation
 
+mod analyzer;
 mod dataset;
 mod dataset3d;
 mod parser;
@@ -13,10 +15,16 @@ mod result;
 mod runner;
 mod runner3d;
 
+// Analysis exports
+pub use analyzer::{
+    AnalysisReport, Analyzer, DatasetAnalysis, OverallStats, RankEntry, Rankings,
+    ReportGenerator, StrategyAnalysis, StrategyComparison,
+};
+
 // 2D exports
 pub use dataset::{Dataset, DatasetInfo, Item, Shape};
 pub use parser::DatasetParser;
-pub use result::{BenchmarkResult, RunResult};
+pub use result::{BenchmarkResult, RunResult, StrategySummary};
 pub use runner::{BenchmarkConfig, BenchmarkRunner};
 
 // 3D exports
