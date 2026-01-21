@@ -775,11 +775,18 @@ pub fn point_outside_all_nfps(point: (f64, f64), nfps: &[&Nfp]) -> bool {
     true
 }
 
-/// Finds the bottom-left valid placement point.
+/// Finds the optimal placement point that minimizes strip length.
 ///
 /// The valid region is defined as points that are:
 /// 1. Inside the IFP (Inner-Fit Polygon) - the boundary constraint
 /// 2. Outside all NFPs (No-Fit Polygons) - not overlapping placed pieces
+///
+/// The optimization strategy prioritizes:
+/// 1. Minimize X coordinate first (to minimize strip length in strip packing)
+/// 2. Then minimize Y coordinate (pack tightly bottom-to-top)
+///
+/// This approach produces shorter strip lengths than the traditional
+/// "bottom-left" approach which prioritizes Y over X.
 ///
 /// # Arguments
 /// * `ifp` - The inner-fit polygon (valid positions within boundary)
@@ -787,7 +794,7 @@ pub fn point_outside_all_nfps(point: (f64, f64), nfps: &[&Nfp]) -> bool {
 /// * `sample_step` - Grid sampling step size (smaller = more accurate but slower)
 ///
 /// # Returns
-/// The bottom-left valid point, or None if no valid position exists.
+/// The optimal valid point, or None if no valid position exists.
 pub fn find_bottom_left_placement(
     ifp: &Nfp,
     nfps: &[&Nfp],
@@ -839,12 +846,13 @@ pub fn find_bottom_left_placement(
         })
         .collect();
 
-    // Find bottom-left point (minimize y first, then x)
+    // Find optimal point: minimize X first (strip length), then Y (pack tightly)
+    // This produces shorter strip lengths than the traditional "bottom-left" approach
     valid_candidates.into_iter().min_by(|a, b| {
-        // Compare y first (bottom), then x (left)
-        match a.1.partial_cmp(&b.1) {
+        // Compare X first (left = shorter strip), then Y (bottom)
+        match a.0.partial_cmp(&b.0) {
             Some(std::cmp::Ordering::Equal) => {
-                a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal)
+                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
             }
             Some(ord) => ord,
             None => std::cmp::Ordering::Equal,

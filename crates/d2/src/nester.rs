@@ -42,7 +42,7 @@ impl Nester2D {
         Self::new(Config::default())
     }
 
-    /// Bottom-Left Fill algorithm implementation.
+    /// Bottom-Left Fill algorithm implementation with rotation optimization.
     fn bottom_left_fill(
         &self,
         geometries: &[Geometry2D],
@@ -62,7 +62,10 @@ impl Nester2D {
         let bound_max_x = b_max[0] - margin;
         let bound_max_y = b_max[1] - margin;
 
-        // Simple row-based placement for now
+        let strip_width = bound_max_x - bound_min_x;
+        let strip_height = bound_max_y - bound_min_y;
+
+        // Simple row-based placement with rotation optimization
         let mut current_x = bound_min_x;
         let mut current_y = bound_min_y;
         let mut row_height = 0.0_f64;
@@ -72,46 +75,107 @@ impl Nester2D {
         for geom in geometries {
             geom.validate()?;
 
+            // Get allowed rotation angles (default to 0 if none specified)
+            let rotations = geom.rotations();
+            let rotation_angles: Vec<f64> = if rotations.is_empty() {
+                vec![0.0]
+            } else {
+                rotations
+            };
+
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
                     return Ok(result);
                 }
 
-                let (g_min, g_max) = geom.aabb();
-                let g_width = g_max[0] - g_min[0];
-                let g_height = g_max[1] - g_min[1];
+                // Find the best rotation for current position
+                let mut best_fit: Option<(f64, f64, f64, f64, f64, [f64; 2])> = None; // (rotation, width, height, x, y, g_min)
 
-                // Check if piece fits in remaining row space
-                if current_x + g_width > bound_max_x {
-                    // Move to next row
-                    current_x = bound_min_x;
-                    current_y += row_height + spacing;
-                    row_height = 0.0;
+                for &rotation in &rotation_angles {
+                    let (g_min, g_max) = geom.aabb_at_rotation(rotation);
+                    let g_width = g_max[0] - g_min[0];
+                    let g_height = g_max[1] - g_min[1];
+
+                    // Skip if geometry doesn't fit in boundary at all
+                    if g_width > strip_width || g_height > strip_height {
+                        continue;
+                    }
+
+                    // Calculate placement position for this rotation
+                    let mut place_x = current_x;
+                    let mut place_y = current_y;
+
+                    // Check if piece fits in remaining row space
+                    if place_x + g_width > bound_max_x {
+                        // Would need to move to next row
+                        place_x = bound_min_x;
+                        place_y += row_height + spacing;
+                    }
+
+                    // Check if piece fits in boundary height
+                    if place_y + g_height > bound_max_y {
+                        continue; // This rotation doesn't fit
+                    }
+
+                    // Calculate score: prefer rotations that minimize wasted space
+                    // Score = row advancement (lower is better)
+                    let score = if place_x == bound_min_x && place_y > current_y {
+                        // New row: score is based on new Y position
+                        place_y - bound_min_y + g_height
+                    } else {
+                        // Same row: score is based on strip length advancement
+                        place_x - bound_min_x + g_width
+                    };
+
+                    let is_better = match &best_fit {
+                        None => true,
+                        Some((_, _, _, _, _, _)) => {
+                            // Prefer placements that don't start new rows
+                            let best_score = if let Some((_, _, _, bx, by, _)) = best_fit {
+                                if bx == bound_min_x && by > current_y {
+                                    by - bound_min_y + g_height
+                                } else {
+                                    bx - bound_min_x + g_width
+                                }
+                            } else {
+                                f64::INFINITY
+                            };
+                            score < best_score - 1e-6
+                        }
+                    };
+
+                    if is_better {
+                        best_fit = Some((rotation, g_width, g_height, place_x, place_y, g_min));
+                    }
                 }
 
-                // Check if piece fits in boundary height
-                if current_y + g_height > bound_max_y {
-                    // Can't place this piece
+                // Place the geometry with the best rotation
+                if let Some((rotation, g_width, g_height, place_x, place_y, g_min)) = best_fit {
+                    // Update row tracking if we moved to a new row
+                    if place_x == bound_min_x && place_y > current_y {
+                        row_height = 0.0;
+                    }
+
+                    let placement = Placement::new_2d(
+                        geom.id().clone(),
+                        instance,
+                        place_x - g_min[0],
+                        place_y - g_min[1],
+                        rotation,
+                    );
+
+                    placements.push(placement);
+                    total_placed_area += geom.measure();
+
+                    // Update position for next piece
+                    current_x = place_x + g_width + spacing;
+                    current_y = place_y;
+                    row_height = row_height.max(g_height);
+                } else {
+                    // Can't place this piece with any rotation
                     result.unplaced.push(geom.id().clone());
-                    continue;
                 }
-
-                // Place the piece
-                let placement = Placement::new_2d(
-                    geom.id().clone(),
-                    instance,
-                    current_x - g_min[0],
-                    current_y - g_min[1],
-                    0.0,
-                );
-
-                placements.push(placement);
-                total_placed_area += geom.measure();
-
-                // Update position for next piece
-                current_x += g_width + spacing;
-                row_height = row_height.max(g_height);
             }
         }
 
@@ -203,15 +267,17 @@ impl Nester2D {
                     // Shrink IFP by spacing from boundary
                     let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
 
-                    // Find the bottom-left valid placement
+                    // Find the optimal valid placement (minimize X for shorter strip)
                     let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
                     if let Some((x, y)) =
                         find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
                     {
-                        // Compare with current best (bottom-left preference)
+                        // Compare with current best: prefer smaller X (shorter strip), then smaller Y
                         let is_better = match best_placement {
                             None => true,
-                            Some((_, best_y, _)) => y < best_y - 1e-6,
+                            Some((best_x, best_y, _)) => {
+                                x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
+                            }
                         };
                         if is_better {
                             best_placement = Some((x, y, rotation));
@@ -746,6 +812,53 @@ mod tests {
 
         // All 4 pieces should fit
         assert_eq!(result.placements.len(), 4);
+        assert!(result.unplaced.is_empty());
+    }
+
+    #[test]
+    fn test_blf_rotation_optimization() {
+        // Test that BLF uses rotation to optimize placement
+        // A 30x10 rectangle can fit better in a narrow strip when rotated 90 degrees
+        let geometries = vec![
+            Geometry2D::rectangle("R1", 30.0, 10.0)
+                .with_rotations(vec![0.0, std::f64::consts::FRAC_PI_2]) // 0 and 90 degrees
+                .with_quantity(3),
+        ];
+
+        // Strip that's 35 wide: 30x10 won't fit two side-by-side at 0 deg
+        // But two 10x30 (rotated 90 deg) can fit vertically in 95 height
+        let boundary = Boundary2D::rectangle(35.0, 95.0);
+        let nester = Nester2D::default_config();
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // All 3 pieces should be placed (by rotating)
+        assert_eq!(
+            result.placements.len(),
+            3,
+            "All pieces should be placed with rotation optimization"
+        );
+        assert!(result.unplaced.is_empty());
+    }
+
+    #[test]
+    fn test_blf_selects_best_rotation() {
+        // Verify BLF selects optimal rotation, not just the first one
+        let geometries = vec![
+            Geometry2D::rectangle("R1", 40.0, 10.0)
+                .with_rotations(vec![0.0, std::f64::consts::FRAC_PI_2]) // 0 and 90 degrees
+                .with_quantity(2),
+        ];
+
+        // In a 45x50 boundary:
+        // - At 0 deg: 40x10, only one fits horizontally (40 < 45), next row needed
+        // - At 90 deg: 10x40, two can fit side-by-side (10+10 < 45) in one row
+        let boundary = Boundary2D::rectangle(45.0, 50.0);
+        let nester = Nester2D::default_config();
+
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        assert_eq!(result.placements.len(), 2);
         assert!(result.unplaced.is_empty());
     }
 }

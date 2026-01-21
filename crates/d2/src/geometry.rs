@@ -386,6 +386,42 @@ impl Geometry2DExt for Geometry2D {
     }
 }
 
+impl Geometry2D {
+    /// Computes the AABB of the geometry at a given rotation angle (in radians).
+    ///
+    /// Returns (min, max) as ([min_x, min_y], [max_x, max_y])
+    pub fn aabb_at_rotation(&self, rotation: f64) -> ([f64; 2], [f64; 2]) {
+        if rotation.abs() < 1e-10 {
+            return self.aabb();
+        }
+
+        let cos_r = rotation.cos();
+        let sin_r = rotation.sin();
+
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+
+        for &(x, y) in &self.exterior {
+            let rx = x * cos_r - y * sin_r;
+            let ry = x * sin_r + y * cos_r;
+            min_x = min_x.min(rx);
+            min_y = min_y.min(ry);
+            max_x = max_x.max(rx);
+            max_y = max_y.max(ry);
+        }
+
+        ([min_x, min_y], [max_x, max_y])
+    }
+
+    /// Returns the width and height of the AABB at a given rotation.
+    pub fn dimensions_at_rotation(&self, rotation: f64) -> (f64, f64) {
+        let (min, max) = self.aabb_at_rotation(rotation);
+        (max[0] - min[0], max[1] - min[1])
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
