@@ -14,9 +14,9 @@ PROJECT_ROOT = os.path.dirname(DEV_DIR)
 
 # Pre-built binary path (built on startup if missing)
 if sys.platform == 'win32':
-    BENCHMARK_BIN = os.path.join(PROJECT_ROOT, 'target', 'release', 'u-nesting-benchmark.exe')
+    BENCHMARK_BIN = os.path.join(PROJECT_ROOT, 'target', 'release', 'bench-runner.exe')
 else:
-    BENCHMARK_BIN = os.path.join(PROJECT_ROOT, 'target', 'release', 'u-nesting-benchmark')
+    BENCHMARK_BIN = os.path.join(PROJECT_ROOT, 'target', 'release', 'bench-runner')
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
