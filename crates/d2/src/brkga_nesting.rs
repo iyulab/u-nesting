@@ -185,8 +185,13 @@ impl BrkgaNestingProblem {
             // Find the bottom-left valid placement
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
             if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
+                // Adjust for geometry's own coordinate offset
+                let (g_min, _) = geom.aabb_at_rotation(rotation_angle);
+                let adjusted_x = x - g_min[0];
+                let adjusted_y = y - g_min[1];
+
                 let placement =
-                    Placement::new_2d(geom.id().clone(), info.instance_num, x, y, rotation_angle);
+                    Placement::new_2d(geom.id().clone(), info.instance_num, adjusted_x, adjusted_y, rotation_angle);
 
                 placements.push(placement);
                 placed_geometries.push(PlacedGeometry::new(geom.clone(), (x, y), rotation_angle));

@@ -234,12 +234,17 @@ impl AlnsNestingProblem {
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
             if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
+                // Adjust for geometry's own coordinate offset
+                let (g_min, _) = geom.aabb_at_rotation(rotation);
+                let adjusted_x = x - g_min[0];
+                let adjusted_y = y - g_min[1];
+
                 if y < best_y {
                     best_y = y;
                     best_placement = Some(PlacedItem {
                         instance_idx,
-                        x,
-                        y,
+                        x: adjusted_x,
+                        y: adjusted_y,
                         rotation,
                         score: y,
                     });
