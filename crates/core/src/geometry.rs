@@ -42,12 +42,10 @@ impl<S: RealField + Copy> RotationConstraint<S> {
             return Self::None;
         }
         let two_pi = S::two_pi();
-        let step = two_pi
-            / S::from_usize(n).expect("n exceeds scalar precision (use n < 2^24 for f32)");
+        let step =
+            two_pi / S::from_usize(n).expect("n exceeds scalar precision (use n < 2^24 for f32)");
         let angles: Vec<S> = (0..n)
-            .map(|i| {
-                step * S::from_usize(i).expect("index exceeds scalar precision")
-            })
+            .map(|i| step * S::from_usize(i).expect("index exceeds scalar precision"))
             .collect();
         Self::Discrete(angles)
     }

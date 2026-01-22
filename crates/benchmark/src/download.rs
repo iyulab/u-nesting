@@ -170,7 +170,8 @@ impl DatasetManager {
 
     /// Gets the cache file path for an instance.
     pub fn get_cache_path(&self, instance: &str) -> PathBuf {
-        self.base_dir.join(format!("{}.json", instance.to_lowercase()))
+        self.base_dir
+            .join(format!("{}.json", instance.to_lowercase()))
     }
 
     /// Downloads a dataset instance from GitHub.

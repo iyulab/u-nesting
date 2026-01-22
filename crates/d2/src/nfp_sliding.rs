@@ -352,7 +352,11 @@ pub fn compute_translation_vectors(
                 let max_dist_neg = distance(contact.point, edge_start);
 
                 vectors.push(TranslationVector::new(dir, max_dist_pos, contact.clone()));
-                vectors.push(TranslationVector::new(neg_dir, max_dist_neg, contact.clone()));
+                vectors.push(TranslationVector::new(
+                    neg_dir,
+                    max_dist_neg,
+                    contact.clone(),
+                ));
             }
             ContactType::EdgeVertex => {
                 // Stationary vertex on orbiting edge
@@ -536,8 +540,7 @@ pub fn check_translation_collision(
             // The stationary vertex appears to move in the opposite direction
             let neg_dir = (-trans_dir.0, -trans_dir.1);
 
-            if let Some(dist) =
-                ray_segment_intersection(stat_v, neg_dir, orb_p1, orb_p2, tolerance)
+            if let Some(dist) = ray_segment_intersection(stat_v, neg_dir, orb_p1, orb_p2, tolerance)
             {
                 if dist > tolerance
                     && dist < trans_len - tolerance
@@ -680,7 +683,10 @@ pub fn detect_interlocking_opportunity(
             // This concave region might be accessible
             // Compute a potential position toward this vertex
             let dir = normalize((vertex.0 - current_pos.0, vertex.1 - current_pos.1));
-            let test_pos = (current_pos.0 + dir.0 * tolerance, current_pos.1 + dir.1 * tolerance);
+            let test_pos = (
+                current_pos.0 + dir.0 * tolerance,
+                current_pos.1 + dir.1 * tolerance,
+            );
 
             // Verify this doesn't cause overlap
             let orbiting_test: Vec<(f64, f64)> = orbiting
@@ -849,10 +855,7 @@ pub fn compute_nfp_sliding(
 ///
 /// The start position is where the orbiting polygon touches the stationary
 /// polygon from the "bottom-left" direction (minimizing y, then x).
-fn find_start_position(
-    stationary: &[(f64, f64)],
-    orbiting: &[(f64, f64)],
-) -> Result<(f64, f64)> {
+fn find_start_position(stationary: &[(f64, f64)], orbiting: &[(f64, f64)]) -> Result<(f64, f64)> {
     // Find the bottom-most vertex of stationary polygon
     let stat_bottom_idx = stationary
         .iter()
@@ -921,9 +924,12 @@ fn trace_nfp_boundary(
 
         if !touching_group.has_contacts() {
             // No contacts - try to recover by moving toward stationary polygon
-            if let Some(recovery_pos) =
-                recover_contact(stationary, &orbiting_current, current_pos, config.contact_tolerance)
-            {
+            if let Some(recovery_pos) = recover_contact(
+                stationary,
+                &orbiting_current,
+                current_pos,
+                config.contact_tolerance,
+            ) {
                 current_pos = recovery_pos;
                 continue;
             }
@@ -986,22 +992,18 @@ fn trace_nfp_boundary(
         );
 
         // Check for collisions during translation
-        let actual_translation =
-            if let Some(collision) = check_translation_collision(
-                stationary,
-                &orbiting_current,
-                intended_translation,
-                config.contact_tolerance,
-            ) {
-                // Stop at the collision point
-                let blocked_dist = (collision.distance - config.contact_tolerance).max(0.0);
-                (
-                    tv.direction.0 * blocked_dist,
-                    tv.direction.1 * blocked_dist,
-                )
-            } else {
-                intended_translation
-            };
+        let actual_translation = if let Some(collision) = check_translation_collision(
+            stationary,
+            &orbiting_current,
+            intended_translation,
+            config.contact_tolerance,
+        ) {
+            // Stop at the collision point
+            let blocked_dist = (collision.distance - config.contact_tolerance).max(0.0);
+            (tv.direction.0 * blocked_dist, tv.direction.1 * blocked_dist)
+        } else {
+            intended_translation
+        };
 
         let new_pos = (
             current_pos.0 + actual_translation.0,
@@ -1068,7 +1070,10 @@ fn recover_contact(
             let orb_centroid = polygon_centroid(orbiting);
             let dir = normalize((target.0 - orb_centroid.0, target.1 - orb_centroid.1));
             let move_dist = min_dist - tolerance * 0.5;
-            return Some((current_pos.0 + dir.0 * move_dist, current_pos.1 + dir.1 * move_dist));
+            return Some((
+                current_pos.0 + dir.0 * move_dist,
+                current_pos.1 + dir.1 * move_dist,
+            ));
         }
     }
 
@@ -1202,10 +1207,7 @@ mod tests {
         let contacts = find_contacts(&stationary, &orbiting, 1e-6);
 
         // Should find vertex-edge contact where orbiting's bottom-left touches top of stationary
-        assert!(
-            !contacts.is_empty(),
-            "Should find at least one contact"
-        );
+        assert!(!contacts.is_empty(), "Should find at least one contact");
     }
 
     #[test]
@@ -1258,10 +1260,7 @@ mod tests {
         let vectors = compute_translation_vectors(&group, &stationary, &orbiting);
 
         // Should have translation vectors along the contact edges
-        assert!(
-            !vectors.is_empty(),
-            "Should have translation vectors"
-        );
+        assert!(!vectors.is_empty(), "Should have translation vectors");
     }
 
     #[test]
@@ -1330,32 +1329,24 @@ mod tests {
     #[test]
     fn test_ray_segment_intersection() {
         // Ray pointing right, segment vertical
-        let result = ray_segment_intersection((0.0, 0.0), (1.0, 0.0), (5.0, -1.0), (5.0, 1.0), 1e-6);
+        let result =
+            ray_segment_intersection((0.0, 0.0), (1.0, 0.0), (5.0, -1.0), (5.0, 1.0), 1e-6);
         assert!(result.is_some());
         assert!((result.unwrap() - 5.0).abs() < 1e-6);
 
         // Ray pointing left, segment vertical (should not intersect)
-        let result = ray_segment_intersection((0.0, 0.0), (-1.0, 0.0), (5.0, -1.0), (5.0, 1.0), 1e-6);
+        let result =
+            ray_segment_intersection((0.0, 0.0), (-1.0, 0.0), (5.0, -1.0), (5.0, 1.0), 1e-6);
         assert!(result.is_none());
     }
 
     #[test]
     fn test_check_translation_collision() {
         // Simple stationary square
-        let stationary = vec![
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (10.0, 10.0),
-            (0.0, 10.0),
-        ];
+        let stationary = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
 
         // Orbiting square positioned to the right
-        let orbiting = vec![
-            (15.0, 2.0),
-            (20.0, 2.0),
-            (20.0, 8.0),
-            (15.0, 8.0),
-        ];
+        let orbiting = vec![(15.0, 2.0), (20.0, 2.0), (20.0, 8.0), (15.0, 8.0)];
 
         // Translation going left (toward the stationary square)
         let translation = (-10.0, 0.0);
@@ -1363,7 +1354,10 @@ mod tests {
 
         // Should detect collision - orbiting left edge at x=15 moving -10 would reach x=5
         // But stationary right edge is at x=10, so collision should occur at distance 5
-        assert!(collision.is_some(), "Should detect collision when moving left");
+        assert!(
+            collision.is_some(),
+            "Should detect collision when moving left"
+        );
 
         if let Some(c) = collision {
             // Collision distance should be around 5 (from x=15 to x=10)
@@ -1384,7 +1378,10 @@ mod tests {
             .map(|&(x, y)| (x + 5.0, y + 5.0))
             .collect();
 
-        assert!(polygons_overlap(&a, &b), "Overlapping squares should overlap");
+        assert!(
+            polygons_overlap(&a, &b),
+            "Overlapping squares should overlap"
+        );
     }
 
     #[test]
@@ -1396,7 +1393,10 @@ mod tests {
             .map(|&(x, y)| (x + 20.0, y))
             .collect();
 
-        assert!(!polygons_overlap(&a, &b), "Separated squares should not overlap");
+        assert!(
+            !polygons_overlap(&a, &b),
+            "Separated squares should not overlap"
+        );
     }
 
     #[test]
@@ -1413,11 +1413,7 @@ mod tests {
     #[test]
     fn test_sliding_nfp_triangle() {
         // Equilateral triangle (stationary)
-        let stationary = vec![
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (5.0, 8.66),
-        ];
+        let stationary = vec![(0.0, 0.0), (10.0, 0.0), (5.0, 8.66)];
 
         // Small square (orbiting)
         let orbiting = rect(3.0, 3.0);
@@ -1432,7 +1428,10 @@ mod tests {
 
         assert!(result.is_ok(), "NFP of triangle and square should succeed");
         let nfp = result.unwrap();
-        assert!(nfp.vertex_count() >= 3, "NFP should have at least 3 vertices");
+        assert!(
+            nfp.vertex_count() >= 3,
+            "NFP should have at least 3 vertices"
+        );
     }
 
     #[test]
@@ -1458,19 +1457,25 @@ mod tests {
 
         let result = compute_nfp_sliding(&stationary, &orbiting, &config);
 
-        assert!(result.is_ok(), "NFP of L-shape and square should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "NFP of L-shape and square should succeed: {:?}",
+            result.err()
+        );
         let nfp = result.unwrap();
         // L-shape NFP should have more vertices than a simple rectangle
-        assert!(nfp.vertex_count() >= 6, "NFP of L-shape should have >= 6 vertices, got {}", nfp.vertex_count());
+        assert!(
+            nfp.vertex_count() >= 6,
+            "NFP of L-shape should have >= 6 vertices, got {}",
+            nfp.vertex_count()
+        );
     }
 
     #[test]
     fn test_handle_perfect_fit_filters_visited() {
         let stationary = rect(10.0, 10.0);
-        let orbiting: Vec<(f64, f64)> = rect(5.0, 5.0)
-            .iter()
-            .map(|&(x, y)| (x, y + 10.0))
-            .collect();
+        let orbiting: Vec<(f64, f64)> =
+            rect(5.0, 5.0).iter().map(|&(x, y)| (x, y + 10.0)).collect();
 
         let group = create_touching_group(&stationary, &orbiting, (0.0, 10.0), 1e-4);
 

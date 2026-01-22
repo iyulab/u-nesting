@@ -734,17 +734,11 @@ mod tests {
         }
 
         fn destroy_operators(&self) -> Vec<DestroyOperatorId> {
-            vec![
-                DestroyOperatorId::Random,
-                DestroyOperatorId::Worst,
-            ]
+            vec![DestroyOperatorId::Random, DestroyOperatorId::Worst]
         }
 
         fn repair_operators(&self) -> Vec<RepairOperatorId> {
-            vec![
-                RepairOperatorId::Greedy,
-                RepairOperatorId::BottomLeftFill,
-            ]
+            vec![RepairOperatorId::Greedy, RepairOperatorId::BottomLeftFill]
         }
 
         fn destroy(

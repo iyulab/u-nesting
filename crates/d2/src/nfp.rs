@@ -204,7 +204,12 @@ pub fn compute_nfp_with_method(
     rotation: f64,
     method: NfpMethod,
 ) -> Result<Nfp> {
-    compute_nfp_with_config(stationary, orbiting, rotation, &NfpConfig::with_method(method))
+    compute_nfp_with_config(
+        stationary,
+        orbiting,
+        rotation,
+        &NfpConfig::with_method(method),
+    )
 }
 
 /// Computes the No-Fit Polygon between two geometries with full configuration.
@@ -256,10 +261,8 @@ pub fn compute_nfp_with_config(
             };
 
             // Reflect the orbiting polygon (NFP requires -B)
-            let reflected: Vec<(f64, f64)> = rotated_orbiting
-                .iter()
-                .map(|&(x, y)| (-x, -y))
-                .collect();
+            let reflected: Vec<(f64, f64)> =
+                rotated_orbiting.iter().map(|&(x, y)| (-x, -y)).collect();
 
             compute_nfp_sliding(stat_exterior, &reflected, &sliding_config)
         }
@@ -1199,10 +1202,10 @@ pub fn find_bottom_left_placement(
         .into_iter()
         .filter(|&point| {
             // Must be inside IFP (including boundary points)
-            let in_ifp =
-                ifp.polygons
-                    .iter()
-                    .any(|p| point_in_polygon(point, p) || point_on_polygon_boundary(point, p));
+            let in_ifp = ifp
+                .polygons
+                .iter()
+                .any(|p| point_in_polygon(point, p) || point_on_polygon_boundary(point, p));
             if !in_ifp {
                 return false;
             }
@@ -1552,7 +1555,10 @@ mod tests {
         let width = max_x - min_x;
         let height = max_y - min_y;
         eprintln!("NFP dimensions: {}x{}", width, height);
-        eprintln!("NFP bounds: ({}, {}) to ({}, {})", min_x, min_y, max_x, max_y);
+        eprintln!(
+            "NFP bounds: ({}, {}) to ({}, {})",
+            min_x, min_y, max_x, max_y
+        );
         // NFP of two identical rectangles should be 50x50
         assert_relative_eq!(width, 50.0, epsilon = 1e-6);
         assert_relative_eq!(height, 50.0, epsilon = 1e-6);
@@ -1976,12 +1982,7 @@ mod tests {
     #[test]
     fn test_ensure_ccw_with_near_zero_area() {
         // Polygon with very small area
-        let tiny_area = vec![
-            (0.0, 0.0),
-            (1e-10, 0.0),
-            (1e-10, 1e-10),
-            (0.0, 1e-10),
-        ];
+        let tiny_area = vec![(0.0, 0.0), (1e-10, 0.0), (1e-10, 1e-10), (0.0, 1e-10)];
 
         // Should handle without crashing
         let ccw = ensure_ccw(&tiny_area);

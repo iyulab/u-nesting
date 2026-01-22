@@ -322,11 +322,7 @@ impl GdrrRunner {
     }
 
     /// Run the GDRR algorithm on the given problem.
-    pub fn run<P, F>(
-        &self,
-        problem: &mut P,
-        mut progress_callback: F,
-    ) -> GdrrResult<P::Solution>
+    pub fn run<P, F>(&self, problem: &mut P, mut progress_callback: F) -> GdrrResult<P::Solution>
     where
         P: GdrrProblem,
         F: FnMut(&GdrrProgress),

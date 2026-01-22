@@ -1,17 +1,17 @@
 //! 2D nesting solver.
 
+use crate::alns_nesting::run_alns_nesting;
 use crate::boundary::Boundary2D;
 use crate::brkga_nesting::run_brkga_nesting;
 use crate::ga_nesting::{run_ga_nesting, run_ga_nesting_with_progress};
+use crate::gdrr_nesting::run_gdrr_nesting;
 use crate::geometry::Geometry2D;
+#[cfg(feature = "milp")]
+use crate::milp_solver::run_milp_nesting;
 use crate::nfp::{
     compute_ifp_with_margin, compute_nfp, find_bottom_left_placement, rotate_nfp, translate_nfp,
     Nfp, NfpCache, PlacedGeometry,
 };
-use crate::alns_nesting::run_alns_nesting;
-use crate::gdrr_nesting::run_gdrr_nesting;
-#[cfg(feature = "milp")]
-use crate::milp_solver::run_milp_nesting;
 #[cfg(feature = "milp")]
 use crate::nfp_cm_solver::run_nfp_cm_nesting;
 use crate::sa_nesting::run_sa_nesting;
@@ -311,14 +311,13 @@ impl Nester2D {
                         // NFP is computed between the placed geometry at origin (no rotation)
                         // and the new geometry with relative rotation applied.
                         // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
-                        let nfp_at_origin =
-                            match self.nfp_cache.get_or_compute(cache_key, || {
-                                let placed_at_origin = placed.geometry.clone();
-                                compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
-                            }) {
-                                Ok(nfp) => nfp,
-                                Err(_) => continue,
-                            };
+                        let nfp_at_origin = match self.nfp_cache.get_or_compute(cache_key, || {
+                            let placed_at_origin = placed.geometry.clone();
+                            compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
+                        }) {
+                            Ok(nfp) => nfp,
+                            Err(_) => continue,
+                        };
 
                         // Transform NFP: first rotate by placed.rotation, then translate to placed.position
                         // This correctly accounts for the placed geometry's actual orientation
@@ -363,10 +362,20 @@ impl Nester2D {
                     let clamped_x = x.clamp(min_valid_x, max_valid_x);
                     let clamped_y = y.clamp(min_valid_y, max_valid_y);
 
-                    let placement = Placement::new_2d(geom.id().clone(), instance, clamped_x, clamped_y, rotation);
+                    let placement = Placement::new_2d(
+                        geom.id().clone(),
+                        instance,
+                        clamped_x,
+                        clamped_y,
+                        rotation,
+                    );
 
                     placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation));
+                    placed_geometries.push(PlacedGeometry::new(
+                        geom.clone(),
+                        (clamped_x, clamped_y),
+                        rotation,
+                    ));
                     total_placed_area += geom.measure();
                 } else {
                     // Could not place this instance
@@ -517,7 +526,8 @@ impl Nester2D {
 
         // Apply time limit if specified
         if self.config.time_limit_ms > 0 {
-            ga_config = ga_config.with_time_limit(std::time::Duration::from_millis(self.config.time_limit_ms));
+            ga_config = ga_config
+                .with_time_limit(std::time::Duration::from_millis(self.config.time_limit_ms));
         }
 
         let result = run_ga_nesting(
@@ -595,11 +605,7 @@ impl Nester2D {
     }
 
     /// Goal-Driven Ruin and Recreate (GDRR) optimization.
-    fn gdrr(
-        &self,
-        geometries: &[Geometry2D],
-        boundary: &Boundary2D,
-    ) -> Result<SolveResult<f64>> {
+    fn gdrr(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
         // Configure GDRR with reasonable defaults
         // Use user's time limit, default to 60s if not specified
         let time_limit = if self.config.time_limit_ms > 0 {
@@ -625,11 +631,7 @@ impl Nester2D {
     }
 
     /// Adaptive Large Neighborhood Search (ALNS) optimization.
-    fn alns(
-        &self,
-        geometries: &[Geometry2D],
-        boundary: &Boundary2D,
-    ) -> Result<SolveResult<f64>> {
+    fn alns(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
         // Configure ALNS with reasonable defaults
         // Use user's time limit, default to 60s if not specified
         let time_limit = if self.config.time_limit_ms > 0 {
@@ -748,10 +750,12 @@ impl Nester2D {
         let mut placed_count = 0usize;
 
         // Initial progress callback
-        callback(ProgressInfo::new()
-            .with_phase("BLF Placement")
-            .with_items(0, total_pieces)
-            .with_elapsed(0));
+        callback(
+            ProgressInfo::new()
+                .with_phase("BLF Placement")
+                .with_items(0, total_pieces)
+                .with_elapsed(0),
+        );
 
         for geom in geometries {
             geom.validate()?;
@@ -766,11 +770,13 @@ impl Nester2D {
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
-                    callback(ProgressInfo::new()
-                        .with_phase("Cancelled")
-                        .with_items(placed_count, total_pieces)
-                        .with_elapsed(result.computation_time_ms)
-                        .finished());
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("Cancelled")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
@@ -782,11 +788,13 @@ impl Nester2D {
                     result.utilization = total_placed_area / boundary.measure();
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
                     result.placements = placements;
-                    callback(ProgressInfo::new()
-                        .with_phase("Time Limit Reached")
-                        .with_items(placed_count, total_pieces)
-                        .with_elapsed(result.computation_time_ms)
-                        .finished());
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("Time Limit Reached")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
@@ -873,11 +881,13 @@ impl Nester2D {
                     row_height = row_height.max(g_height);
 
                     // Progress callback every piece
-                    callback(ProgressInfo::new()
-                        .with_phase("BLF Placement")
-                        .with_items(placed_count, total_pieces)
-                        .with_utilization(total_placed_area / boundary.measure())
-                        .with_elapsed(start.elapsed().as_millis() as u64));
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("BLF Placement")
+                            .with_items(placed_count, total_pieces)
+                            .with_utilization(total_placed_area / boundary.measure())
+                            .with_elapsed(start.elapsed().as_millis() as u64),
+                    );
                 } else {
                     result.unplaced.push(geom.id().clone());
                 }
@@ -890,12 +900,14 @@ impl Nester2D {
         result.computation_time_ms = start.elapsed().as_millis() as u64;
 
         // Final progress callback
-        callback(ProgressInfo::new()
-            .with_phase("Complete")
-            .with_items(placed_count, total_pieces)
-            .with_utilization(result.utilization)
-            .with_elapsed(result.computation_time_ms)
-            .finished());
+        callback(
+            ProgressInfo::new()
+                .with_phase("Complete")
+                .with_items(placed_count, total_pieces)
+                .with_utilization(result.utilization)
+                .with_elapsed(result.computation_time_ms)
+                .finished(),
+        );
 
         Ok(result)
     }
@@ -924,10 +936,12 @@ impl Nester2D {
         let mut placed_count = 0usize;
 
         // Initial progress callback
-        callback(ProgressInfo::new()
-            .with_phase("NFP Placement")
-            .with_items(0, total_pieces)
-            .with_elapsed(0));
+        callback(
+            ProgressInfo::new()
+                .with_phase("NFP Placement")
+                .with_items(0, total_pieces)
+                .with_elapsed(0),
+        );
 
         for geom in geometries {
             geom.validate()?;
@@ -942,11 +956,13 @@ impl Nester2D {
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
-                    callback(ProgressInfo::new()
-                        .with_phase("Cancelled")
-                        .with_items(placed_count, total_pieces)
-                        .with_elapsed(result.computation_time_ms)
-                        .finished());
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("Cancelled")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
@@ -958,21 +974,24 @@ impl Nester2D {
                     result.utilization = total_placed_area / boundary.measure();
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
                     result.placements = placements;
-                    callback(ProgressInfo::new()
-                        .with_phase("Time Limit Reached")
-                        .with_items(placed_count, total_pieces)
-                        .with_elapsed(result.computation_time_ms)
-                        .finished());
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("Time Limit Reached")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
                 let mut best_placement: Option<(f64, f64, f64)> = None;
 
                 for &rotation in &rotation_angles {
-                    let ifp = match compute_ifp_with_margin(&boundary_polygon, geom, rotation, margin) {
-                        Ok(ifp) => ifp,
-                        Err(_) => continue,
-                    };
+                    let ifp =
+                        match compute_ifp_with_margin(&boundary_polygon, geom, rotation, margin) {
+                            Ok(ifp) => ifp,
+                            Err(_) => continue,
+                        };
 
                     if ifp.is_empty() {
                         continue;
@@ -989,14 +1008,13 @@ impl Nester2D {
 
                         // Compute NFP at origin and cache it (with relative rotation)
                         // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
-                        let nfp_at_origin =
-                            match self.nfp_cache.get_or_compute(cache_key, || {
-                                let placed_at_origin = placed.geometry.clone();
-                                compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
-                            }) {
-                                Ok(nfp) => nfp,
-                                Err(_) => continue,
-                            };
+                        let nfp_at_origin = match self.nfp_cache.get_or_compute(cache_key, || {
+                            let placed_at_origin = placed.geometry.clone();
+                            compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
+                        }) {
+                            Ok(nfp) => nfp,
+                            Err(_) => continue,
+                        };
 
                         // Transform NFP: first rotate by placed.rotation, then translate
                         let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
@@ -1008,7 +1026,9 @@ impl Nester2D {
                     let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
                     let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
-                    if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
+                    if let Some((x, y)) =
+                        find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
+                    {
                         let is_better = match best_placement {
                             None => true,
                             Some((best_x, best_y, _)) => {
@@ -1034,18 +1054,30 @@ impl Nester2D {
                     let clamped_x = x.clamp(min_valid_x, max_valid_x);
                     let clamped_y = y.clamp(min_valid_y, max_valid_y);
 
-                    let placement = Placement::new_2d(geom.id().clone(), instance, clamped_x, clamped_y, rotation);
+                    let placement = Placement::new_2d(
+                        geom.id().clone(),
+                        instance,
+                        clamped_x,
+                        clamped_y,
+                        rotation,
+                    );
                     placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation));
+                    placed_geometries.push(PlacedGeometry::new(
+                        geom.clone(),
+                        (clamped_x, clamped_y),
+                        rotation,
+                    ));
                     total_placed_area += geom.measure();
                     placed_count += 1;
 
                     // Progress callback every piece
-                    callback(ProgressInfo::new()
-                        .with_phase("NFP Placement")
-                        .with_items(placed_count, total_pieces)
-                        .with_utilization(total_placed_area / boundary.measure())
-                        .with_elapsed(start.elapsed().as_millis() as u64));
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("NFP Placement")
+                            .with_items(placed_count, total_pieces)
+                            .with_utilization(total_placed_area / boundary.measure())
+                            .with_elapsed(start.elapsed().as_millis() as u64),
+                    );
                 } else {
                     result.unplaced.push(geom.id().clone());
                 }
@@ -1058,12 +1090,14 @@ impl Nester2D {
         result.computation_time_ms = start.elapsed().as_millis() as u64;
 
         // Final progress callback
-        callback(ProgressInfo::new()
-            .with_phase("Complete")
-            .with_items(placed_count, total_pieces)
-            .with_utilization(result.utilization)
-            .with_elapsed(result.computation_time_ms)
-            .finished());
+        callback(
+            ProgressInfo::new()
+                .with_phase("Complete")
+                .with_items(placed_count, total_pieces)
+                .with_utilization(result.utilization)
+                .with_elapsed(result.computation_time_ms)
+                .finished(),
+        );
 
         Ok(result)
     }
@@ -1098,9 +1132,13 @@ impl Nester2D {
             let strip_result = match self.config.strategy {
                 Strategy::BottomLeftFill => self.bottom_left_fill(&remaining_geometries, boundary),
                 Strategy::NfpGuided => self.nfp_guided_blf(&remaining_geometries, boundary),
-                Strategy::GeneticAlgorithm => self.genetic_algorithm(&remaining_geometries, boundary),
+                Strategy::GeneticAlgorithm => {
+                    self.genetic_algorithm(&remaining_geometries, boundary)
+                }
                 Strategy::Brkga => self.brkga(&remaining_geometries, boundary),
-                Strategy::SimulatedAnnealing => self.simulated_annealing(&remaining_geometries, boundary),
+                Strategy::SimulatedAnnealing => {
+                    self.simulated_annealing(&remaining_geometries, boundary)
+                }
                 Strategy::Gdrr => self.gdrr(&remaining_geometries, boundary),
                 Strategy::Alns => self.alns(&remaining_geometries, boundary),
                 #[cfg(feature = "milp")]
@@ -1253,7 +1291,9 @@ impl Solver for Nester2D {
 
                 // Apply time limit if specified
                 if self.config.time_limit_ms > 0 {
-                    ga_config = ga_config.with_time_limit(std::time::Duration::from_millis(self.config.time_limit_ms));
+                    ga_config = ga_config.with_time_limit(std::time::Duration::from_millis(
+                        self.config.time_limit_ms,
+                    ));
                 }
 
                 run_ga_nesting_with_progress(
@@ -1592,11 +1632,9 @@ mod tests {
     fn test_blf_rotation_optimization() {
         // Test that BLF uses rotation to optimize placement
         // A 30x10 rectangle can fit better in a narrow strip when rotated 90 degrees
-        let geometries = vec![
-            Geometry2D::rectangle("R1", 30.0, 10.0)
+        let geometries = vec![Geometry2D::rectangle("R1", 30.0, 10.0)
                 .with_rotations(vec![0.0, std::f64::consts::FRAC_PI_2]) // 0 and 90 degrees
-                .with_quantity(3),
-        ];
+                .with_quantity(3)];
 
         // Strip that's 35 wide: 30x10 won't fit two side-by-side at 0 deg
         // But two 10x30 (rotated 90 deg) can fit vertically in 95 height
@@ -1617,11 +1655,9 @@ mod tests {
     #[test]
     fn test_blf_selects_best_rotation() {
         // Verify BLF selects optimal rotation, not just the first one
-        let geometries = vec![
-            Geometry2D::rectangle("R1", 40.0, 10.0)
+        let geometries = vec![Geometry2D::rectangle("R1", 40.0, 10.0)
                 .with_rotations(vec![0.0, std::f64::consts::FRAC_PI_2]) // 0 and 90 degrees
-                .with_quantity(2),
-        ];
+                .with_quantity(2)];
 
         // In a 45x50 boundary:
         // - At 0 deg: 40x10, only one fits horizontally (40 < 45), next row needed
@@ -1655,11 +1691,17 @@ mod tests {
             last_items_placed_clone.store(info.items_placed, Ordering::Relaxed);
         });
 
-        let result = nester.solve_with_progress(&geometries, &boundary, callback).unwrap();
+        let result = nester
+            .solve_with_progress(&geometries, &boundary, callback)
+            .unwrap();
 
         // Verify callback was called (at least once per piece + initial + final)
         let count = callback_count.load(Ordering::Relaxed);
-        assert!(count >= 5, "Expected at least 5 callbacks (1 initial + 4 pieces + 1 final), got {}", count);
+        assert!(
+            count >= 5,
+            "Expected at least 5 callbacks (1 initial + 4 pieces + 1 final), got {}",
+            count
+        );
 
         // Verify final items_placed
         let final_placed = last_items_placed.load(Ordering::Relaxed);
@@ -1687,7 +1729,9 @@ mod tests {
             assert!(info.items_placed <= info.total_items);
         });
 
-        let result = nester.solve_with_progress(&geometries, &boundary, callback).unwrap();
+        let result = nester
+            .solve_with_progress(&geometries, &boundary, callback)
+            .unwrap();
 
         // Verify callback was called
         let count = callback_count.load(Ordering::Relaxed);
@@ -1746,19 +1790,19 @@ mod tests {
         // Gear-like: x ranges from 5 to 95 (width=90), y from 5 to 95 (height=90)
         let gear_like = Geometry2D::new("gear")
             .with_polygon(vec![
-                (50.0, 5.0),   // Bottom
+                (50.0, 5.0), // Bottom
                 (65.0, 15.0),
                 (77.0, 18.0),
                 (80.0, 32.0),
-                (95.0, 50.0),  // Right
+                (95.0, 50.0), // Right
                 (80.0, 68.0),
                 (77.0, 82.0),
                 (65.0, 85.0),
-                (50.0, 95.0),  // Top
+                (50.0, 95.0), // Top
                 (35.0, 85.0),
                 (23.0, 82.0),
                 (20.0, 68.0),
-                (5.0, 50.0),   // Left (min_x = 5)
+                (5.0, 50.0), // Left (min_x = 5)
                 (20.0, 32.0),
                 (23.0, 18.0),
                 (35.0, 15.0),
@@ -1891,45 +1935,61 @@ mod tests {
     #[test]
     fn test_blf_bounds_trace() {
         // Debug test: trace through BLF to understand why clamping doesn't work
-        let gear = Geometry2D::new("gear")
-            .with_polygon(vec![
-                (50.0, 5.0),
-                (65.0, 15.0),
-                (77.0, 18.0),
-                (80.0, 32.0),
-                (95.0, 50.0),
-                (80.0, 68.0),
-                (77.0, 82.0),
-                (65.0, 85.0),
-                (50.0, 95.0),
-                (35.0, 85.0),
-                (23.0, 82.0),
-                (20.0, 68.0),
-                (5.0, 50.0),
-                (20.0, 32.0),
-                (23.0, 18.0),
-                (35.0, 15.0),
-            ]);
+        let gear = Geometry2D::new("gear").with_polygon(vec![
+            (50.0, 5.0),
+            (65.0, 15.0),
+            (77.0, 18.0),
+            (80.0, 32.0),
+            (95.0, 50.0),
+            (80.0, 68.0),
+            (77.0, 82.0),
+            (65.0, 85.0),
+            (50.0, 95.0),
+            (35.0, 85.0),
+            (23.0, 82.0),
+            (20.0, 68.0),
+            (5.0, 50.0),
+            (20.0, 32.0),
+            (23.0, 18.0),
+            (35.0, 15.0),
+        ]);
 
         // Verify AABB
         let (g_min, g_max) = gear.aabb();
         println!("Gear AABB: min={:?}, max={:?}", g_min, g_max);
-        assert!((g_min[0] - 5.0).abs() < 0.01, "g_min[0] should be 5, got {}", g_min[0]);
-        assert!((g_max[0] - 95.0).abs() < 0.01, "g_max[0] should be 95, got {}", g_max[0]);
+        assert!(
+            (g_min[0] - 5.0).abs() < 0.01,
+            "g_min[0] should be 5, got {}",
+            g_min[0]
+        );
+        assert!(
+            (g_max[0] - 95.0).abs() < 0.01,
+            "g_max[0] should be 95, got {}",
+            g_max[0]
+        );
 
         // Verify valid origin range for 500x500 boundary
         let b_max_x = 500.0;
         let margin = 0.0;
         let max_valid_x = b_max_x - margin - g_max[0];
-        println!("max_valid_x = {} - {} - {} = {}", b_max_x, margin, g_max[0], max_valid_x);
-        assert!((max_valid_x - 405.0).abs() < 0.01, "max_valid_x should be 405, got {}", max_valid_x);
+        println!(
+            "max_valid_x = {} - {} - {} = {}",
+            b_max_x, margin, g_max[0], max_valid_x
+        );
+        assert!(
+            (max_valid_x - 405.0).abs() < 0.01,
+            "max_valid_x should be 405, got {}",
+            max_valid_x
+        );
 
         // Run BLF and check the result
         let boundary = Boundary2D::rectangle(500.0, 500.0);
         let config = Config::default().with_strategy(Strategy::BottomLeftFill);
         let nester = Nester2D::new(config);
 
-        let result = nester.solve(&[gear.clone().with_quantity(1)], &boundary).unwrap();
+        let result = nester
+            .solve(&[gear.clone().with_quantity(1)], &boundary)
+            .unwrap();
 
         assert_eq!(result.placements.len(), 1);
         let p = &result.placements[0];
@@ -1940,8 +2000,14 @@ mod tests {
         let actual_max_x = origin_x + g_max_r[0];
 
         println!("Placement: origin_x={}, rotation={}", origin_x, rotation);
-        println!("At rotation {}: g_min={:?}, g_max={:?}", rotation, g_min_r, g_max_r);
-        println!("Actual max x: {} + {} = {}", origin_x, g_max_r[0], actual_max_x);
+        println!(
+            "At rotation {}: g_min={:?}, g_max={:?}",
+            rotation, g_min_r, g_max_r
+        );
+        println!(
+            "Actual max x: {} + {} = {}",
+            origin_x, g_max_r[0], actual_max_x
+        );
 
         assert!(
             actual_max_x <= 500.01,
@@ -1997,18 +2063,27 @@ mod tests {
 
             println!(
                 "Piece {}: origin=({:.1}, {:.1}), rot={:.2}, bounds=[{:.1},{:.1}]x[{:.1},{:.1}]",
-                i, origin_x, origin_y, rotation, actual_min_x, actual_max_x, actual_min_y, actual_max_y
+                i,
+                origin_x,
+                origin_y,
+                rotation,
+                actual_min_x,
+                actual_max_x,
+                actual_min_y,
+                actual_max_y
             );
 
             assert!(
                 actual_max_x <= 500.01,
                 "Piece {}: Right edge {} > 500",
-                i, actual_max_x
+                i,
+                actual_max_x
             );
             assert!(
                 actual_max_y <= 500.01,
                 "Piece {}: Top edge {} > 500",
-                i, actual_max_y
+                i,
+                actual_max_y
             );
         }
     }
@@ -2042,9 +2117,15 @@ mod tests {
         let nester = Nester2D::new(config);
 
         // Use solve_multi_strip like benchmark runner does
-        let result = nester.solve_multi_strip(&[gear.clone()], &boundary).unwrap();
+        let result = nester
+            .solve_multi_strip(&[gear.clone()], &boundary)
+            .unwrap();
 
-        println!("Placed {} pieces across {} strips", result.placements.len(), result.boundaries_used);
+        println!(
+            "Placed {} pieces across {} strips",
+            result.placements.len(),
+            result.boundaries_used
+        );
 
         // Check all placements - within their respective strips
         let strip_width = 500.0;
@@ -2057,7 +2138,7 @@ mod tests {
             // Calculate local position within strip
             let local_x = origin_x - (strip_idx as f64 * strip_width);
 
-            let (g_min_r, g_max_r) = gear.aabb_at_rotation(rotation);
+            let (_g_min_r, g_max_r) = gear.aabb_at_rotation(rotation);
 
             let local_max_x = local_x + g_max_r[0];
             let local_max_y = origin_y + g_max_r[1];
@@ -2070,12 +2151,15 @@ mod tests {
             assert!(
                 local_max_x <= 500.01,
                 "Piece {}: In strip {}, local right edge {:.1} > 500",
-                i, strip_idx, local_max_x
+                i,
+                strip_idx,
+                local_max_x
             );
             assert!(
                 local_max_y <= 500.01,
                 "Piece {}: Top edge {:.1} > 500",
-                i, local_max_y
+                i,
+                local_max_y
             );
         }
     }
@@ -2087,23 +2171,50 @@ mod tests {
             // Shape 0: Rounded rectangle (demand 2)
             Geometry2D::new("shape0")
                 .with_polygon(vec![
-                    (0.0, 0.0), (180.0, 0.0), (195.0, 15.0), (200.0, 50.0), (200.0, 150.0),
-                    (195.0, 185.0), (180.0, 200.0), (20.0, 200.0), (5.0, 185.0), (0.0, 150.0),
-                    (0.0, 50.0), (5.0, 15.0),
+                    (0.0, 0.0),
+                    (180.0, 0.0),
+                    (195.0, 15.0),
+                    (200.0, 50.0),
+                    (200.0, 150.0),
+                    (195.0, 185.0),
+                    (180.0, 200.0),
+                    (20.0, 200.0),
+                    (5.0, 185.0),
+                    (0.0, 150.0),
+                    (0.0, 50.0),
+                    (5.0, 15.0),
                 ])
                 .with_quantity(2),
             // Shape 1: Circular-ish (demand 4)
             Geometry2D::new("shape1")
                 .with_polygon(vec![
-                    (60.0, 0.0), (85.0, 7.0), (104.0, 25.0), (118.0, 50.0), (120.0, 60.0),
-                    (118.0, 70.0), (104.0, 95.0), (85.0, 113.0), (60.0, 120.0), (35.0, 113.0),
-                    (16.0, 95.0), (2.0, 70.0), (0.0, 60.0), (2.0, 50.0), (16.0, 25.0), (35.0, 7.0),
+                    (60.0, 0.0),
+                    (85.0, 7.0),
+                    (104.0, 25.0),
+                    (118.0, 50.0),
+                    (120.0, 60.0),
+                    (118.0, 70.0),
+                    (104.0, 95.0),
+                    (85.0, 113.0),
+                    (60.0, 120.0),
+                    (35.0, 113.0),
+                    (16.0, 95.0),
+                    (2.0, 70.0),
+                    (0.0, 60.0),
+                    (2.0, 50.0),
+                    (16.0, 25.0),
+                    (35.0, 7.0),
                 ])
                 .with_quantity(4),
             // Shape 2: L-shape (demand 6)
             Geometry2D::new("shape2")
                 .with_polygon(vec![
-                    (0.0, 0.0), (80.0, 0.0), (80.0, 20.0), (20.0, 20.0), (20.0, 80.0), (0.0, 80.0),
+                    (0.0, 0.0),
+                    (80.0, 0.0),
+                    (80.0, 20.0),
+                    (20.0, 20.0),
+                    (20.0, 80.0),
+                    (0.0, 80.0),
                 ])
                 .with_quantity(6),
             // Shape 3: Triangle (demand 6)
@@ -2117,29 +2228,59 @@ mod tests {
             // Shape 5: Hexagon (demand 8)
             Geometry2D::new("shape5")
                 .with_polygon(vec![
-                    (15.0, 0.0), (45.0, 0.0), (60.0, 26.0), (45.0, 52.0), (15.0, 52.0), (0.0, 26.0),
+                    (15.0, 0.0),
+                    (45.0, 0.0),
+                    (60.0, 26.0),
+                    (45.0, 52.0),
+                    (15.0, 52.0),
+                    (0.0, 26.0),
                 ])
                 .with_quantity(8),
             // Shape 6: T-shape (demand 4)
             Geometry2D::new("shape6")
                 .with_polygon(vec![
-                    (0.0, 0.0), (90.0, 0.0), (90.0, 12.0), (55.0, 12.0), (55.0, 60.0),
-                    (35.0, 60.0), (35.0, 12.0), (0.0, 12.0),
+                    (0.0, 0.0),
+                    (90.0, 0.0),
+                    (90.0, 12.0),
+                    (55.0, 12.0),
+                    (55.0, 60.0),
+                    (35.0, 60.0),
+                    (35.0, 12.0),
+                    (0.0, 12.0),
                 ])
                 .with_quantity(4),
             // Shape 7: Rounded square (demand 3)
             Geometry2D::new("shape7")
                 .with_polygon(vec![
-                    (0.0, 10.0), (10.0, 0.0), (70.0, 0.0), (80.0, 10.0), (80.0, 70.0),
-                    (70.0, 80.0), (10.0, 80.0), (0.0, 70.0),
+                    (0.0, 10.0),
+                    (10.0, 0.0),
+                    (70.0, 0.0),
+                    (80.0, 10.0),
+                    (80.0, 70.0),
+                    (70.0, 80.0),
+                    (10.0, 80.0),
+                    (0.0, 70.0),
                 ])
                 .with_quantity(3),
             // Shape 8: Gear (demand 13) - the problematic shape
             Geometry2D::new("shape8_gear")
                 .with_polygon(vec![
-                    (50.0, 5.0), (65.0, 15.0), (77.0, 18.0), (80.0, 32.0), (95.0, 50.0),
-                    (80.0, 68.0), (77.0, 82.0), (65.0, 85.0), (50.0, 95.0), (35.0, 85.0),
-                    (23.0, 82.0), (20.0, 68.0), (5.0, 50.0), (20.0, 32.0), (23.0, 18.0), (35.0, 15.0),
+                    (50.0, 5.0),
+                    (65.0, 15.0),
+                    (77.0, 18.0),
+                    (80.0, 32.0),
+                    (95.0, 50.0),
+                    (80.0, 68.0),
+                    (77.0, 82.0),
+                    (65.0, 85.0),
+                    (50.0, 95.0),
+                    (35.0, 85.0),
+                    (23.0, 82.0),
+                    (20.0, 68.0),
+                    (5.0, 50.0),
+                    (20.0, 32.0),
+                    (23.0, 18.0),
+                    (35.0, 15.0),
                 ])
                 .with_quantity(13),
         ];
@@ -2151,7 +2292,11 @@ mod tests {
 
         let result = nester.solve_multi_strip(&shapes, &boundary).unwrap();
 
-        println!("Placed {} pieces across {} strips", result.placements.len(), result.boundaries_used);
+        println!(
+            "Placed {} pieces across {} strips",
+            result.placements.len(),
+            result.boundaries_used
+        );
 
         // Check placements for Gear (shape8) specifically
         let strip_width = 500.0;
@@ -2162,12 +2307,12 @@ mod tests {
         for p in &result.placements {
             if p.geometry_id.as_str().starts_with("shape8") {
                 let origin_x = p.position[0];
-                let origin_y = p.position[1];
+                let _origin_y = p.position[1];
                 let rotation = p.rotation.first().copied().unwrap_or(0.0);
                 let strip_idx = p.boundary_index;
                 let local_x = origin_x - (strip_idx as f64 * strip_width);
 
-                let (g_min_r, g_max_r) = shapes[8].aabb_at_rotation(rotation);
+                let (_g_min_r, g_max_r) = shapes[8].aabb_at_rotation(rotation);
                 let local_max_x = local_x + g_max_r[0];
 
                 println!(
@@ -2195,38 +2340,131 @@ mod tests {
         // Each piece is a separate Geometry2D with quantity=1
         // (vertices, demand, allowed_rotations_deg)
         let shape_defs: Vec<(Vec<(f64, f64)>, usize, Vec<f64>)> = vec![
-            (vec![
-                (0.0, 0.0), (180.0, 0.0), (195.0, 15.0), (200.0, 50.0), (200.0, 150.0),
-                (195.0, 185.0), (180.0, 200.0), (20.0, 200.0), (5.0, 185.0), (0.0, 150.0),
-                (0.0, 50.0), (5.0, 15.0),
-            ], 2, vec![0.0, 90.0, 180.0, 270.0]),
-            (vec![
-                (60.0, 0.0), (85.0, 7.0), (104.0, 25.0), (118.0, 50.0), (120.0, 60.0),
-                (118.0, 70.0), (104.0, 95.0), (85.0, 113.0), (60.0, 120.0), (35.0, 113.0),
-                (16.0, 95.0), (2.0, 70.0), (0.0, 60.0), (2.0, 50.0), (16.0, 25.0), (35.0, 7.0),
-            ], 4, vec![0.0, 45.0, 90.0, 135.0]),
-            (vec![
-                (0.0, 0.0), (80.0, 0.0), (80.0, 20.0), (20.0, 20.0), (20.0, 80.0), (0.0, 80.0),
-            ], 6, vec![0.0, 90.0, 180.0, 270.0]),
-            (vec![(0.0, 0.0), (70.0, 0.0), (0.0, 70.0)], 6, vec![0.0, 90.0, 180.0, 270.0]),
-            (vec![(0.0, 0.0), (120.0, 0.0), (120.0, 60.0), (0.0, 60.0)], 4, vec![0.0, 90.0]),
-            (vec![
-                (15.0, 0.0), (45.0, 0.0), (60.0, 26.0), (45.0, 52.0), (15.0, 52.0), (0.0, 26.0),
-            ], 8, vec![0.0, 60.0, 120.0]),
-            (vec![
-                (0.0, 0.0), (90.0, 0.0), (90.0, 12.0), (55.0, 12.0), (55.0, 60.0),
-                (35.0, 60.0), (35.0, 12.0), (0.0, 12.0),
-            ], 4, vec![0.0, 90.0, 180.0, 270.0]),
-            (vec![
-                (0.0, 10.0), (10.0, 0.0), (70.0, 0.0), (80.0, 10.0), (80.0, 70.0),
-                (70.0, 80.0), (10.0, 80.0), (0.0, 70.0),
-            ], 3, vec![0.0, 90.0]),
+            (
+                vec![
+                    (0.0, 0.0),
+                    (180.0, 0.0),
+                    (195.0, 15.0),
+                    (200.0, 50.0),
+                    (200.0, 150.0),
+                    (195.0, 185.0),
+                    (180.0, 200.0),
+                    (20.0, 200.0),
+                    (5.0, 185.0),
+                    (0.0, 150.0),
+                    (0.0, 50.0),
+                    (5.0, 15.0),
+                ],
+                2,
+                vec![0.0, 90.0, 180.0, 270.0],
+            ),
+            (
+                vec![
+                    (60.0, 0.0),
+                    (85.0, 7.0),
+                    (104.0, 25.0),
+                    (118.0, 50.0),
+                    (120.0, 60.0),
+                    (118.0, 70.0),
+                    (104.0, 95.0),
+                    (85.0, 113.0),
+                    (60.0, 120.0),
+                    (35.0, 113.0),
+                    (16.0, 95.0),
+                    (2.0, 70.0),
+                    (0.0, 60.0),
+                    (2.0, 50.0),
+                    (16.0, 25.0),
+                    (35.0, 7.0),
+                ],
+                4,
+                vec![0.0, 45.0, 90.0, 135.0],
+            ),
+            (
+                vec![
+                    (0.0, 0.0),
+                    (80.0, 0.0),
+                    (80.0, 20.0),
+                    (20.0, 20.0),
+                    (20.0, 80.0),
+                    (0.0, 80.0),
+                ],
+                6,
+                vec![0.0, 90.0, 180.0, 270.0],
+            ),
+            (
+                vec![(0.0, 0.0), (70.0, 0.0), (0.0, 70.0)],
+                6,
+                vec![0.0, 90.0, 180.0, 270.0],
+            ),
+            (
+                vec![(0.0, 0.0), (120.0, 0.0), (120.0, 60.0), (0.0, 60.0)],
+                4,
+                vec![0.0, 90.0],
+            ),
+            (
+                vec![
+                    (15.0, 0.0),
+                    (45.0, 0.0),
+                    (60.0, 26.0),
+                    (45.0, 52.0),
+                    (15.0, 52.0),
+                    (0.0, 26.0),
+                ],
+                8,
+                vec![0.0, 60.0, 120.0],
+            ),
+            (
+                vec![
+                    (0.0, 0.0),
+                    (90.0, 0.0),
+                    (90.0, 12.0),
+                    (55.0, 12.0),
+                    (55.0, 60.0),
+                    (35.0, 60.0),
+                    (35.0, 12.0),
+                    (0.0, 12.0),
+                ],
+                4,
+                vec![0.0, 90.0, 180.0, 270.0],
+            ),
+            (
+                vec![
+                    (0.0, 10.0),
+                    (10.0, 0.0),
+                    (70.0, 0.0),
+                    (80.0, 10.0),
+                    (80.0, 70.0),
+                    (70.0, 80.0),
+                    (10.0, 80.0),
+                    (0.0, 70.0),
+                ],
+                3,
+                vec![0.0, 90.0],
+            ),
             // Shape 8: Gear - with all 8 rotations
-            (vec![
-                (50.0, 5.0), (65.0, 15.0), (77.0, 18.0), (80.0, 32.0), (95.0, 50.0),
-                (80.0, 68.0), (77.0, 82.0), (65.0, 85.0), (50.0, 95.0), (35.0, 85.0),
-                (23.0, 82.0), (20.0, 68.0), (5.0, 50.0), (20.0, 32.0), (23.0, 18.0), (35.0, 15.0),
-            ], 13, vec![0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]),
+            (
+                vec![
+                    (50.0, 5.0),
+                    (65.0, 15.0),
+                    (77.0, 18.0),
+                    (80.0, 32.0),
+                    (95.0, 50.0),
+                    (80.0, 68.0),
+                    (77.0, 82.0),
+                    (65.0, 85.0),
+                    (50.0, 95.0),
+                    (35.0, 85.0),
+                    (23.0, 82.0),
+                    (20.0, 68.0),
+                    (5.0, 50.0),
+                    (20.0, 32.0),
+                    (23.0, 18.0),
+                    (35.0, 15.0),
+                ],
+                13,
+                vec![0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0],
+            ),
         ];
 
         // Expand like benchmark runner: each piece is separate geometry
@@ -2243,8 +2481,7 @@ mod tests {
         }
 
         // Store gear AABB for checking
-        let gear_geom = Geometry2D::new("gear_check")
-            .with_polygon(shape_defs[8].0.clone());
+        let gear_geom = Geometry2D::new("gear_check").with_polygon(shape_defs[8].0.clone());
         let (gear_min, gear_max) = gear_geom.aabb();
         println!("Gear AABB: min={:?}, max={:?}", gear_min, gear_max);
 
@@ -2254,14 +2491,20 @@ mod tests {
 
         let result = nester.solve_multi_strip(&geometries, &boundary).unwrap();
 
-        println!("Placed {} pieces across {} strips", result.placements.len(), result.boundaries_used);
+        println!(
+            "Placed {} pieces across {} strips",
+            result.placements.len(),
+            result.boundaries_used
+        );
 
         // Check Gear placements (piece_37 to piece_49)
         let strip_width = 500.0;
         let mut violations = Vec::new();
 
         for p in &result.placements {
-            let id_num: usize = p.geometry_id.as_str()
+            let id_num: usize = p
+                .geometry_id
+                .as_str()
                 .strip_prefix("piece_")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);

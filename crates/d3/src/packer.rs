@@ -234,8 +234,17 @@ impl Packer3D {
                     }
                 }
 
-                if let Some((ori_idx, g_width, g_depth, g_height, place_x, place_y, place_z, new_row_depth, new_layer_height)) =
-                    best_fit
+                if let Some((
+                    ori_idx,
+                    g_width,
+                    g_depth,
+                    g_height,
+                    place_x,
+                    place_y,
+                    place_z,
+                    new_row_depth,
+                    new_layer_height,
+                )) = best_fit
                 {
                     // Convert orientation index to rotation angles
                     // For simplicity, we encode orientation in rotation_index
@@ -444,10 +453,12 @@ impl Packer3D {
         let mut placed_count = 0usize;
 
         // Initial progress callback
-        callback(ProgressInfo::new()
-            .with_phase("Layer Packing")
-            .with_items(0, total_pieces)
-            .with_elapsed(0));
+        callback(
+            ProgressInfo::new()
+                .with_phase("Layer Packing")
+                .with_items(0, total_pieces)
+                .with_elapsed(0),
+        );
 
         for geom in geometries {
             geom.validate()?;
@@ -455,11 +466,13 @@ impl Packer3D {
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
-                    callback(ProgressInfo::new()
-                        .with_phase("Cancelled")
-                        .with_items(placed_count, total_pieces)
-                        .with_elapsed(result.computation_time_ms)
-                        .finished());
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("Cancelled")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
@@ -471,11 +484,13 @@ impl Packer3D {
                     result.utilization = total_placed_volume / boundary.measure();
                     result.computation_time_ms = start.elapsed().as_millis() as u64;
                     result.placements = placements;
-                    callback(ProgressInfo::new()
-                        .with_phase("Time Limit Reached")
-                        .with_items(placed_count, total_pieces)
-                        .with_elapsed(result.computation_time_ms)
-                        .finished());
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("Time Limit Reached")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
@@ -549,8 +564,17 @@ impl Packer3D {
                     }
                 }
 
-                if let Some((ori_idx, g_width, g_depth, g_height, place_x, place_y, place_z, new_row_depth, new_layer_height)) =
-                    best_fit
+                if let Some((
+                    ori_idx,
+                    g_width,
+                    g_depth,
+                    g_height,
+                    place_x,
+                    place_y,
+                    place_z,
+                    new_row_depth,
+                    new_layer_height,
+                )) = best_fit
                 {
                     let placement = Placement::new_3d(
                         geom.id().clone(),
@@ -578,11 +602,13 @@ impl Packer3D {
                     layer_height = new_layer_height.max(g_height);
 
                     // Progress callback every piece
-                    callback(ProgressInfo::new()
-                        .with_phase("Layer Packing")
-                        .with_items(placed_count, total_pieces)
-                        .with_utilization(total_placed_volume / boundary.measure())
-                        .with_elapsed(start.elapsed().as_millis() as u64));
+                    callback(
+                        ProgressInfo::new()
+                            .with_phase("Layer Packing")
+                            .with_items(placed_count, total_pieces)
+                            .with_utilization(total_placed_volume / boundary.measure())
+                            .with_elapsed(start.elapsed().as_millis() as u64),
+                    );
                 } else {
                     result.unplaced.push(geom.id().clone());
                 }
@@ -595,12 +621,14 @@ impl Packer3D {
         result.computation_time_ms = start.elapsed().as_millis() as u64;
 
         // Final progress callback
-        callback(ProgressInfo::new()
-            .with_phase("Complete")
-            .with_items(placed_count, total_pieces)
-            .with_utilization(result.utilization)
-            .with_elapsed(result.computation_time_ms)
-            .finished());
+        callback(
+            ProgressInfo::new()
+                .with_phase("Complete")
+                .with_items(placed_count, total_pieces)
+                .with_utilization(result.utilization)
+                .with_elapsed(result.computation_time_ms)
+                .finished(),
+        );
 
         Ok(result)
     }

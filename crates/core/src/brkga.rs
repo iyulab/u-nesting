@@ -485,8 +485,8 @@ impl<P: BrkgaProblem> BrkgaRunner<P> {
 
         // Final progress callback indicating completion
         if let Some(ref callback) = progress_callback {
-            let avg_fitness =
-                population.iter().map(|c| c.fitness()).sum::<f64>() / population.len().max(1) as f64;
+            let avg_fitness = population.iter().map(|c| c.fitness()).sum::<f64>()
+                / population.len().max(1) as f64;
 
             callback(BrkgaProgress {
                 generation,

@@ -145,18 +145,16 @@ pub struct ScenarioSet {
 impl ScenarioSet {
     /// Load a scenario set from a TOML file.
     pub fn from_toml_file(path: &Path) -> Result<Self, ScenarioError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ScenarioError::IoError(e.to_string()))?;
-        toml::from_str(&content)
-            .map_err(|e| ScenarioError::ParseError(e.to_string()))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ScenarioError::IoError(e.to_string()))?;
+        toml::from_str(&content).map_err(|e| ScenarioError::ParseError(e.to_string()))
     }
 
     /// Load a scenario set from a JSON file.
     pub fn from_json_file(path: &Path) -> Result<Self, ScenarioError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| ScenarioError::IoError(e.to_string()))?;
-        serde_json::from_str(&content)
-            .map_err(|e| ScenarioError::ParseError(e.to_string()))
+        let content =
+            std::fs::read_to_string(path).map_err(|e| ScenarioError::IoError(e.to_string()))?;
+        serde_json::from_str(&content).map_err(|e| ScenarioError::ParseError(e.to_string()))
     }
 
     /// Filter scenarios by category.
@@ -299,7 +297,8 @@ pub enum DefectSeverity {
 pub fn create_phase0_scenarios() -> ScenarioSet {
     ScenarioSet {
         name: "Phase 0: Quality Validation".to_string(),
-        description: "Comprehensive test scenarios for defect discovery before v0.1.0 release".to_string(),
+        description: "Comprehensive test scenarios for defect discovery before v0.1.0 release"
+            .to_string(),
         scenarios: vec![
             // 2D Scenarios
             create_2d_s01(),
@@ -339,10 +338,22 @@ fn create_2d_s01() -> Scenario {
         purpose: "Verify all strategies produce valid results".to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Esicup { dataset: "SHAPES".to_string(), instance: "shapes0".to_string() },
-            DatasetRef::Esicup { dataset: "BLAZ".to_string(), instance: "blaz1".to_string() },
+            DatasetRef::Esicup {
+                dataset: "SHAPES".to_string(),
+                instance: "shapes0".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "BLAZ".to_string(),
+                instance: "blaz1".to_string(),
+            },
         ],
-        strategies: vec![StrategyRef::Blf, StrategyRef::Nfp, StrategyRef::Ga, StrategyRef::Brkga, StrategyRef::Sa],
+        strategies: vec![
+            StrategyRef::Blf,
+            StrategyRef::Nfp,
+            StrategyRef::Ga,
+            StrategyRef::Brkga,
+            StrategyRef::Sa,
+        ],
         time_limit_secs: 30,
         runs: 1,
         criteria: SuccessCriteria {
@@ -360,9 +371,9 @@ fn create_2d_s02() -> Scenario {
         name: "Convex Polygon Optimization".to_string(),
         purpose: "Test NFP accuracy and placement quality for convex shapes".to_string(),
         category: ScenarioCategory::TwoD,
-        datasets: vec![
-            DatasetRef::Synthetic { synthetic: "synthetic_convex".to_string() },
-        ],
+        datasets: vec![DatasetRef::Synthetic {
+            synthetic: "synthetic_convex".to_string(),
+        }],
         strategies: vec![StrategyRef::Blf, StrategyRef::Nfp, StrategyRef::Ga],
         time_limit_secs: 60,
         runs: 3,
@@ -382,8 +393,13 @@ fn create_2d_s03() -> Scenario {
         purpose: "Test triangulation + NFP union accuracy for concave shapes".to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Esicup { dataset: "FU".to_string(), instance: "fu".to_string() },
-            DatasetRef::Synthetic { synthetic: "synthetic_concave".to_string() },
+            DatasetRef::Esicup {
+                dataset: "FU".to_string(),
+                instance: "fu".to_string(),
+            },
+            DatasetRef::Synthetic {
+                synthetic: "synthetic_concave".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Blf, StrategyRef::Nfp],
         time_limit_secs: 120,
@@ -393,7 +409,11 @@ fn create_2d_s03() -> Scenario {
             must_not_crash: true,
             ..Default::default()
         },
-        tags: vec!["concave".to_string(), "nfp".to_string(), "triangulation".to_string()],
+        tags: vec![
+            "concave".to_string(),
+            "nfp".to_string(),
+            "triangulation".to_string(),
+        ],
     }
 }
 
@@ -404,8 +424,13 @@ fn create_2d_s04() -> Scenario {
         purpose: "Test hole handling in geometry and NFP computation".to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Esicup { dataset: "MARQUES".to_string(), instance: "marques".to_string() },
-            DatasetRef::Synthetic { synthetic: "synthetic_with_holes".to_string() },
+            DatasetRef::Esicup {
+                dataset: "MARQUES".to_string(),
+                instance: "marques".to_string(),
+            },
+            DatasetRef::Synthetic {
+                synthetic: "synthetic_with_holes".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Blf, StrategyRef::Nfp],
         time_limit_secs: 120,
@@ -426,8 +451,13 @@ fn create_2d_s05() -> Scenario {
         purpose: "Test performance and memory with large item counts".to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Esicup { dataset: "SHIRTS".to_string(), instance: "shirts".to_string() },
-            DatasetRef::Synthetic { synthetic: "synthetic_large".to_string() },
+            DatasetRef::Esicup {
+                dataset: "SHIRTS".to_string(),
+                instance: "shirts".to_string(),
+            },
+            DatasetRef::Synthetic {
+                synthetic: "synthetic_large".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Blf, StrategyRef::Nfp],
         time_limit_secs: 300,
@@ -448,8 +478,14 @@ fn create_2d_s06() -> Scenario {
         purpose: "Test multi-angle rotation effects on placement quality".to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Esicup { dataset: "JAKOBS".to_string(), instance: "jakobs1".to_string() },
-            DatasetRef::Esicup { dataset: "TROUSERS".to_string(), instance: "trousers".to_string() },
+            DatasetRef::Esicup {
+                dataset: "JAKOBS".to_string(),
+                instance: "jakobs1".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "TROUSERS".to_string(),
+                instance: "trousers".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Nfp, StrategyRef::Ga, StrategyRef::Brkga],
         time_limit_secs: 120,
@@ -466,12 +502,19 @@ fn create_2d_s07() -> Scenario {
     Scenario {
         id: "2D-S07".to_string(),
         name: "Numerical Stability".to_string(),
-        purpose: "Test edge cases: near-collinear edges, tiny items, extreme aspect ratios".to_string(),
+        purpose: "Test edge cases: near-collinear edges, tiny items, extreme aspect ratios"
+            .to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Synthetic { synthetic: "synthetic_near_collinear".to_string() },
-            DatasetRef::Synthetic { synthetic: "synthetic_tiny".to_string() },
-            DatasetRef::Synthetic { synthetic: "synthetic_extreme_aspect".to_string() },
+            DatasetRef::Synthetic {
+                synthetic: "synthetic_near_collinear".to_string(),
+            },
+            DatasetRef::Synthetic {
+                synthetic: "synthetic_tiny".to_string(),
+            },
+            DatasetRef::Synthetic {
+                synthetic: "synthetic_extreme_aspect".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Blf, StrategyRef::Nfp],
         time_limit_secs: 60,
@@ -492,15 +535,42 @@ fn create_2d_s08() -> Scenario {
         purpose: "Compare all strategies across ESICUP datasets".to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Esicup { dataset: "SHAPES".to_string(), instance: "shapes0".to_string() },
-            DatasetRef::Esicup { dataset: "SHAPES".to_string(), instance: "shapes1".to_string() },
-            DatasetRef::Esicup { dataset: "ALBANO".to_string(), instance: "albano".to_string() },
-            DatasetRef::Esicup { dataset: "JAKOBS".to_string(), instance: "jakobs1".to_string() },
-            DatasetRef::Esicup { dataset: "JAKOBS".to_string(), instance: "jakobs2".to_string() },
-            DatasetRef::Esicup { dataset: "FU".to_string(), instance: "fu".to_string() },
-            DatasetRef::Esicup { dataset: "SWIM".to_string(), instance: "swim".to_string() },
+            DatasetRef::Esicup {
+                dataset: "SHAPES".to_string(),
+                instance: "shapes0".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "SHAPES".to_string(),
+                instance: "shapes1".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "ALBANO".to_string(),
+                instance: "albano".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "JAKOBS".to_string(),
+                instance: "jakobs1".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "JAKOBS".to_string(),
+                instance: "jakobs2".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "FU".to_string(),
+                instance: "fu".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "SWIM".to_string(),
+                instance: "swim".to_string(),
+            },
         ],
-        strategies: vec![StrategyRef::Blf, StrategyRef::Nfp, StrategyRef::Ga, StrategyRef::Brkga, StrategyRef::Sa],
+        strategies: vec![
+            StrategyRef::Blf,
+            StrategyRef::Nfp,
+            StrategyRef::Ga,
+            StrategyRef::Brkga,
+            StrategyRef::Sa,
+        ],
         time_limit_secs: 60,
         runs: 3,
         criteria: SuccessCriteria {
@@ -517,10 +587,15 @@ fn create_2d_s09() -> Scenario {
         name: "Known Optimal Verification".to_string(),
         purpose: "Test if 100% optimal solutions can be achieved for jigsaw instances".to_string(),
         category: ScenarioCategory::TwoD,
-        datasets: vec![
-            DatasetRef::Synthetic { synthetic: "synthetic_jigsaw_4x4".to_string() },
+        datasets: vec![DatasetRef::Synthetic {
+            synthetic: "synthetic_jigsaw_4x4".to_string(),
+        }],
+        strategies: vec![
+            StrategyRef::Nfp,
+            StrategyRef::Ga,
+            StrategyRef::Brkga,
+            StrategyRef::Sa,
         ],
-        strategies: vec![StrategyRef::Nfp, StrategyRef::Ga, StrategyRef::Brkga, StrategyRef::Sa],
         time_limit_secs: 120,
         runs: 3,
         criteria: SuccessCriteria {
@@ -539,8 +614,14 @@ fn create_2d_s10() -> Scenario {
         purpose: "Measure maximum quality within strict time limits".to_string(),
         category: ScenarioCategory::TwoD,
         datasets: vec![
-            DatasetRef::Esicup { dataset: "ALBANO".to_string(), instance: "albano".to_string() },
-            DatasetRef::Esicup { dataset: "DAGLI".to_string(), instance: "dagli".to_string() },
+            DatasetRef::Esicup {
+                dataset: "ALBANO".to_string(),
+                instance: "albano".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "DAGLI".to_string(),
+                instance: "dagli".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Blf, StrategyRef::Nfp, StrategyRef::Ga],
         time_limit_secs: 10,
@@ -563,9 +644,15 @@ fn create_3d_s01() -> Scenario {
         purpose: "Verify Layer and EP strategies produce valid results".to_string(),
         category: ScenarioCategory::ThreeD,
         datasets: vec![
-            DatasetRef::Mpv { mpv_class: "MPV1".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV2".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV3".to_string() },
+            DatasetRef::Mpv {
+                mpv_class: "MPV1".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV2".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV3".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Layer, StrategyRef::ExtremePoint],
         time_limit_secs: 30,
@@ -586,8 +673,12 @@ fn create_3d_s02() -> Scenario {
         purpose: "Test handling of items with diverse dimensions".to_string(),
         category: ScenarioCategory::ThreeD,
         datasets: vec![
-            DatasetRef::Mpv { mpv_class: "MPV4".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV5".to_string() },
+            DatasetRef::Mpv {
+                mpv_class: "MPV4".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV5".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Layer, StrategyRef::ExtremePoint],
         time_limit_secs: 60,
@@ -607,9 +698,15 @@ fn create_3d_s03() -> Scenario {
         purpose: "Test 6-direction rotation effects".to_string(),
         category: ScenarioCategory::ThreeD,
         datasets: vec![
-            DatasetRef::Mpv { mpv_class: "BW6".to_string() },
-            DatasetRef::Mpv { mpv_class: "BW7".to_string() },
-            DatasetRef::Mpv { mpv_class: "BW8".to_string() },
+            DatasetRef::Mpv {
+                mpv_class: "BW6".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "BW7".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "BW8".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::ExtremePoint, StrategyRef::Ga],
         time_limit_secs: 60,
@@ -628,9 +725,9 @@ fn create_3d_s04() -> Scenario {
         name: "Mass Constraints".to_string(),
         purpose: "Test weight limit handling".to_string(),
         category: ScenarioCategory::ThreeD,
-        datasets: vec![
-            DatasetRef::Mpv { mpv_class: "MPV1".to_string() },
-        ],
+        datasets: vec![DatasetRef::Mpv {
+            mpv_class: "MPV1".to_string(),
+        }],
         strategies: vec![StrategyRef::Layer],
         time_limit_secs: 30,
         runs: 1,
@@ -638,7 +735,11 @@ fn create_3d_s04() -> Scenario {
             must_not_crash: true,
             ..Default::default()
         },
-        tags: vec!["mass".to_string(), "constraint".to_string(), "3d".to_string()],
+        tags: vec![
+            "mass".to_string(),
+            "constraint".to_string(),
+            "3d".to_string(),
+        ],
     }
 }
 
@@ -649,11 +750,21 @@ fn create_3d_s05() -> Scenario {
         purpose: "Evaluate EP heuristic quality across all MPV instances".to_string(),
         category: ScenarioCategory::ThreeD,
         datasets: vec![
-            DatasetRef::Mpv { mpv_class: "MPV1".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV2".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV3".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV4".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV5".to_string() },
+            DatasetRef::Mpv {
+                mpv_class: "MPV1".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV2".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV3".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV4".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV5".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::ExtremePoint],
         time_limit_secs: 60,
@@ -662,7 +773,11 @@ fn create_3d_s05() -> Scenario {
             min_utilization: Some(0.60),
             ..Default::default()
         },
-        tags: vec!["extreme-point".to_string(), "quality".to_string(), "3d".to_string()],
+        tags: vec![
+            "extreme-point".to_string(),
+            "quality".to_string(),
+            "3d".to_string(),
+        ],
     }
 }
 
@@ -673,13 +788,29 @@ fn create_3d_s06() -> Scenario {
         purpose: "Compare GA, BRKGA, SA for 3D packing".to_string(),
         category: ScenarioCategory::ThreeD,
         datasets: vec![
-            DatasetRef::Mpv { mpv_class: "MPV1".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV2".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV3".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV4".to_string() },
-            DatasetRef::Mpv { mpv_class: "MPV5".to_string() },
+            DatasetRef::Mpv {
+                mpv_class: "MPV1".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV2".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV3".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV4".to_string(),
+            },
+            DatasetRef::Mpv {
+                mpv_class: "MPV5".to_string(),
+            },
         ],
-        strategies: vec![StrategyRef::Layer, StrategyRef::ExtremePoint, StrategyRef::Ga, StrategyRef::Brkga, StrategyRef::Sa],
+        strategies: vec![
+            StrategyRef::Layer,
+            StrategyRef::ExtremePoint,
+            StrategyRef::Ga,
+            StrategyRef::Brkga,
+            StrategyRef::Sa,
+        ],
         time_limit_secs: 60,
         runs: 3,
         criteria: SuccessCriteria {
@@ -696,9 +827,9 @@ fn create_3d_s07() -> Scenario {
         name: "Large 3D Instance".to_string(),
         purpose: "Test 100+ item 3D packing performance".to_string(),
         category: ScenarioCategory::ThreeD,
-        datasets: vec![
-            DatasetRef::Mpv { mpv_class: "Custom".to_string() },
-        ],
+        datasets: vec![DatasetRef::Mpv {
+            mpv_class: "Custom".to_string(),
+        }],
         strategies: vec![StrategyRef::Layer, StrategyRef::ExtremePoint],
         time_limit_secs: 300,
         runs: 1,
@@ -707,7 +838,11 @@ fn create_3d_s07() -> Scenario {
             must_not_crash: true,
             ..Default::default()
         },
-        tags: vec!["scale".to_string(), "performance".to_string(), "3d".to_string()],
+        tags: vec![
+            "scale".to_string(),
+            "performance".to_string(),
+            "3d".to_string(),
+        ],
     }
 }
 
@@ -719,9 +854,9 @@ fn create_c_s01() -> Scenario {
         name: "FFI Integration".to_string(),
         purpose: "Test JSON API boundary conditions".to_string(),
         category: ScenarioCategory::Common,
-        datasets: vec![
-            DatasetRef::Synthetic { synthetic: "synthetic_convex".to_string() },
-        ],
+        datasets: vec![DatasetRef::Synthetic {
+            synthetic: "synthetic_convex".to_string(),
+        }],
         strategies: vec![StrategyRef::Blf],
         time_limit_secs: 10,
         runs: 1,
@@ -739,9 +874,9 @@ fn create_c_s02() -> Scenario {
         name: "Cancellation".to_string(),
         purpose: "Test cancellation token functionality".to_string(),
         category: ScenarioCategory::Common,
-        datasets: vec![
-            DatasetRef::Synthetic { synthetic: "synthetic_large".to_string() },
-        ],
+        datasets: vec![DatasetRef::Synthetic {
+            synthetic: "synthetic_large".to_string(),
+        }],
         strategies: vec![StrategyRef::Ga],
         time_limit_secs: 5,
         runs: 1,
@@ -760,9 +895,9 @@ fn create_c_s03() -> Scenario {
         name: "Progress Callback".to_string(),
         purpose: "Test progress reporting accuracy".to_string(),
         category: ScenarioCategory::Common,
-        datasets: vec![
-            DatasetRef::Synthetic { synthetic: "synthetic_convex".to_string() },
-        ],
+        datasets: vec![DatasetRef::Synthetic {
+            synthetic: "synthetic_convex".to_string(),
+        }],
         strategies: vec![StrategyRef::Ga],
         time_limit_secs: 30,
         runs: 1,
@@ -781,8 +916,13 @@ fn create_c_s04() -> Scenario {
         purpose: "Profile memory consumption on large instances".to_string(),
         category: ScenarioCategory::Common,
         datasets: vec![
-            DatasetRef::Synthetic { synthetic: "synthetic_large".to_string() },
-            DatasetRef::Esicup { dataset: "SHIRTS".to_string(), instance: "shirts".to_string() },
+            DatasetRef::Synthetic {
+                synthetic: "synthetic_large".to_string(),
+            },
+            DatasetRef::Esicup {
+                dataset: "SHIRTS".to_string(),
+                instance: "shirts".to_string(),
+            },
         ],
         strategies: vec![StrategyRef::Blf, StrategyRef::Nfp],
         time_limit_secs: 120,
@@ -801,9 +941,10 @@ fn create_c_s05() -> Scenario {
         name: "Parallel Scaling".to_string(),
         purpose: "Test multi-thread performance scaling".to_string(),
         category: ScenarioCategory::Common,
-        datasets: vec![
-            DatasetRef::Esicup { dataset: "SHAPES".to_string(), instance: "shapes0".to_string() },
-        ],
+        datasets: vec![DatasetRef::Esicup {
+            dataset: "SHAPES".to_string(),
+            instance: "shapes0".to_string(),
+        }],
         strategies: vec![StrategyRef::Ga, StrategyRef::Brkga],
         time_limit_secs: 60,
         runs: 3,

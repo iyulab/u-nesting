@@ -193,8 +193,8 @@ pub fn run_milp_nesting(
             }
 
             result.boundaries_used = if result.placements.is_empty() { 0 } else { 1 };
-            result.utilization = pieces.iter().map(|p| p.area).sum::<f64>()
-                / (bound_width * bound_height);
+            result.utilization =
+                pieces.iter().map(|p| p.area).sum::<f64>() / (bound_width * bound_height);
             result.best_fitness = Some(solution.objective);
             result.strategy = Some("MilpExact".to_string());
             result.iterations = Some(solution.exact_result.iterations);
@@ -506,8 +506,7 @@ mod tests {
 
         let boundary = Boundary2D::rectangle(100.0, 100.0);
         let config = Config::default();
-        let exact_config = ExactConfig::default()
-            .with_max_items(10); // Limit to 10
+        let exact_config = ExactConfig::default().with_max_items(10); // Limit to 10
 
         let cancelled = Arc::new(AtomicBool::new(false));
         let result = run_milp_nesting(&geometries, &boundary, &config, &exact_config, cancelled);

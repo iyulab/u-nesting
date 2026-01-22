@@ -1,8 +1,8 @@
 //! C FFI API functions.
 
-use crate::callback::{CallbackWrapper, ProgressJson, UnestingProgressCallback};
 #[allow(unused_imports)]
 use crate::callback::DEFAULT_CALLBACK_INTERVAL_MS;
+use crate::callback::{CallbackWrapper, ProgressJson, UnestingProgressCallback};
 use crate::types::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
@@ -1262,10 +1262,7 @@ mod tests {
 
     #[test]
     fn test_solve_2d_with_progress_cancel() {
-        unsafe extern "C" fn cancel_callback(
-            _json: *const c_char,
-            _user_data: *mut c_void,
-        ) -> i32 {
+        unsafe extern "C" fn cancel_callback(_json: *const c_char, _user_data: *mut c_void) -> i32 {
             0 // Cancel immediately
         }
 

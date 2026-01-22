@@ -24,7 +24,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Solution status from exact solver.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum SolutionStatus {
     /// Proven optimal solution found.
@@ -38,13 +38,8 @@ pub enum SolutionStatus {
     /// Solver encountered an error.
     Error,
     /// Solution status unknown or not applicable.
+    #[default]
     Unknown,
-}
-
-impl Default for SolutionStatus {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 impl std::fmt::Display for SolutionStatus {
@@ -95,11 +90,11 @@ pub struct ExactConfig {
 impl Default for ExactConfig {
     fn default() -> Self {
         Self {
-            time_limit_ms: 60000,       // 1 minute default
-            gap_tolerance: 0.0,         // Require optimal
-            max_items: 15,              // Small instances only
-            grid_step: 1.0,             // 1 unit grid
-            rotation_steps: 4,          // 0, 90, 180, 270 degrees
+            time_limit_ms: 60000, // 1 minute default
+            gap_tolerance: 0.0,   // Require optimal
+            max_items: 15,        // Small instances only
+            grid_step: 1.0,       // 1 unit grid
+            rotation_steps: 4,    // 0, 90, 180, 270 degrees
             use_symmetry_breaking: true,
             use_cuts: true,
             verbosity: 0,
@@ -176,9 +171,7 @@ impl ExactConfig {
     /// Get discrete rotation angles in radians.
     pub fn rotation_angles(&self) -> Vec<f64> {
         let step = std::f64::consts::TAU / self.rotation_steps as f64;
-        (0..self.rotation_steps)
-            .map(|i| i as f64 * step)
-            .collect()
+        (0..self.rotation_steps).map(|i| i as f64 * step).collect()
     }
 }
 

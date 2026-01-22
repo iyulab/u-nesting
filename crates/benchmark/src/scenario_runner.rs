@@ -130,10 +130,7 @@ impl ScenarioRunner {
             println!("Scenario: {} - {}", scenario.id, scenario.name);
             println!("Purpose: {}", scenario.purpose);
             println!("Datasets: {}", scenario.datasets.len());
-            println!(
-                "Strategies: {:?}",
-                scenario.strategies
-            );
+            println!("Strategies: {:?}", scenario.strategies);
             println!("{}", "-".repeat(50));
         }
 
@@ -200,17 +197,15 @@ impl ScenarioRunner {
     /// Load a dataset based on the reference type.
     fn load_dataset(&self, dataset_ref: &DatasetRef) -> Result<Dataset, String> {
         match dataset_ref {
-            DatasetRef::Esicup { dataset, instance } => {
-                self.esicup_manager
-                    .load_cached(instance)
-                    .or_else(|_| self.esicup_manager.download(dataset, instance))
-                    .map_err(|e| e.to_string())
-            }
-            DatasetRef::File { path } => {
-                self.parser
-                    .parse_file(Path::new(path))
-                    .map_err(|e| e.to_string())
-            }
+            DatasetRef::Esicup { dataset, instance } => self
+                .esicup_manager
+                .load_cached(instance)
+                .or_else(|_| self.esicup_manager.download(dataset, instance))
+                .map_err(|e| e.to_string()),
+            DatasetRef::File { path } => self
+                .parser
+                .parse_file(Path::new(path))
+                .map_err(|e| e.to_string()),
             DatasetRef::Synthetic { synthetic } => self
                 .synthetic_datasets
                 .get(synthetic)
@@ -227,21 +222,18 @@ impl ScenarioRunner {
     fn generate_mpv_instance(&self, mpv_class: &str) -> Result<Dataset, String> {
         // For now, we'll skip 3D scenarios or return a placeholder
         // Full 3D support would require extending the Dataset type
-        Err(format!(
-            "3D MPV instances not yet supported: {}",
-            mpv_class
-        ))
+        Err(format!("3D MPV instances not yet supported: {}", mpv_class))
     }
 
     /// Run a scenario on a single dataset.
-    fn run_dataset_scenario(&self, scenario: &Scenario, dataset: &Dataset) -> Vec<ScenarioRunResult> {
+    fn run_dataset_scenario(
+        &self,
+        scenario: &Scenario,
+        dataset: &Dataset,
+    ) -> Vec<ScenarioRunResult> {
         let mut results = Vec::new();
 
-        let strategies: Vec<Strategy> = scenario
-            .strategies
-            .iter()
-            .map(|s| (*s).into())
-            .collect();
+        let strategies: Vec<Strategy> = scenario.strategies.iter().map(|s| (*s).into()).collect();
 
         let config = BenchmarkConfig::new()
             .with_strategies(strategies.clone())
@@ -493,10 +485,10 @@ impl ScenarioRunner {
 
                 // BLF shouldn't beat NFP by more than 5%
                 if blf_avg_len < nfp_avg_len * 0.95 {
-                    let blf_placed =
-                        blf_runs.iter().map(|r| r.placement_ratio).sum::<f64>() / blf_runs.len() as f64;
-                    let nfp_placed =
-                        nfp_runs.iter().map(|r| r.placement_ratio).sum::<f64>() / nfp_runs.len() as f64;
+                    let blf_placed = blf_runs.iter().map(|r| r.placement_ratio).sum::<f64>()
+                        / blf_runs.len() as f64;
+                    let nfp_placed = nfp_runs.iter().map(|r| r.placement_ratio).sum::<f64>()
+                        / nfp_runs.len() as f64;
 
                     // Only flag if both achieved similar placement
                     if (blf_placed - nfp_placed).abs() < 0.1 {
@@ -640,9 +632,7 @@ impl ScenarioReport {
         md.push_str("# Scenario Execution Report\n\n");
 
         md.push_str("## Summary\n\n");
-        md.push_str(&format!(
-            "| Metric | Value |\n|--------|-------|\n"
-        ));
+        md.push_str(&format!("| Metric | Value |\n|--------|-------|\n"));
         md.push_str(&format!(
             "| Scenarios Passed | {}/{} ({:.1}%) |\n",
             self.passed_scenarios,
@@ -687,7 +677,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_scenario_runner_config() {
         let config = ScenarioRunnerConfig::default();

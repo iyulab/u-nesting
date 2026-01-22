@@ -412,11 +412,8 @@ impl AlnsProblem for AlnsNestingProblem {
         match operator {
             DestroyOperatorId::Random => {
                 // Random removal
-                let mut indices: Vec<usize> = solution
-                    .placed
-                    .iter()
-                    .map(|p| p.instance_idx)
-                    .collect();
+                let mut indices: Vec<usize> =
+                    solution.placed.iter().map(|p| p.instance_idx).collect();
                 indices.shuffle(rng);
 
                 for &idx in indices.iter().take(num_to_remove) {
@@ -455,9 +452,8 @@ impl AlnsProblem for AlnsNestingProblem {
                     })
                     .collect();
 
-                items_with_distance.sort_by(|a, b| {
-                    a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-                });
+                items_with_distance
+                    .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
                 for (idx, _) in items_with_distance.iter().take(num_to_remove) {
                     removed_indices.push(*idx);
@@ -465,11 +461,8 @@ impl AlnsProblem for AlnsNestingProblem {
             }
             DestroyOperatorId::Custom(_) => {
                 // Fall back to random for custom operators
-                let mut indices: Vec<usize> = solution
-                    .placed
-                    .iter()
-                    .map(|p| p.instance_idx)
-                    .collect();
+                let mut indices: Vec<usize> =
+                    solution.placed.iter().map(|p| p.instance_idx).collect();
                 indices.shuffle(rng);
 
                 for &idx in indices.iter().take(num_to_remove) {
@@ -580,7 +573,8 @@ pub fn run_alns_nesting(
     }
 
     result.boundaries_used = if result.placements.is_empty() { 0 } else { 1 };
-    result.utilization = alns_result.best_solution.placed_area / alns_result.best_solution.boundary_area;
+    result.utilization =
+        alns_result.best_solution.placed_area / alns_result.best_solution.boundary_area;
     result.computation_time_ms = alns_result.elapsed_ms;
     result.iterations = Some(alns_result.iterations as u64);
     result.best_fitness = Some(alns_result.best_fitness);
@@ -801,10 +795,12 @@ mod tests {
 
         let mut rng = rand::rngs::StdRng::seed_from_u64(42);
 
-        let destroy_result = problem.destroy(&mut solution, DestroyOperatorId::Random, 0.5, &mut rng);
+        let destroy_result =
+            problem.destroy(&mut solution, DestroyOperatorId::Random, 0.5, &mut rng);
         let after_destroy_placed = solution.placed.len();
 
-        let repair_result = problem.repair(&mut solution, &destroy_result, RepairOperatorId::Greedy);
+        let repair_result =
+            problem.repair(&mut solution, &destroy_result, RepairOperatorId::Greedy);
 
         assert!(repair_result.placed_count > 0 || after_destroy_placed == solution.placed.len());
         assert_eq!(repair_result.operator, RepairOperatorId::Greedy);
@@ -835,9 +831,7 @@ mod tests {
 
         let mut problem = AlnsNestingProblem::new(geometries, boundary, config, cancelled, 60000);
 
-        let alns_config = AlnsConfig::new()
-            .with_max_iterations(10)
-            .with_seed(42);
+        let alns_config = AlnsConfig::new().with_max_iterations(10).with_seed(42);
 
         let runner = AlnsRunner::new(alns_config);
         let result: AlnsResult<AlnsNestingSolution> = runner.run(&mut problem, |progress| {

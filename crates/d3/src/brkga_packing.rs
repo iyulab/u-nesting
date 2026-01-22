@@ -401,7 +401,11 @@ mod tests {
         let (placements, utilization, placed_count) = problem.decode(&chromosome);
 
         // With such a large boundary (500^3 vs 10^3 items), at least one item should fit
-        assert!(placed_count >= 1, "Expected at least 1 placement but got {}", placed_count);
+        assert!(
+            placed_count >= 1,
+            "Expected at least 1 placement but got {}",
+            placed_count
+        );
         assert_eq!(placements.len(), placed_count);
         if placed_count > 0 {
             assert!(utilization > 0.0);

@@ -232,12 +232,12 @@ impl SyntheticGenerator {
 
             let shape = vec![
                 [0.0, 0.0],
-                [w * 0.3, epsilon],        // Nearly collinear
-                [w * 0.7, -epsilon],       // Nearly collinear
+                [w * 0.3, epsilon],  // Nearly collinear
+                [w * 0.7, -epsilon], // Nearly collinear
                 [w, 0.0],
-                [w, h * 0.5 + epsilon],    // Nearly collinear
+                [w, h * 0.5 + epsilon], // Nearly collinear
                 [w, h],
-                [w * 0.5, h - epsilon],    // Nearly collinear
+                [w * 0.5, h - epsilon], // Nearly collinear
                 [0.0, h],
                 [0.0, 0.0],
             ];
@@ -354,7 +354,11 @@ impl SyntheticGenerator {
         let mut vertices = Vec::with_capacity(points * 2 + 1);
         for i in 0..(points * 2) {
             let angle = PI * (i as f64) / (points as f64) - PI / 2.0;
-            let radius = if i % 2 == 0 { outer_radius } else { inner_radius };
+            let radius = if i % 2 == 0 {
+                outer_radius
+            } else {
+                inner_radius
+            };
             vertices.push([radius * angle.cos(), radius * angle.sin()]);
         }
         vertices.push(vertices[0]);
@@ -429,13 +433,13 @@ impl SyntheticGenerator {
             [half, 0.0],
             [size, small],
             [size, half - small],
-            [half + small, half],  // Near touch point
+            [half + small, half], // Near touch point
             [size, half + small],
             [size, size - small],
             [half, size],
             [small, size - small],
             [0.0, half + small],
-            [half - small, half],  // Near touch point (other side)
+            [half - small, half], // Near touch point (other side)
             [0.0, half - small],
             [small, small],
             [half, 0.0],

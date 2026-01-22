@@ -332,7 +332,11 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
-        Commands::Download { dataset, instance, output } => {
+        Commands::Download {
+            dataset,
+            instance,
+            output,
+        } => {
             let manager = u_nesting_benchmark::DatasetManager::new(&output);
 
             if let Some(inst) = instance {
@@ -340,13 +344,17 @@ fn main() -> anyhow::Result<()> {
                 println!("Downloading {}/{}...", dataset, inst);
                 let ds = manager.download(&dataset, &inst)?;
 
-                println!("Dataset saved to: {}", manager.get_cache_path(&inst).display());
+                println!(
+                    "Dataset saved to: {}",
+                    manager.get_cache_path(&inst).display()
+                );
                 println!("  Items: {}", ds.items.len());
                 println!("  Total pieces: {}", ds.expand_items().len());
                 println!("  Strip height: {}", ds.strip_height);
             } else {
                 // Download all instances of the dataset
-                if let Some(info) = u_nesting_benchmark::DatasetManager::get_dataset_info(&dataset) {
+                if let Some(info) = u_nesting_benchmark::DatasetManager::get_dataset_info(&dataset)
+                {
                     println!("Downloading all instances of {}...", dataset);
                     for inst in info.instances {
                         print!("  {} ... ", inst);
@@ -390,14 +398,19 @@ fn main() -> anyhow::Result<()> {
             use u_nesting_benchmark::SyntheticDatasets;
 
             std::fs::create_dir_all(&output)?;
-            println!("Generating synthetic datasets (seed={}) to {}...", seed, output.display());
+            println!(
+                "Generating synthetic datasets (seed={}) to {}...",
+                seed,
+                output.display()
+            );
 
             let datasets = SyntheticDatasets::all(seed);
             for ds in &datasets {
                 let file_path = output.join(format!("{}.json", ds.name));
                 let json = serde_json::to_string_pretty(&ds)?;
                 std::fs::write(&file_path, &json)?;
-                println!("  {} ... OK ({} items, {} pieces)",
+                println!(
+                    "  {} ... OK ({} items, {} pieces)",
                     ds.name,
                     ds.items.len(),
                     ds.expand_items().len()
@@ -498,18 +511,24 @@ fn main() -> anyhow::Result<()> {
                 );
                 println!("  Purpose: {}", scenario.purpose);
                 println!("  Datasets: {}", scenario.datasets.len());
-                println!(
-                    "  Strategies: {:?}",
-                    scenario.strategies
-                );
+                println!("  Strategies: {:?}", scenario.strategies);
                 println!("  Time limit: {}s", scenario.time_limit_secs);
                 println!("  Tags: {:?}", scenario.tags);
             }
 
             println!("\nTotal: {} scenarios", scenarios.scenarios.len());
-            println!("  2D: {}", scenarios.filter_by_category(ScenarioCategory::TwoD).len());
-            println!("  3D: {}", scenarios.filter_by_category(ScenarioCategory::ThreeD).len());
-            println!("  Common: {}", scenarios.filter_by_category(ScenarioCategory::Common).len());
+            println!(
+                "  2D: {}",
+                scenarios.filter_by_category(ScenarioCategory::TwoD).len()
+            );
+            println!(
+                "  3D: {}",
+                scenarios.filter_by_category(ScenarioCategory::ThreeD).len()
+            );
+            println!(
+                "  Common: {}",
+                scenarios.filter_by_category(ScenarioCategory::Common).len()
+            );
         }
     }
 

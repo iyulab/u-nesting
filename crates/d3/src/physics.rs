@@ -417,7 +417,11 @@ impl PhysicsSimulator {
     }
 
     /// Resolves collisions with container walls.
-    fn resolve_container_collisions(&self, bodies: &mut [PhysicsBody], container_dims: Vector3<f64>) {
+    fn resolve_container_collisions(
+        &self,
+        bodies: &mut [PhysicsBody],
+        container_dims: Vector3<f64>,
+    ) {
         for body in bodies.iter_mut() {
             // X walls
             if body.position.x < 0.0 {

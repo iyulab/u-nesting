@@ -405,7 +405,10 @@ mod tests {
     fn test_geometry_cache() {
         let mut cache: GeometryCache<(f64, f64)> = GeometryCache::new();
 
-        let g1 = cache.get_or_insert("rect1", vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]);
+        let g1 = cache.get_or_insert(
+            "rect1",
+            vec![(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        );
         let g2 = cache.get_or_insert("rect1", vec![]); // Should reuse existing
 
         assert_eq!(g1.strong_count(), 3); // cache + g1 + g2

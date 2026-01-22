@@ -21,11 +21,11 @@ use crate::nfp::{compute_ifp, compute_nfp, find_bottom_left_placement, Nfp, Plac
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
-use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::gdrr::{
-    GdrrConfig, GdrrProblem, GdrrResult, GdrrRunner, GdrrSolution, RecreateResult,
-    RecreateType, RuinResult, RuinType, RuinedItem,
+    GdrrConfig, GdrrProblem, GdrrResult, GdrrRunner, GdrrSolution, RecreateResult, RecreateType,
+    RuinResult, RuinType, RuinedItem,
 };
+use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::Config;
 use u_nesting_core::{Placement, SolveResult};
 
@@ -258,9 +258,8 @@ impl GdrrNestingProblem {
             for pg in placed_geometries {
                 // Create temporary geometry with translated exterior
                 let placed_exterior = pg.translated_exterior();
-                let placed_geom =
-                    Geometry2D::new(format!("_placed_{}", pg.geometry.id()))
-                        .with_polygon(placed_exterior);
+                let placed_geom = Geometry2D::new(format!("_placed_{}", pg.geometry.id()))
+                    .with_polygon(placed_exterior);
 
                 if let Ok(nfp) = compute_nfp(&placed_geom, geom, rotation) {
                     let expanded = expand_nfp(&nfp, spacing);
@@ -329,7 +328,9 @@ impl GdrrNestingProblem {
         sorted_items.sort_by(|&a, &b| {
             let area_a = self.geometry_areas[self.instances[a].geometry_idx];
             let area_b = self.geometry_areas[self.instances[b].geometry_idx];
-            area_b.partial_cmp(&area_a).unwrap_or(std::cmp::Ordering::Equal)
+            area_b
+                .partial_cmp(&area_a)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         for &instance_idx in &sorted_items {
@@ -338,9 +339,12 @@ impl GdrrNestingProblem {
                 break;
             }
 
-            if let Some(placement) =
-                self.try_place_item(instance_idx, &placed_geometries, &boundary_polygon, sample_step)
-            {
+            if let Some(placement) = self.try_place_item(
+                instance_idx,
+                &placed_geometries,
+                &boundary_polygon,
+                sample_step,
+            ) {
                 // Update solution
                 let info = &self.instances[instance_idx];
                 let area = self.geometry_areas[info.geometry_idx];
@@ -415,8 +419,7 @@ impl GdrrProblem for GdrrNestingProblem {
         }
 
         // Remove items from solution
-        let removed_instance_indices: Vec<usize> =
-            removed_items.iter().map(|r| r.index).collect();
+        let removed_instance_indices: Vec<usize> = removed_items.iter().map(|r| r.index).collect();
 
         for idx in &removed_instance_indices {
             if let Some(pos) = solution.placed.iter().position(|p| p.instance_idx == *idx) {
@@ -428,11 +431,7 @@ impl GdrrProblem for GdrrNestingProblem {
         }
 
         // Recalculate max_y
-        solution.max_y = solution
-            .placed
-            .iter()
-            .map(|p| p.y)
-            .fold(0.0, f64::max);
+        solution.max_y = solution.placed.iter().map(|p| p.y).fold(0.0, f64::max);
 
         RuinResult {
             removed_items,
@@ -474,7 +473,8 @@ impl GdrrProblem for GdrrNestingProblem {
             })
             .collect();
 
-        items_with_distance.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        items_with_distance
+            .sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // Remove closest items (including seed)
         for (idx, _) in items_with_distance.iter().take(num_to_remove) {
@@ -491,8 +491,7 @@ impl GdrrProblem for GdrrNestingProblem {
         }
 
         // Remove items from solution
-        let removed_instance_indices: Vec<usize> =
-            removed_items.iter().map(|r| r.index).collect();
+        let removed_instance_indices: Vec<usize> = removed_items.iter().map(|r| r.index).collect();
 
         for idx in &removed_instance_indices {
             if let Some(pos) = solution.placed.iter().position(|p| p.instance_idx == *idx) {
@@ -504,11 +503,7 @@ impl GdrrProblem for GdrrNestingProblem {
         }
 
         // Recalculate max_y
-        solution.max_y = solution
-            .placed
-            .iter()
-            .map(|p| p.y)
-            .fold(0.0, f64::max);
+        solution.max_y = solution.placed.iter().map(|p| p.y).fold(0.0, f64::max);
 
         RuinResult {
             removed_items,
@@ -557,8 +552,7 @@ impl GdrrProblem for GdrrNestingProblem {
         }
 
         // Remove items from solution
-        let removed_instance_indices: Vec<usize> =
-            removed_items.iter().map(|r| r.index).collect();
+        let removed_instance_indices: Vec<usize> = removed_items.iter().map(|r| r.index).collect();
 
         for idx in &removed_instance_indices {
             if let Some(pos) = solution.placed.iter().position(|p| p.instance_idx == *idx) {
@@ -570,11 +564,7 @@ impl GdrrProblem for GdrrNestingProblem {
         }
 
         // Recalculate max_y
-        solution.max_y = solution
-            .placed
-            .iter()
-            .map(|p| p.y)
-            .fold(0.0, f64::max);
+        solution.max_y = solution.placed.iter().map(|p| p.y).fold(0.0, f64::max);
 
         RuinResult {
             removed_items,
@@ -649,7 +639,11 @@ impl GdrrProblem for GdrrNestingProblem {
         item_index: usize,
         radius: f64,
     ) -> Vec<usize> {
-        let item = match solution.placed.iter().find(|p| p.instance_idx == item_index) {
+        let item = match solution
+            .placed
+            .iter()
+            .find(|p| p.instance_idx == item_index)
+        {
             Some(i) => i,
             None => return vec![],
         };
@@ -988,9 +982,7 @@ mod tests {
 
         let mut problem = GdrrNestingProblem::new(geometries, boundary, config, cancelled, 60000);
 
-        let gdrr_config = GdrrConfig::new()
-            .with_max_iterations(10)
-            .with_seed(42);
+        let gdrr_config = GdrrConfig::new().with_max_iterations(10).with_seed(42);
 
         let runner = GdrrRunner::new(gdrr_config);
         let result: GdrrResult<GdrrNestingSolution> = runner.run(&mut problem, |progress| {

@@ -466,14 +466,7 @@ fn version() -> &'static str {
 /// List available strategies.
 #[pyfunction]
 fn available_strategies() -> Vec<&'static str> {
-    vec![
-        "blf",
-        "nfp",
-        "ga",
-        "brkga",
-        "sa",
-        "ep",
-    ]
+    vec!["blf", "nfp", "ga", "brkga", "sa", "ep"]
 }
 
 /// U-Nesting Python module.

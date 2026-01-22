@@ -150,7 +150,11 @@ impl PlacedBox {
     pub fn center_of_gravity(&self) -> Point3<f64> {
         let center = self.center();
         if let Some(offset) = self.cog_offset {
-            Point3::new(center.x + offset.x, center.y + offset.y, center.z + offset.z)
+            Point3::new(
+                center.x + offset.x,
+                center.y + offset.y,
+                center.z + offset.z,
+            )
         } else {
             center
         }
@@ -436,7 +440,8 @@ impl StabilityAnalyzer {
                     let support_box = &all_boxes[idx];
 
                     // Skip self
-                    if support_box.id == placed_box.id && support_box.instance == placed_box.instance
+                    if support_box.id == placed_box.id
+                        && support_box.instance == placed_box.instance
                     {
                         continue;
                     }
@@ -497,7 +502,8 @@ impl StabilityAnalyzer {
             if let Some(box_indices) = boxes_by_top_z.get(&(target_z_key + dz)) {
                 for &idx in box_indices {
                     let support_box = &all_boxes[idx];
-                    if support_box.id == placed_box.id && support_box.instance == placed_box.instance
+                    if support_box.id == placed_box.id
+                        && support_box.instance == placed_box.instance
                     {
                         continue;
                     }
@@ -922,8 +928,7 @@ mod tests {
         assert!((area2 - 25.0).abs() < 0.001); // 5x5 overlap
 
         // No overlap
-        let area3 =
-            analyzer.compute_face_overlap((0.0, 0.0, 10.0, 10.0), (20.0, 20.0, 30.0, 30.0));
+        let area3 = analyzer.compute_face_overlap((0.0, 0.0, 10.0, 10.0), (20.0, 20.0, 30.0, 30.0));
         assert!(area3 < 0.001);
     }
 }

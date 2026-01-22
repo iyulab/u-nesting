@@ -117,7 +117,10 @@ impl BenchmarkRunner3D {
             println!("  Items: {}", dataset.items.len());
             println!("  Bin dimensions: {:?}", dataset.bin_dimensions);
             println!("  Total item volume: {:.2}", dataset.total_item_volume());
-            println!("  Volume lower bound: {} bins", dataset.volume_lower_bound());
+            println!(
+                "  Volume lower bound: {} bins",
+                dataset.volume_lower_bound()
+            );
         }
 
         // Convert dataset to geometries
@@ -160,7 +163,7 @@ impl BenchmarkRunner3D {
                             format!("run_{}", run_idx + 1),
                             *strategy,
                             bins_used as f64, // bins used as primary metric
-                            0.0, // no strip_height for 3D
+                            0.0,              // no strip_height for 3D
                             solve_result.placements.len(),
                             geometries.len(),
                             elapsed,
@@ -225,8 +228,7 @@ impl BenchmarkRunner3D {
                     format!("box_{}", item.id)
                 };
 
-                let mut geom =
-                    Geometry3D::new(id, item.width(), item.height(), item.depth());
+                let mut geom = Geometry3D::new(id, item.width(), item.height(), item.depth());
 
                 // Set orientation constraint
                 geom = match item.allowed_orientations {
@@ -284,8 +286,7 @@ impl BenchmarkResult {
             .into_iter()
             .map(|((name, strategy), runs)| {
                 let num_runs = runs.len();
-                let avg_bins =
-                    runs.iter().map(|r| r.strip_length).sum::<f64>() / num_runs as f64;
+                let avg_bins = runs.iter().map(|r| r.strip_length).sum::<f64>() / num_runs as f64;
                 let best_bins = runs
                     .iter()
                     .map(|r| r.strip_length as usize)

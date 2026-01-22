@@ -245,12 +245,7 @@ impl InstanceGenerator {
             .map(|id| self.generate_item(class, id, &mut rng))
             .collect();
 
-        let name = format!(
-            "{}_{}_n{}",
-            class.id(),
-            self.bin_dim as u32,
-            num_items
-        );
+        let name = format!("{}_{}_n{}", class.id(), self.bin_dim as u32, num_items);
 
         Dataset3D {
             name,
@@ -341,7 +336,13 @@ impl InstanceGenerator {
             for i in 0..instances_per_class {
                 let gen = InstanceGenerator::new(self.bin_dim).with_seed(i as u64 * 12345 + 1);
                 let mut dataset = gen.generate(class, num_items);
-                dataset.name = format!("{}_{}_n{}_i{}", class.id(), self.bin_dim as u32, num_items, i + 1);
+                dataset.name = format!(
+                    "{}_{}_n{}_i{}",
+                    class.id(),
+                    self.bin_dim as u32,
+                    num_items,
+                    i + 1
+                );
                 datasets.push(dataset);
             }
         }

@@ -222,7 +222,8 @@ mod tests {
             1 // Continue
         }
 
-        let wrapper = unsafe { CallbackWrapper::new(Some(continue_callback), std::ptr::null_mut()) };
+        let wrapper =
+            unsafe { CallbackWrapper::new(Some(continue_callback), std::ptr::null_mut()) };
 
         let progress = ProgressJson {
             iteration: 1,
@@ -271,10 +272,7 @@ mod tests {
 
     #[test]
     fn test_callback_wrapper_with_user_data() {
-        unsafe extern "C" fn counting_callback(
-            _json: *const c_char,
-            data: *mut c_void,
-        ) -> i32 {
+        unsafe extern "C" fn counting_callback(_json: *const c_char, data: *mut c_void) -> i32 {
             let counter = data as *mut AtomicU32;
             (*counter).fetch_add(1, Ordering::Relaxed);
             1 // Continue

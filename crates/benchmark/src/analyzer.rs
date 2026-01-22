@@ -319,10 +319,7 @@ impl Analyzer {
     fn analyze_by_dataset(&self, runs: &[&RunResult]) -> Vec<DatasetAnalysis> {
         let mut by_dataset: HashMap<String, Vec<&RunResult>> = HashMap::new();
         for run in runs {
-            by_dataset
-                .entry(run.dataset.clone())
-                .or_default()
-                .push(run);
+            by_dataset.entry(run.dataset.clone()).or_default().push(run);
         }
 
         by_dataset
@@ -346,8 +343,10 @@ impl Analyzer {
                         let n = strat_runs.len();
                         let avg_utilization =
                             strat_runs.iter().map(|r| r.utilization).sum::<f64>() / n as f64;
-                        let avg_time_ms = strat_runs.iter().map(|r| r.time_ms).sum::<u64>() / n as u64;
-                        let gaps: Vec<f64> = strat_runs.iter().filter_map(|r| r.gap_percent).collect();
+                        let avg_time_ms =
+                            strat_runs.iter().map(|r| r.time_ms).sum::<u64>() / n as u64;
+                        let gaps: Vec<f64> =
+                            strat_runs.iter().filter_map(|r| r.gap_percent).collect();
                         let avg_gap_percent = if gaps.is_empty() {
                             None
                         } else {
@@ -404,7 +403,8 @@ impl Analyzer {
         }
 
         // Group runs by instance
-        let mut by_instance: HashMap<(String, String), HashMap<String, &RunResult>> = HashMap::new();
+        let mut by_instance: HashMap<(String, String), HashMap<String, &RunResult>> =
+            HashMap::new();
         for run in runs {
             by_instance
                 .entry((run.dataset.clone(), run.instance.clone()))
@@ -523,10 +523,7 @@ impl ReportGenerator {
         md.push_str("## Overall Statistics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
-        md.push_str(&format!(
-            "| Total Runs | {} |\n",
-            report.overall.total_runs
-        ));
+        md.push_str(&format!("| Total Runs | {} |\n", report.overall.total_runs));
         md.push_str(&format!(
             "| Datasets | {} |\n",
             report.overall.datasets_count
@@ -591,7 +588,10 @@ impl ReportGenerator {
         md.push_str("| Rank | Strategy | Avg Time (ms) |\n");
         md.push_str("|------|----------|---------------|\n");
         for r in &report.rankings.by_speed {
-            md.push_str(&format!("| {} | {} | {:.0} |\n", r.rank, r.strategy, r.value));
+            md.push_str(&format!(
+                "| {} | {} | {:.0} |\n",
+                r.rank, r.strategy, r.value
+            ));
         }
         md.push_str("\n");
 

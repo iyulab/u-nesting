@@ -23,13 +23,15 @@ mod synthetic;
 
 // Analysis exports
 pub use analyzer::{
-    AnalysisReport, Analyzer, DatasetAnalysis, OverallStats, RankEntry, Rankings,
-    ReportGenerator, StrategyAnalysis, StrategyComparison,
+    AnalysisReport, Analyzer, DatasetAnalysis, OverallStats, RankEntry, Rankings, ReportGenerator,
+    StrategyAnalysis, StrategyComparison,
 };
 
 // 2D exports
 pub use dataset::{Dataset, DatasetInfo, Item, Shape};
-pub use download::{DatasetInfo as DownloadDatasetInfo, DatasetManager, DownloadError, ESICUP_DATASETS};
+pub use download::{
+    DatasetInfo as DownloadDatasetInfo, DatasetManager, DownloadError, ESICUP_DATASETS,
+};
 pub use parser::DatasetParser;
 pub use result::{BenchmarkResult, RunResult, StrategySummary};
 pub use runner::{BenchmarkConfig, BenchmarkRunner};

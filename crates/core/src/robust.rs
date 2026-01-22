@@ -461,7 +461,10 @@ pub fn snap_to_grid(point: (f64, f64), resolution: f64) -> (f64, f64) {
 
 /// Snaps an entire polygon to a grid.
 pub fn snap_polygon_to_grid(polygon: &[(f64, f64)], resolution: f64) -> Vec<(f64, f64)> {
-    polygon.iter().map(|&p| snap_to_grid(p, resolution)).collect()
+    polygon
+        .iter()
+        .map(|&p| snap_to_grid(p, resolution))
+        .collect()
 }
 
 // ============================================================================

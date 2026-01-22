@@ -619,7 +619,9 @@ mod tests {
     #[test]
     fn test_aabb_overlap() {
         // Overlapping
-        assert!(aabb_overlap(0.0, 0.0, 10.0, 10.0, 5.0, 5.0, 10.0, 10.0, 0.0));
+        assert!(aabb_overlap(
+            0.0, 0.0, 10.0, 10.0, 5.0, 5.0, 10.0, 10.0, 0.0
+        ));
 
         // Not overlapping
         assert!(!aabb_overlap(
@@ -656,8 +658,7 @@ mod tests {
             .with_grid_step(5.0); // Coarse grid for faster test
 
         let cancelled = Arc::new(AtomicBool::new(false));
-        let result =
-            run_nfp_cm_nesting(&geometries, &boundary, &config, &exact_config, cancelled);
+        let result = run_nfp_cm_nesting(&geometries, &boundary, &config, &exact_config, cancelled);
 
         // Should find a solution
         assert!(!result.placements.is_empty());

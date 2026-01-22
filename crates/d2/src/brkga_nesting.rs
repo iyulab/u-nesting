@@ -201,11 +201,20 @@ impl BrkgaNestingProblem {
                 let clamped_x = x.clamp(min_valid_x, max_valid_x);
                 let clamped_y = y.clamp(min_valid_y, max_valid_y);
 
-                let placement =
-                    Placement::new_2d(geom.id().clone(), info.instance_num, clamped_x, clamped_y, rotation_angle);
+                let placement = Placement::new_2d(
+                    geom.id().clone(),
+                    info.instance_num,
+                    clamped_x,
+                    clamped_y,
+                    rotation_angle,
+                );
 
                 placements.push(placement);
-                placed_geometries.push(PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation_angle));
+                placed_geometries.push(PlacedGeometry::new(
+                    geom.clone(),
+                    (clamped_x, clamped_y),
+                    rotation_angle,
+                ));
                 total_placed_area += geom.measure();
                 placed_count += 1;
             }
