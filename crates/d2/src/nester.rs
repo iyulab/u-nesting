@@ -523,18 +523,20 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
-        // Configure GA from solver config
-        let mut ga_config = GaConfig::default()
-            .with_population_size(self.config.population_size)
-            .with_max_generations(self.config.max_generations)
-            .with_crossover_rate(self.config.crossover_rate)
-            .with_mutation_rate(self.config.mutation_rate);
+        // Configure GA with time limit for multi-strip scenarios
+        let time_limit_ms = if self.config.time_limit_ms > 0 {
+            // Use 1/4 of total time limit per strip to allow for multiple strips
+            (self.config.time_limit_ms / 4).max(5000)
+        } else {
+            15000 // 15 seconds default per strip
+        };
 
-        // Apply time limit if specified
-        if self.config.time_limit_ms > 0 {
-            ga_config = ga_config
-                .with_time_limit(std::time::Duration::from_millis(self.config.time_limit_ms));
-        }
+        let ga_config = GaConfig::default()
+            .with_population_size(self.config.population_size.min(30)) // Limit population
+            .with_max_generations(self.config.max_generations.min(50)) // Limit generations
+            .with_crossover_rate(self.config.crossover_rate)
+            .with_mutation_rate(self.config.mutation_rate)
+            .with_time_limit(std::time::Duration::from_millis(time_limit_ms));
 
         let result = run_ga_nesting(
             geometries,
@@ -551,19 +553,21 @@ impl Nester2D {
     ///
     /// Uses random-key encoding and biased crossover for robust optimization.
     fn brkga(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        // Configure BRKGA with reasonable defaults
-        let mut brkga_config = BrkgaConfig::default()
-            .with_population_size(50)
-            .with_max_generations(100)
+        // Configure BRKGA with time limit for multi-strip scenarios
+        let time_limit_ms = if self.config.time_limit_ms > 0 {
+            // Use 1/4 of total time limit per strip to allow for multiple strips
+            (self.config.time_limit_ms / 4).max(5000)
+        } else {
+            15000 // 15 seconds default per strip
+        };
+
+        let brkga_config = BrkgaConfig::default()
+            .with_population_size(30) // Smaller population for speed
+            .with_max_generations(50) // Fewer generations
             .with_elite_fraction(0.2)
             .with_mutant_fraction(0.15)
-            .with_elite_bias(0.7);
-
-        // Apply time limit if specified
-        if self.config.time_limit_ms > 0 {
-            brkga_config = brkga_config
-                .with_time_limit(std::time::Duration::from_millis(self.config.time_limit_ms));
-        }
+            .with_elite_bias(0.7)
+            .with_time_limit(std::time::Duration::from_millis(time_limit_ms));
 
         let result = run_brkga_nesting(
             geometries,
@@ -585,19 +589,22 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
-        // Configure SA with reasonable defaults
-        let mut sa_config = SaConfig::default()
-            .with_initial_temp(100.0)
-            .with_final_temp(0.1)
-            .with_cooling_rate(0.95)
-            .with_iterations_per_temp(50)
-            .with_max_iterations(10000);
+        // Configure SA with faster defaults for multi-strip scenarios
+        // Note: Each decode() call is O(N²) NFP computations, so we need fewer iterations
+        let time_limit_ms = if self.config.time_limit_ms > 0 {
+            // Use 1/4 of total time limit per strip to allow for multiple strips
+            (self.config.time_limit_ms / 4).max(5000)
+        } else {
+            10000 // 10 seconds default per strip
+        };
 
-        // Apply time limit if specified
-        if self.config.time_limit_ms > 0 {
-            sa_config = sa_config
-                .with_time_limit(std::time::Duration::from_millis(self.config.time_limit_ms));
-        }
+        let sa_config = SaConfig::default()
+            .with_initial_temp(50.0) // Lower initial temp for faster convergence
+            .with_final_temp(1.0) // Higher final temp to finish faster
+            .with_cooling_rate(0.9) // Faster cooling (was 0.95)
+            .with_iterations_per_temp(20) // Fewer iterations per temp (was 50)
+            .with_max_iterations(500) // Much fewer max iterations (was 10000)
+            .with_time_limit(std::time::Duration::from_millis(time_limit_ms));
 
         let result = run_sa_nesting(
             geometries,
