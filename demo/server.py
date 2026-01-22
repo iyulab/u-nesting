@@ -6,10 +6,17 @@ import json
 import subprocess
 import tempfile
 import os
+import sys
 
 PORT = 8888
 DEV_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(DEV_DIR)
+
+# Pre-built binary path (built on startup if missing)
+if sys.platform == 'win32':
+    BENCHMARK_BIN = os.path.join(PROJECT_ROOT, 'target', 'release', 'u-nesting-benchmark.exe')
+else:
+    BENCHMARK_BIN = os.path.join(PROJECT_ROOT, 'target', 'release', 'u-nesting-benchmark')
 
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
@@ -45,8 +52,8 @@ class Handler(BaseHTTPRequestHandler):
 
             try:
                 cmd = [
-                    'cargo', 'run', '--release', '-p', 'u-nesting-benchmark',
-                    '--', 'run-file', input_path, '-s', strategy, '-t', '60',
+                    BENCHMARK_BIN,
+                    'run-file', input_path, '-s', strategy, '-t', '60',
                     '-o', output_path
                 ]
                 print(f"Running: {' '.join(cmd)}")
@@ -119,7 +126,32 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[Server] {fmt % args}")
 
+def ensure_binary_built():
+    """Build the benchmark binary if it doesn't exist."""
+    if os.path.exists(BENCHMARK_BIN):
+        print(f"Binary found: {BENCHMARK_BIN}")
+        return True
+
+    print("Binary not found. Building (this may take a minute)...")
+    result = subprocess.run(
+        ['cargo', 'build', '--release', '-p', 'u-nesting-benchmark'],
+        cwd=PROJECT_ROOT,
+        capture_output=True,
+        text=True
+    )
+    if result.returncode != 0:
+        print(f"Build failed: {result.stderr}")
+        return False
+    print("Build complete!")
+    return True
+
+
 if __name__ == '__main__':
     print(f"U-Nesting Server: http://localhost:{PORT}")
     print(f"Project: {PROJECT_ROOT}")
+
+    if not ensure_binary_built():
+        print("ERROR: Could not build benchmark binary. Exiting.")
+        sys.exit(1)
+
     HTTPServer(('', PORT), Handler).serve_forever()
