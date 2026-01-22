@@ -8,6 +8,7 @@ repository.workspace = true
 description = "C FFI interface for U-Nesting spatial optimization engine"
 keywords = ["ffi", "nesting", "bin-packing"]
 categories = ["api-bindings"]
+include = ["src/**/*", "Cargo.toml", "cbindgen.toml", "include/**/*"]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
