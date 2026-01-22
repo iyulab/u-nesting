@@ -1222,11 +1222,11 @@ impl Nester2D {
                 use u_nesting_core::geometry::Geometry;
                 let piece_area = geom.measure();
                 let rotation = placement.rotation.first().copied().unwrap_or(0.0);
-                let (g_min, g_max) = geom.aabb_at_rotation(rotation);
-                let piece_width = g_max[0] - g_min[0];
-                // Position in local strip coordinates (subtract strip offset)
+                let (_g_min, g_max) = geom.aabb_at_rotation(rotation);
+                // Position is where geometry's origin is placed
+                // The actual right edge is position.x + g_max[0] (relative to origin)
                 let local_x = placement.position[0] - (strip_idx as f64 * strip_width);
-                let right_edge = local_x + piece_width;
+                let right_edge = local_x + g_max[0];
 
                 let entry = strip_stats_map.entry(strip_idx).or_insert((0.0, 0.0, 0));
                 entry.0 = entry.0.max(right_edge); // max_x (used_length)
@@ -1244,17 +1244,18 @@ impl Nester2D {
                 used_length,
                 piece_area,
                 piece_count: count,
-                strip_width: strip_height, // Note: strip_width in StripStats means the fixed dimension
-                strip_height: strip_width, // strip_height is the variable dimension (length)
+                strip_width,  // Width of boundary (X dimension)
+                strip_height, // Height of boundary (Y dimension, fixed)
             })
             .collect();
         strip_stats.sort_by_key(|s| s.strip_index);
 
         // Calculate accurate utilization
+        // Material used = strip_height (fixed dimension) × used_length (consumed length)
         let total_piece_area: f64 = strip_stats.iter().map(|s| s.piece_area).sum();
         let total_material_used: f64 = strip_stats
             .iter()
-            .map(|s| s.strip_width * s.used_length)
+            .map(|s| s.strip_height * s.used_length)
             .sum();
 
         final_result.strip_stats = strip_stats;
