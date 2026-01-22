@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 readme = "../../README.md"
 description = "Domain-agnostic 2D/3D spatial optimization engine - nesting and bin packing"
-keywords = ["nesting", "bin-packing", "optimization", "geometry", "2d", "3d"]
+keywords = ["nesting", "bin-packing", "optimization", "geometry", "spatial"]
 categories = ["algorithms", "mathematics"]
 
 [dependencies]
