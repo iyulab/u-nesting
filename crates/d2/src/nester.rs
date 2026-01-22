@@ -3,6 +3,7 @@
 use crate::alns_nesting::run_alns_nesting;
 use crate::boundary::Boundary2D;
 use crate::clamp_placement_to_boundary_with_margin;
+use crate::validate_and_filter_placements;
 use crate::brkga_nesting::run_brkga_nesting;
 use crate::ga_nesting::{run_ga_nesting, run_ga_nesting_with_progress};
 use crate::gdrr_nesting::run_gdrr_nesting;
@@ -1241,7 +1242,7 @@ impl Solver for Nester2D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        let mut result = match self.config.strategy {
+        let initial_result = match self.config.strategy {
             Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
             Strategy::NfpGuided => self.nfp_guided_blf(geometries, boundary),
             Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
@@ -1263,6 +1264,9 @@ impl Solver for Nester2D {
             }
         }?;
 
+        // Validate all placements and remove any that are outside the boundary
+        let mut result = validate_and_filter_placements(initial_result, geometries, boundary);
+
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();
         Ok(result)
@@ -1279,7 +1283,7 @@ impl Solver for Nester2D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        let mut result = match self.config.strategy {
+        let initial_result = match self.config.strategy {
             Strategy::BottomLeftFill => {
                 self.bottom_left_fill_with_progress(geometries, boundary, &callback)?
             }
@@ -1318,6 +1322,9 @@ impl Solver for Nester2D {
                 self.nfp_guided_blf_with_progress(geometries, boundary, &callback)?
             }
         };
+
+        // Validate all placements and remove any that are outside the boundary
+        let mut result = validate_and_filter_placements(initial_result, geometries, boundary);
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();

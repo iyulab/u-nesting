@@ -157,6 +157,111 @@ pub fn clamp_placement_to_boundary_with_margin(
     Some((clamped_x, clamped_y))
 }
 
+/// Checks if a placement is within the boundary.
+///
+/// Returns `true` if the geometry at the given placement is fully within the boundary,
+/// `false` otherwise.
+///
+/// # Arguments
+/// * `placement` - The placement to validate (contains position and rotation)
+/// * `geometry` - The geometry being placed
+/// * `boundary` - The boundary to check against
+/// * `tolerance` - Small tolerance for floating point comparison (e.g., 1e-6)
+pub fn is_placement_within_bounds(
+    placement: &Placement<f64>,
+    geometry: &Geometry2D,
+    boundary: &Boundary2D,
+    tolerance: f64,
+) -> bool {
+    use u_nesting_core::geometry::Boundary;
+
+    // Extract position (Vec<f64> with [x, y] for 2D)
+    let x = placement.position.first().copied().unwrap_or(0.0);
+    let y = placement.position.get(1).copied().unwrap_or(0.0);
+
+    // Extract rotation (Vec<f64> with [θ] for 2D)
+    let rotation = placement.rotation.first().copied().unwrap_or(0.0);
+
+    // Get geometry AABB at the placement rotation
+    let (g_min, g_max) = geometry.aabb_at_rotation(rotation);
+
+    // Get boundary AABB
+    let (b_min, b_max) = boundary.aabb();
+
+    // Calculate the actual bounds of the placed geometry
+    let placed_min_x = x + g_min[0];
+    let placed_max_x = x + g_max[0];
+    let placed_min_y = y + g_min[1];
+    let placed_max_y = y + g_max[1];
+
+    // Check if fully within boundary (with tolerance)
+    placed_min_x >= b_min[0] - tolerance
+        && placed_max_x <= b_max[0] + tolerance
+        && placed_min_y >= b_min[1] - tolerance
+        && placed_max_y <= b_max[1] + tolerance
+}
+
+/// Validates all placements in a SolveResult and removes any that are outside the boundary.
+///
+/// Returns a new SolveResult with only valid placements, updated utilization,
+/// and invalid placements added to the unplaced list.
+///
+/// # Arguments
+/// * `result` - The solve result to validate
+/// * `geometries` - The geometries that were being placed
+/// * `boundary` - The boundary to check against
+pub fn validate_and_filter_placements(
+    mut result: SolveResult<f64>,
+    geometries: &[Geometry2D],
+    boundary: &Boundary2D,
+) -> SolveResult<f64> {
+    use std::collections::HashMap;
+    use u_nesting_core::geometry::{Boundary, Geometry};
+
+    const TOLERANCE: f64 = 1e-6;
+
+    // Build a map from geometry ID to geometry for quick lookup
+    let geom_map: HashMap<_, _> = geometries.iter().map(|g| (g.id().clone(), g)).collect();
+
+    let mut valid_placements = Vec::new();
+    let mut total_valid_area = 0.0;
+
+    for placement in result.placements {
+        if let Some(geom) = geom_map.get(&placement.geometry_id) {
+            if is_placement_within_bounds(&placement, geom, boundary, TOLERANCE) {
+                total_valid_area += geom.measure();
+                valid_placements.push(placement);
+            } else {
+                // Log the invalid placement for debugging
+                #[cfg(debug_assertions)]
+                {
+                    let px = placement.position.first().copied().unwrap_or(0.0);
+                    let py = placement.position.get(1).copied().unwrap_or(0.0);
+                    let rot = placement.rotation.first().copied().unwrap_or(0.0);
+                    eprintln!(
+                        "WARNING: Placement for {} at ({:.2}, {:.2}) rot={:.2}° is outside boundary",
+                        placement.geometry_id,
+                        px,
+                        py,
+                        rot.to_degrees()
+                    );
+                }
+                // Add to unplaced list
+                result.unplaced.push(placement.geometry_id.clone());
+            }
+        } else {
+            // Geometry not found - shouldn't happen but handle gracefully
+            result.unplaced.push(placement.geometry_id.clone());
+        }
+    }
+
+    // Update result with valid placements only
+    result.placements = valid_placements;
+    result.utilization = total_valid_area / boundary.measure();
+
+    result
+}
+
 // Re-exports
 pub use boundary::Boundary2D;
 pub use geometry::Geometry2D;
