@@ -56,7 +56,7 @@
             <div class="section">
                 <div class="section-title">2. Strip Size</div>
                 <div style="display:flex;gap:3px;margin-bottom:6px">
-                    <input type="number" id="stripWidth" value="2500" style="width:50%;background:#0f3460;border:1px solid #00d9ff;color:#eee;padding:5px;border-radius:4px;font-size:0.8rem" placeholder="W">
+                    <input type="number" id="stripWidth" value="500" style="width:50%;background:#0f3460;border:1px solid #00d9ff;color:#eee;padding:5px;border-radius:4px;font-size:0.8rem" placeholder="W">
                     <input type="number" id="stripHeight" value="500" style="width:50%;background:#0f3460;border:1px solid #00d9ff;color:#eee;padding:5px;border-radius:4px;font-size:0.8rem" placeholder="H">
                 </div>
                 <button class="btn chaos" onclick="showRandom()" id="randomBtn" disabled>🎲 Random</button>
@@ -132,31 +132,31 @@
                     quantity: qty, rotations: item.allowed_orientations || [0]
                 });
             }
-            return { name: data.name, items, pieceToItem, total, strip_width: data.strip_width || 2500, strip_height: data.strip_height || 500 };
+            return { name: data.name, items, pieceToItem, total, strip_width: data.strip_width || 500, strip_height: data.strip_height || 500 };
         }
 
         function loadSamples() {
             const demo = {
                 name: "manufacturing_samples",
                 items: [
-                    { id: 0, name: "SHAPE", demand: 2, allowed_orientations: [0,90,180,270],
+                    { id: 0, name: "Shape", demand: 2, allowed_orientations: [0,90,180,270],
                       shape: { type: "simple_polygon", data: [[0,0],[180,0],[195,15],[200,50],[200,150],[195,185],[180,200],[20,200],[5,185],[0,150],[0,50],[5,15],[0,0]] }},
-                    { id: 1, name: "플랜지", demand: 4, allowed_orientations: [0,45,90,135],
+                    { id: 1, name: "Flange", demand: 4, allowed_orientations: [0,45,90,135],
                       shape: { type: "simple_polygon", data: [[60,0],[85,7],[104,25],[118,50],[120,60],[118,70],[104,95],[85,113],[60,120],[35,113],[16,95],[2,70],[0,60],[2,50],[16,25],[35,7],[60,0]] }},
-                    { id: 2, name: "L-브라켓", demand: 6, allowed_orientations: [0,90,180,270],
+                    { id: 2, name: "L-Bracket", demand: 6, allowed_orientations: [0,90,180,270],
                       shape: { type: "simple_polygon", data: [[0,0],[80,0],[80,20],[20,20],[20,80],[0,80],[0,0]] }},
-                    { id: 3, name: "거셋-45", demand: 8, allowed_orientations: [0,90,180,270],
+                    { id: 3, name: "Gusset-45", demand: 8, allowed_orientations: [0,90,180,270],
                       shape: { type: "simple_polygon", data: [[0,0],[70,0],[0,70],[0,0]] }},
-                    { id: 4, name: "보강판", demand: 5, allowed_orientations: [0,90],
+                    { id: 4, name: "Reinforcement", demand: 5, allowed_orientations: [0,90],
                       shape: { type: "simple_polygon", data: [[0,0],[120,0],[120,60],[0,60],[0,0]] }},
-                    { id: 5, name: "육각-BL", demand: 10, allowed_orientations: [0,60,120],
+                    { id: 5, name: "Hexagon-BL", demand: 10, allowed_orientations: [0,60,120],
                       shape: { type: "simple_polygon", data: [[15,0],[45,0],[60,26],[45,52],[15,52],[0,26],[15,0]] }},
-                    { id: 6, name: "T-스티프너", demand: 4, allowed_orientations: [0,90,180,270],
+                    { id: 6, name: "T-Stiffener", demand: 4, allowed_orientations: [0,90,180,270],
                       shape: { type: "simple_polygon", data: [[0,0],[90,0],[90,12],[55,12],[55,60],[35,60],[35,12],[0,12],[0,0]] }},
-                    { id: 7, name: "마운팅", demand: 3, allowed_orientations: [0,90],
+                    { id: 7, name: "Mounting", demand: 3, allowed_orientations: [0,90],
                       shape: { type: "simple_polygon", data: [[0,10],[10,0],[70,0],[80,10],[80,70],[70,80],[10,80],[0,70],[0,10]] }}
                 ],
-                strip_width: 2500,
+                strip_width: 500,
                 strip_height: 500
             };
             inputData = parseInput(demo);
@@ -218,7 +218,7 @@
             const container = document.getElementById('bins');
             container.innerHTML = '';
 
-            const binW = parseInt(document.getElementById('stripWidth').value) || 2500;
+            const binW = parseInt(document.getElementById('stripWidth').value) || 500;
             const binH = parseInt(document.getElementById('stripHeight').value) || 500;
 
             // Expand items by quantity
@@ -283,7 +283,7 @@
             showPhase('OPTIMIZING...', 'running');
             setStatus('Running ' + algo.toUpperCase() + '...', '');
 
-            const stripW = parseInt(document.getElementById('stripWidth').value) || 2500;
+            const stripW = parseInt(document.getElementById('stripWidth').value) || 500;
             const stripH = parseInt(document.getElementById('stripHeight').value) || 500;
             const jsonData = {
                 name: inputData.name,
@@ -318,7 +318,7 @@
             container.innerHTML = '';
 
             // Use user-specified strip size
-            const binW = parseInt(document.getElementById('stripWidth').value) || 2500;
+            const binW = parseInt(document.getElementById('stripWidth').value) || 500;
             const binH = parseInt(document.getElementById('stripHeight').value) || 500;
             const placements = result.placements || [];
 
