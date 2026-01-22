@@ -13,6 +13,7 @@ use crate::nfp::{
     Nfp, NfpCache, PlacedGeometry,
 };
 #[cfg(feature = "milp")]
+#[allow(unused_imports)]
 use crate::nfp_cm_solver::run_nfp_cm_nesting;
 use crate::sa_nesting::run_sa_nesting;
 use u_nesting_core::alns::AlnsConfig;

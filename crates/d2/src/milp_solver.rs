@@ -34,7 +34,7 @@
 
 use crate::boundary::Boundary2D;
 use crate::geometry::Geometry2D;
-use u_nesting_core::exact::{ExactConfig, ExactResult, SolutionStatus};
+use u_nesting_core::exact::{ExactConfig, ExactResult};
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::Config;
 use u_nesting_core::{Placement, SolveResult};
@@ -305,8 +305,8 @@ fn solve_milp(
     let mut problem = vars.minimise(strip_length).using(default_solver);
 
     // Rotation selection constraints: exactly one rotation per piece
-    for i in 0..n {
-        let sum: Expression = rot[i].iter().map(|&v| Expression::from(v)).sum();
+    for rot_row in rot.iter().take(n) {
+        let sum: Expression = rot_row.iter().map(|&v| Expression::from(v)).sum();
         problem = problem.with(constraint!(sum == 1.0));
     }
 
@@ -415,8 +415,8 @@ fn solve_milp(
 
                 // Find which rotation was selected
                 let mut selected_rot = 0;
-                for k in 0..r {
-                    if solution.value(rot[i][k]) > 0.5 {
+                for (k, rot_ik) in rot[i].iter().enumerate().take(r) {
+                    if solution.value(*rot_ik) > 0.5 {
                         selected_rot = k;
                         break;
                     }

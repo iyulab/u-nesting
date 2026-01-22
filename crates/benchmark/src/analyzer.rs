@@ -113,7 +113,7 @@ pub struct DatasetStrategyResult {
 pub struct StrategyComparison {
     /// Strategies being compared
     pub strategies: Vec<String>,
-    /// Win matrix: strategies[i] beats strategies[j] how many times
+    /// Win matrix: strategies\[i\] beats strategies\[j\] how many times
     pub win_matrix: Vec<Vec<usize>>,
     /// Average improvement percentages
     pub improvement_matrix: Vec<Vec<Option<f64>>>,
