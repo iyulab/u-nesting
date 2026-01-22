@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>U-Nesting Viewer</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; }
+        .container { display: grid; grid-template-columns: 200px 1fr; height: 100vh; }
+        .sidebar { background: #16213e; padding: 10px; overflow-y: auto; }
+        .main { padding: 15px; display: flex; flex-direction: column; overflow: hidden; }
+        h1 { color: #00d9ff; margin-bottom: 15px; font-size: 1.3rem; }
+        .section { margin-bottom: 12px; }
+        .section-title { color: #00d9ff; font-size: 0.75rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+        input[type="file"] { display: none; }
+        .btn { background: #0f3460; color: #00d9ff; border: 1px solid #00d9ff; padding: 8px; border-radius: 4px; cursor: pointer; width: 100%; margin-bottom: 5px; font-size: 0.8rem; transition: all 0.2s; text-align: center; display: block; }
+        .btn:hover { background: #00d9ff; color: #0f3460; }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn.primary { background: #2ecc71; border-color: #2ecc71; color: #fff; font-weight: bold; }
+        .btn.primary:hover { background: #27ae60; }
+        .btn.chaos { background: #e74c3c; border-color: #e74c3c; color: #fff; }
+        .btn.chaos:hover { background: #c0392b; }
+        select { background: #0f3460; border: 1px solid #00d9ff; color: #eee; padding: 10px; border-radius: 4px; width: 100%; margin-bottom: 6px; font-size: 0.85rem; }
+        .bins-container { flex: 1; display: flex; flex-wrap: wrap; gap: 12px; overflow-y: auto; padding: 10px; background: #0a0a1a; border-radius: 8px; }
+        .bin-card { background: #0f3460; border-radius: 8px; padding: 10px; min-width: 300px; flex: 1; max-width: 500px; }
+        .bin-header { display: flex; justify-content: space-between; margin-bottom: 8px; font-size: 0.8rem; }
+        .bin-header .title { color: #00d9ff; font-weight: bold; }
+        .bin-header .stats { color: #888; }
+        canvas { width: 100%; background: #0a0a1a; border-radius: 4px; }
+        .status { padding: 8px 12px; background: #16213e; border-radius: 4px; margin-top: 10px; font-size: 0.8rem; }
+        .status.success { border-left: 3px solid #2ecc71; }
+        .status.error { border-left: 3px solid #e74c3c; }
+        .part-list { max-height: 100px; overflow-y: auto; background: #0f3460; border-radius: 4px; padding: 6px; font-size: 0.7rem; }
+        .part-item { padding: 3px 6px; margin-bottom: 2px; background: #16213e; border-radius: 3px; display: flex; justify-content: space-between; }
+        .phase { text-align: center; font-size: 1.2rem; font-weight: bold; padding: 12px; margin-bottom: 10px; border-radius: 4px; }
+        .phase.chaos { background: #e74c3c; }
+        .phase.running { background: #f39c12; animation: pulse 0.5s infinite; }
+        .phase.done { background: #2ecc71; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.6} }
+        .info { background: #0f3460; padding: 8px; border-radius: 4px; margin-bottom: 10px; font-size: 0.8rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h1>🔧 U-Nesting</h1>
+
+            <div class="section">
+                <div class="section-title">1. Load Data</div>
+                <input type="file" id="inputFile" accept=".json">
+                <label for="inputFile" class="btn">📂 Load JSON</label>
+                <button class="btn" onclick="loadSamples()">🏭 Load Samples</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">2. Strip Size</div>
+                <div style="display:flex;gap:3px;margin-bottom:6px">
+                    <input type="number" id="stripWidth" value="2500" style="width:50%;background:#0f3460;border:1px solid #00d9ff;color:#eee;padding:5px;border-radius:4px;font-size:0.8rem" placeholder="W">
+                    <input type="number" id="stripHeight" value="500" style="width:50%;background:#0f3460;border:1px solid #00d9ff;color:#eee;padding:5px;border-radius:4px;font-size:0.8rem" placeholder="H">
+                </div>
+                <button class="btn chaos" onclick="showRandom()" id="randomBtn" disabled>🎲 Random</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">3. Algorithm</div>
+                <select id="algorithm" style="font-size:0.8rem;padding:8px">
+                    <option value="nfp">NFP (Best)</option>
+                    <option value="blf">BLF (Fast)</option>
+                    <option value="ga">GA</option>
+                    <option value="brkga">BRKGA</option>
+                    <option value="sa">SA</option>
+                </select>
+            </div>
+
+            <div class="section">
+                <div class="section-title">4. Run</div>
+                <button class="btn primary" onclick="runOptimize()" id="optimizeBtn" disabled>▶️ Optimize</button>
+            </div>
+
+            <div class="section">
+                <div class="section-title">Parts</div>
+                <div class="part-list" id="partList">No data</div>
+            </div>
+        </div>
+
+        <div class="main">
+            <div class="info" id="info">Load sample data to start</div>
+            <div class="phase" id="phase" style="display:none"></div>
+            <div class="bins-container" id="bins"></div>
+            <div class="status" id="status">Ready</div>
+        </div>
+    </div>
+
+    <script>
+        let inputData = null;
+        let serverAvailable = false;
+        const COLORS = ['#3498db','#2ecc71','#e74c3c','#f39c12','#9b59b6','#1abc9c','#e67e22','#fd79a8','#00cec9','#6c5ce7'];
+
+        // Check if server is available
+        fetch('/api/health').then(() => serverAvailable = true).catch(() => serverAvailable = false);
+
+        document.getElementById('inputFile').onchange = e => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => {
+                try {
+                    inputData = parseInput(JSON.parse(ev.target.result));
+                    onDataLoaded();
+                } catch (err) { alert('JSON Error: ' + err.message); }
+            };
+            reader.readAsText(file);
+        };
+
+        function parseInput(data) {
+            const items = [];
+            const pieceToItem = {}; // Map piece_id to item index
+            let total = 0;
+            let pieceId = 0;
+            for (let i = 0; i < (data.items || []).length; i++) {
+                const item = data.items[i];
+                const shape = item.shape || {};
+                const qty = item.demand || 1;
+                for (let q = 0; q < qty; q++) {
+                    pieceToItem[pieceId++] = i;
+                }
+                total += qty;
+                items.push({
+                    id: item.id, name: item.name || 'Part_' + item.id,
+                    exterior: shape.type === 'simple_polygon' ? shape.data : (shape.exterior || []),
+                    quantity: qty, rotations: item.allowed_orientations || [0]
+                });
+            }
+            return { name: data.name, items, pieceToItem, total, strip_width: data.strip_width || 2500, strip_height: data.strip_height || 500 };
+        }
+
+        function loadSamples() {
+            const demo = {
+                name: "manufacturing_samples",
+                items: [
+                    { id: 0, name: "SHAPE", demand: 2, allowed_orientations: [0,90,180,270],
+                      shape: { type: "simple_polygon", data: [[0,0],[180,0],[195,15],[200,50],[200,150],[195,185],[180,200],[20,200],[5,185],[0,150],[0,50],[5,15],[0,0]] }},
+                    { id: 1, name: "플랜지", demand: 4, allowed_orientations: [0,45,90,135],
+                      shape: { type: "simple_polygon", data: [[60,0],[85,7],[104,25],[118,50],[120,60],[118,70],[104,95],[85,113],[60,120],[35,113],[16,95],[2,70],[0,60],[2,50],[16,25],[35,7],[60,0]] }},
+                    { id: 2, name: "L-브라켓", demand: 6, allowed_orientations: [0,90,180,270],
+                      shape: { type: "simple_polygon", data: [[0,0],[80,0],[80,20],[20,20],[20,80],[0,80],[0,0]] }},
+                    { id: 3, name: "거셋-45", demand: 8, allowed_orientations: [0,90,180,270],
+                      shape: { type: "simple_polygon", data: [[0,0],[70,0],[0,70],[0,0]] }},
+                    { id: 4, name: "보강판", demand: 5, allowed_orientations: [0,90],
+                      shape: { type: "simple_polygon", data: [[0,0],[120,0],[120,60],[0,60],[0,0]] }},
+                    { id: 5, name: "육각-BL", demand: 10, allowed_orientations: [0,60,120],
+                      shape: { type: "simple_polygon", data: [[15,0],[45,0],[60,26],[45,52],[15,52],[0,26],[15,0]] }},
+                    { id: 6, name: "T-스티프너", demand: 4, allowed_orientations: [0,90,180,270],
+                      shape: { type: "simple_polygon", data: [[0,0],[90,0],[90,12],[55,12],[55,60],[35,60],[35,12],[0,12],[0,0]] }},
+                    { id: 7, name: "마운팅", demand: 3, allowed_orientations: [0,90],
+                      shape: { type: "simple_polygon", data: [[0,10],[10,0],[70,0],[80,10],[80,70],[70,80],[10,80],[0,70],[0,10]] }}
+                ],
+                strip_width: 2500,
+                strip_height: 500
+            };
+            inputData = parseInput(demo);
+            onDataLoaded();
+        }
+
+        function onDataLoaded() {
+            document.getElementById('randomBtn').disabled = false;
+            document.getElementById('optimizeBtn').disabled = false;
+            document.getElementById('info').textContent = inputData.name + ': ' + inputData.items.length + ' types, ' + inputData.total + ' pieces';
+            document.getElementById('stripWidth').value = inputData.strip_width;
+            document.getElementById('stripHeight').value = inputData.strip_height;
+            updatePartList();
+            renderPreview();
+            setStatus('Data loaded - click Random or Optimize', 'success');
+        }
+
+        function updatePartList() {
+            const list = document.getElementById('partList');
+            list.innerHTML = '';
+            inputData.items.forEach((p, i) => {
+                const div = document.createElement('div');
+                div.className = 'part-item';
+                div.innerHTML = '<span style="color:'+COLORS[i%COLORS.length]+'">■</span> ' + p.name + ' <span>×' + p.quantity + '</span>';
+                list.appendChild(div);
+            });
+        }
+
+        function renderPreview() {
+            const container = document.getElementById('bins');
+            container.innerHTML = '';
+            const card = createCard('Input Preview', inputData.total + ' pieces');
+            container.appendChild(card);
+            const canvas = card.querySelector('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = canvas.offsetWidth || 450;
+            canvas.height = 300;
+            ctx.fillStyle = '#0a0a1a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const cols = Math.ceil(Math.sqrt(inputData.items.length));
+            const cellW = canvas.width / cols, cellH = canvas.height / Math.ceil(inputData.items.length / cols);
+            inputData.items.forEach((item, i) => {
+                const col = i % cols, row = Math.floor(i / cols);
+                const cx = col * cellW + cellW/2, cy = row * cellH + cellH/2;
+                const b = bounds(item.exterior);
+                const scale = Math.min((cellW-20)/(b.w||1), (cellH-25)/(b.h||1)) * 0.7;
+                drawPoly(ctx, item.exterior, cx - b.cx*scale, cy - b.cy*scale, scale, COLORS[i%COLORS.length]);
+                ctx.fillStyle = '#fff';
+                ctx.font = '9px sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(item.name + ' ×' + item.quantity, cx, cy + (b.h/2)*scale + 12);
+            });
+            hidePhase();
+        }
+
+        function showRandom() {
+            showPhase('CHAOS!', 'chaos');
+            const container = document.getElementById('bins');
+            container.innerHTML = '';
+
+            const binW = parseInt(document.getElementById('stripWidth').value) || 2500;
+            const binH = parseInt(document.getElementById('stripHeight').value) || 500;
+
+            // Expand items by quantity
+            const expanded = [];
+            inputData.items.forEach((item, idx) => {
+                for (let q = 0; q < item.quantity; q++) {
+                    expanded.push({ idx, exterior: item.exterior, bounds: bounds(item.exterior) });
+                }
+            });
+            shuffle(expanded);
+
+            // Estimate number of strips needed (based on total area)
+            const totalArea = expanded.reduce((sum, p) => sum + p.bounds.w * p.bounds.h, 0);
+            const stripArea = binW * binH;
+            const numStrips = Math.max(1, Math.ceil(totalArea / (stripArea * 0.5))); // 50% packing efficiency estimate
+
+            // Randomly assign items to strips
+            const strips = Array.from({ length: numStrips }, () => []);
+            expanded.forEach(item => {
+                const stripIdx = Math.floor(Math.random() * numStrips);
+                strips[stripIdx].push(item);
+            });
+
+            // Render each strip
+            strips.forEach((stripItems, stripIdx) => {
+                const card = createCard('Strip ' + (stripIdx + 1), stripItems.length + ' pieces (random)');
+                container.appendChild(card);
+                const canvas = card.querySelector('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = canvas.offsetWidth || 450;
+                canvas.height = 280;
+                const scale = Math.min(canvas.width / binW, canvas.height / binH) * 0.9;
+                const ox = (canvas.width - binW * scale) / 2, oy = (canvas.height - binH * scale) / 2;
+
+                ctx.fillStyle = '#0a0a1a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = '#e74c3c';
+                ctx.lineWidth = 2;
+                ctx.setLineDash([5, 5]);
+                ctx.strokeRect(ox, oy, binW * scale, binH * scale);
+                ctx.setLineDash([]);
+
+                // Draw items randomly within strip bounds
+                stripItems.forEach(p => {
+                    const margin = 20;
+                    const maxX = Math.max(margin, binW - p.bounds.w - margin);
+                    const maxY = Math.max(margin, binH - p.bounds.h - margin);
+                    const x = Math.random() * maxX + margin;
+                    const y = Math.random() * maxY + margin;
+                    const rot = Math.random() * Math.PI * 2;
+                    const pts = transform(p.exterior, x, y, rot);
+                    drawPoly(ctx, pts, ox, oy, scale, COLORS[p.idx % COLORS.length], 0.6);
+                });
+            });
+
+            setStatus('Random: ' + expanded.length + ' pieces across ' + numStrips + ' strips (' + binW + '×' + binH + ')', '');
+        }
+
+        async function runOptimize() {
+            if (!inputData) return;
+            const algo = document.getElementById('algorithm').value;
+            showPhase('OPTIMIZING...', 'running');
+            setStatus('Running ' + algo.toUpperCase() + '...', '');
+
+            const stripW = parseInt(document.getElementById('stripWidth').value) || 2500;
+            const stripH = parseInt(document.getElementById('stripHeight').value) || 500;
+            const jsonData = {
+                name: inputData.name,
+                items: inputData.items.map((p, i) => ({
+                    id: i, name: p.name, demand: p.quantity,
+                    allowed_orientations: p.rotations,
+                    shape: { type: "simple_polygon", data: p.exterior }
+                })),
+                strip_width: stripW,
+                strip_height: stripH
+            };
+
+            try {
+                const resp = await fetch('/api/optimize', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ input: jsonData, strategy: algo })
+                });
+                if (!resp.ok) throw new Error('Server error');
+                const result = await resp.json();
+                renderResult(result);
+                showPhase('OPTIMIZED!', 'done');
+                setTimeout(hidePhase, 2000);
+            } catch (e) {
+                showPhase('', '');
+                setStatus('Server not running. Start: python dev/server.py', 'error');
+            }
+        }
+
+        function renderResult(result) {
+            const container = document.getElementById('bins');
+            container.innerHTML = '';
+
+            // Use user-specified strip size
+            const binW = parseInt(document.getElementById('stripWidth').value) || 2500;
+            const binH = parseInt(document.getElementById('stripHeight').value) || 500;
+            const placements = result.placements || [];
+
+            // Group placements by strip (based on x position)
+            const strips = [];
+            placements.forEach(p => {
+                let pieceIdx = typeof p.geometry_id === 'number' ? p.geometry_id :
+                          parseInt(String(p.geometry_id).replace('piece_', '')) || 0;
+                const itemIdx = inputData.pieceToItem ? inputData.pieceToItem[pieceIdx] : pieceIdx;
+                const item = inputData.items[itemIdx];
+                if (!item) return;
+
+                // Calculate which strip this placement belongs to
+                const stripIdx = Math.floor(p.position[0] / binW);
+                if (!strips[stripIdx]) strips[stripIdx] = [];
+
+                // Adjust x position relative to this strip
+                const localX = p.position[0] - (stripIdx * binW);
+                strips[stripIdx].push({ ...p, localX, itemIdx, item });
+            });
+
+            // Ensure at least one strip exists
+            if (strips.length === 0) strips.push([]);
+
+            let totalUsedArea = 0;
+            const totalStrips = Math.max(strips.length, 1);
+
+            // Render each strip
+            strips.forEach((stripPlacements, stripIdx) => {
+                const card = createCard('Strip ' + (stripIdx + 1), stripPlacements.length + ' pieces');
+                container.appendChild(card);
+                const canvas = card.querySelector('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.width = canvas.offsetWidth || 450;
+                canvas.height = 280;
+                const scale = Math.min(canvas.width/binW, canvas.height/binH) * 0.9;
+                const ox = (canvas.width - binW*scale)/2, oy = (canvas.height - binH*scale)/2;
+
+                ctx.fillStyle = '#0a0a1a';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.strokeStyle = '#2ecc71';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(ox, oy, binW*scale, binH*scale);
+
+                stripPlacements.forEach(p => {
+                    const b = bounds(p.item.exterior);
+                    totalUsedArea += b.w * b.h;
+                    const pts = transform(p.item.exterior, p.localX, p.position[1], p.rotation || 0);
+                    drawPoly(ctx, pts, ox, oy, scale, COLORS[p.itemIdx % COLORS.length], 0.85);
+                });
+            });
+
+            const totalArea = binW * binH * totalStrips;
+            const util = ((totalUsedArea / totalArea) * 100).toFixed(1);
+            setStatus('Placed: ' + placements.length + '/' + inputData.total + ', Strips: ' + totalStrips + ' (' + binW + '×' + binH + '), Util: ' + util + '%', 'success');
+        }
+
+        function createCard(title, stats) {
+            const card = document.createElement('div');
+            card.className = 'bin-card';
+            card.innerHTML = '<div class="bin-header"><span class="title">' + title + '</span><span class="stats">' + stats + '</span></div><canvas height="280"></canvas>';
+            return card;
+        }
+
+        function drawPoly(ctx, pts, ox, oy, scale, color, alpha = 0.8) {
+            if (!pts || pts.length < 3) return;
+            ctx.beginPath();
+            ctx.moveTo(ox + pts[0][0]*scale, oy + pts[0][1]*scale);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(ox + pts[i][0]*scale, oy + pts[i][1]*scale);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.globalAlpha = alpha;
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 1;
+            ctx.stroke();
+        }
+
+        function transform(pts, x, y, r) {
+            const c = Math.cos(r), s = Math.sin(r);
+            return pts.map(p => [p[0]*c - p[1]*s + x, p[0]*s + p[1]*c + y]);
+        }
+
+        function bounds(pts) {
+            if (!pts || !pts.length) return { minX:0, maxX:0, minY:0, maxY:0, w:0, h:0, cx:0, cy:0 };
+            const xs = pts.map(p=>p[0]), ys = pts.map(p=>p[1]);
+            const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+            return { minX, maxX, minY, maxY, w: maxX-minX, h: maxY-minY, cx: (minX+maxX)/2, cy: (minY+maxY)/2 };
+        }
+
+        function shuffle(arr) { for (let i = arr.length-1; i > 0; i--) { const j = Math.floor(Math.random()*(i+1)); [arr[i],arr[j]] = [arr[j],arr[i]]; } }
+        function showPhase(text, cls) { const el = document.getElementById('phase'); el.textContent = text; el.className = 'phase ' + cls; el.style.display = text ? 'block' : 'none'; }
+        function hidePhase() { document.getElementById('phase').style.display = 'none'; }
+        function setStatus(msg, type) { const el = document.getElementById('status'); el.textContent = msg; el.className = 'status ' + type; }
+    </script>
+</body>
+</html>

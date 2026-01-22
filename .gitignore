@@ -34,6 +34,7 @@ benchmark/visualizations/
 !benches/**/*.json
 !docs/json-schema/*.json
 !benchmark/scenarios/*.json
+!demo/*.json
 
 # Coverage
 lcov.info
@@ -53,3 +54,4 @@ CLAUDE.md
 .serena/
 claudedocs/
 dev/
+.playwright-mcp/

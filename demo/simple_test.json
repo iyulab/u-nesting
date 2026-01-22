@@ -1,0 +1,41 @@
+{
+  "name": "simple_test",
+  "items": [
+    {
+      "id": 0,
+      "name": "rect1",
+      "demand": 2,
+      "allowed_orientations": [
+        0.0,
+        90.0
+      ],
+      "shape": {
+        "type": "simple_polygon",
+        "data": [
+          [
+            0.0,
+            0.0
+          ],
+          [
+            200.0,
+            0.0
+          ],
+          [
+            200.0,
+            200.0
+          ],
+          [
+            0.0,
+            200.0
+          ],
+          [
+            0.0,
+            0.0
+          ]
+        ]
+      }
+    }
+  ],
+  "strip_height": 1219.0,
+  "strip_width": 2438.0
+}
