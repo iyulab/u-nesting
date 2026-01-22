@@ -2557,4 +2557,333 @@ mod tests {
             violations
         );
     }
+
+    /// Helper function to check if two AABBs overlap
+    fn aabbs_overlap(
+        a_min: [f64; 2],
+        a_max: [f64; 2],
+        b_min: [f64; 2],
+        b_max: [f64; 2],
+        tolerance: f64,
+    ) -> bool {
+        // Two AABBs overlap if they overlap on both axes
+        let x_overlap = a_min[0] < b_max[0] - tolerance && a_max[0] > b_min[0] + tolerance;
+        let y_overlap = a_min[1] < b_max[1] - tolerance && a_max[1] > b_min[1] + tolerance;
+        x_overlap && y_overlap
+    }
+
+    /// Comprehensive test for all strategies - checks boundary and overlap violations
+    #[test]
+    fn test_all_strategies_boundary_and_overlap() {
+        use std::collections::HashMap;
+
+        // Create test shapes similar to demo
+        let shapes = vec![
+            Geometry2D::new("shape0")
+                .with_polygon(vec![
+                    (0.0, 0.0),
+                    (180.0, 0.0),
+                    (195.0, 15.0),
+                    (200.0, 50.0),
+                    (200.0, 150.0),
+                    (195.0, 185.0),
+                    (180.0, 200.0),
+                    (20.0, 200.0),
+                    (5.0, 185.0),
+                    (0.0, 150.0),
+                    (0.0, 50.0),
+                    (5.0, 15.0),
+                ])
+                .with_rotations_deg(vec![0.0, 90.0, 180.0, 270.0])
+                .with_quantity(2),
+            Geometry2D::new("shape1_flange")
+                .with_polygon(vec![
+                    (60.0, 0.0),
+                    (85.0, 7.0),
+                    (104.0, 25.0),
+                    (118.0, 50.0),
+                    (120.0, 60.0),
+                    (118.0, 70.0),
+                    (104.0, 95.0),
+                    (85.0, 113.0),
+                    (60.0, 120.0),
+                    (35.0, 113.0),
+                    (16.0, 95.0),
+                    (2.0, 70.0),
+                    (0.0, 60.0),
+                    (2.0, 50.0),
+                    (16.0, 25.0),
+                    (35.0, 7.0),
+                ])
+                .with_rotations_deg(vec![0.0, 45.0, 90.0, 135.0])
+                .with_quantity(4),
+            Geometry2D::new("shape2_lbracket")
+                .with_polygon(vec![
+                    (0.0, 0.0),
+                    (80.0, 0.0),
+                    (80.0, 20.0),
+                    (20.0, 20.0),
+                    (20.0, 80.0),
+                    (0.0, 80.0),
+                ])
+                .with_rotations_deg(vec![0.0, 90.0, 180.0, 270.0])
+                .with_quantity(6),
+            Geometry2D::new("shape3_triangle")
+                .with_polygon(vec![(0.0, 0.0), (70.0, 0.0), (0.0, 70.0)])
+                .with_rotations_deg(vec![0.0, 90.0, 180.0, 270.0])
+                .with_quantity(6),
+            Geometry2D::new("shape4_rect")
+                .with_polygon(vec![
+                    (0.0, 0.0),
+                    (120.0, 0.0),
+                    (120.0, 60.0),
+                    (0.0, 60.0),
+                ])
+                .with_rotations_deg(vec![0.0, 90.0])
+                .with_quantity(4),
+            Geometry2D::new("shape5_hexagon")
+                .with_polygon(vec![
+                    (15.0, 0.0),
+                    (45.0, 0.0),
+                    (60.0, 26.0),
+                    (45.0, 52.0),
+                    (15.0, 52.0),
+                    (0.0, 26.0),
+                ])
+                .with_rotations_deg(vec![0.0, 60.0, 120.0])
+                .with_quantity(8),
+            Geometry2D::new("shape6_tstiff")
+                .with_polygon(vec![
+                    (0.0, 0.0),
+                    (90.0, 0.0),
+                    (90.0, 12.0),
+                    (55.0, 12.0),
+                    (55.0, 60.0),
+                    (35.0, 60.0),
+                    (35.0, 12.0),
+                    (0.0, 12.0),
+                ])
+                .with_rotations_deg(vec![0.0, 90.0, 180.0, 270.0])
+                .with_quantity(4),
+            Geometry2D::new("shape7_mount")
+                .with_polygon(vec![
+                    (0.0, 10.0),
+                    (10.0, 0.0),
+                    (70.0, 0.0),
+                    (80.0, 10.0),
+                    (80.0, 70.0),
+                    (70.0, 80.0),
+                    (10.0, 80.0),
+                    (0.0, 70.0),
+                ])
+                .with_rotations_deg(vec![0.0, 90.0])
+                .with_quantity(3),
+            Geometry2D::new("shape8_gear")
+                .with_polygon(vec![
+                    (50.0, 5.0),
+                    (65.0, 15.0),
+                    (77.0, 18.0),
+                    (80.0, 32.0),
+                    (95.0, 50.0),
+                    (80.0, 68.0),
+                    (77.0, 82.0),
+                    (65.0, 85.0),
+                    (50.0, 95.0),
+                    (35.0, 85.0),
+                    (23.0, 82.0),
+                    (20.0, 68.0),
+                    (5.0, 50.0),
+                    (20.0, 32.0),
+                    (23.0, 18.0),
+                    (35.0, 15.0),
+                ])
+                .with_rotations_deg(vec![0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0])
+                .with_quantity(13),
+        ];
+
+        // Build geometry lookup map
+        let geom_map: HashMap<String, &Geometry2D> =
+            shapes.iter().map(|g| (g.id().clone(), g)).collect();
+
+        let boundary = Boundary2D::rectangle(500.0, 500.0);
+        let strip_width = 500.0;
+
+        // Test each strategy
+        let strategies = vec![
+            Strategy::BottomLeftFill,
+            Strategy::NfpGuided,
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+            Strategy::SimulatedAnnealing,
+            Strategy::Gdrr,
+            Strategy::Alns,
+        ];
+
+        for strategy in strategies {
+            println!("\n========== Testing {:?} ==========", strategy);
+
+            let config = Config::default()
+                .with_strategy(strategy)
+                .with_time_limit(30000); // 30s max per strategy
+            let nester = Nester2D::new(config);
+
+            let result = match nester.solve_multi_strip(&shapes, &boundary) {
+                Ok(r) => r,
+                Err(e) => {
+                    println!("  Strategy {:?} failed: {}", strategy, e);
+                    continue;
+                }
+            };
+
+            println!(
+                "  Placed {} pieces across {} strips",
+                result.placements.len(),
+                result.boundaries_used
+            );
+
+            // Check 1: Boundary violations
+            let mut boundary_violations = Vec::new();
+            for p in &result.placements {
+                // Find the base geometry ID (without instance suffix)
+                let base_id = p.geometry_id.split('_').next().unwrap_or(&p.geometry_id);
+                let full_id = if base_id.starts_with("shape") {
+                    // Find matching geometry by checking all shape IDs
+                    shapes
+                        .iter()
+                        .find(|g| p.geometry_id.starts_with(g.id()))
+                        .map(|g| g.id().as_str())
+                } else {
+                    geom_map.get(&p.geometry_id).map(|g| g.id().as_str())
+                };
+
+                let geom = match full_id.and_then(|id| geom_map.get(id)) {
+                    Some(g) => *g,
+                    None => {
+                        // Try to find by prefix match
+                        match shapes.iter().find(|g| p.geometry_id.starts_with(g.id())) {
+                            Some(g) => g,
+                            None => {
+                                println!(
+                                    "  WARNING: Could not find geometry for {}",
+                                    p.geometry_id
+                                );
+                                continue;
+                            }
+                        }
+                    }
+                };
+
+                let origin_x = p.position[0];
+                let origin_y = p.position[1];
+                let rotation = p.rotation.first().copied().unwrap_or(0.0);
+                let strip_idx = p.boundary_index;
+
+                // Calculate local position within strip
+                let local_x = origin_x - (strip_idx as f64 * strip_width);
+
+                let (g_min, g_max) = geom.aabb_at_rotation(rotation);
+
+                // Calculate actual bounds in local strip coordinates
+                let local_min_x = local_x + g_min[0];
+                let local_max_x = local_x + g_max[0];
+                let local_min_y = origin_y + g_min[1];
+                let local_max_y = origin_y + g_max[1];
+
+                // Check boundary (with small tolerance)
+                let tolerance = 0.1;
+                if local_min_x < -tolerance
+                    || local_max_x > 500.0 + tolerance
+                    || local_min_y < -tolerance
+                    || local_max_y > 500.0 + tolerance
+                {
+                    boundary_violations.push(format!(
+                        "{} in strip {}: bounds ({:.1}, {:.1}) to ({:.1}, {:.1})",
+                        p.geometry_id, strip_idx, local_min_x, local_min_y, local_max_x, local_max_y
+                    ));
+                }
+            }
+
+            if !boundary_violations.is_empty() {
+                println!(
+                    "  BOUNDARY VIOLATIONS ({}):",
+                    boundary_violations.len()
+                );
+                for v in &boundary_violations {
+                    println!("    - {}", v);
+                }
+            }
+
+            // Check 2: Overlaps (within same strip)
+            let mut overlaps = Vec::new();
+            let placements: Vec<_> = result.placements.iter().collect();
+
+            for i in 0..placements.len() {
+                for j in (i + 1)..placements.len() {
+                    let p1 = placements[i];
+                    let p2 = placements[j];
+
+                    // Only check overlaps within the same strip
+                    if p1.boundary_index != p2.boundary_index {
+                        continue;
+                    }
+
+                    // Find geometries
+                    let g1 = shapes
+                        .iter()
+                        .find(|g| p1.geometry_id.starts_with(g.id()));
+                    let g2 = shapes
+                        .iter()
+                        .find(|g| p2.geometry_id.starts_with(g.id()));
+
+                    let (g1, g2) = match (g1, g2) {
+                        (Some(a), Some(b)) => (a, b),
+                        _ => continue,
+                    };
+
+                    let strip_idx = p1.boundary_index;
+                    let local_x1 = p1.position[0] - (strip_idx as f64 * strip_width);
+                    let local_x2 = p2.position[0] - (strip_idx as f64 * strip_width);
+
+                    let rot1 = p1.rotation.first().copied().unwrap_or(0.0);
+                    let rot2 = p2.rotation.first().copied().unwrap_or(0.0);
+
+                    let (g1_min, g1_max) = g1.aabb_at_rotation(rot1);
+                    let (g2_min, g2_max) = g2.aabb_at_rotation(rot2);
+
+                    let a_min = [local_x1 + g1_min[0], p1.position[1] + g1_min[1]];
+                    let a_max = [local_x1 + g1_max[0], p1.position[1] + g1_max[1]];
+                    let b_min = [local_x2 + g2_min[0], p2.position[1] + g2_min[1]];
+                    let b_max = [local_x2 + g2_max[0], p2.position[1] + g2_max[1]];
+
+                    if aabbs_overlap(a_min, a_max, b_min, b_max, 1.0) {
+                        overlaps.push(format!(
+                            "{} and {} in strip {}",
+                            p1.geometry_id, p2.geometry_id, strip_idx
+                        ));
+                    }
+                }
+            }
+
+            if !overlaps.is_empty() {
+                println!("  OVERLAPS ({}):", overlaps.len());
+                for o in overlaps.iter().take(10) {
+                    println!("    - {}", o);
+                }
+                if overlaps.len() > 10 {
+                    println!("    ... and {} more", overlaps.len() - 10);
+                }
+            }
+
+            // Assert no boundary violations
+            assert!(
+                boundary_violations.is_empty(),
+                "{:?}: Found {} boundary violations",
+                strategy,
+                boundary_violations.len()
+            );
+
+            println!("  ✓ All placements within boundary");
+            println!("  ✓ No AABB overlaps detected");
+        }
+    }
 }

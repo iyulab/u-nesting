@@ -168,6 +168,7 @@ impl BenchmarkRunner {
                                 geometry_id: p.geometry_id.clone(),
                                 position: [p.position[0], p.position[1]],
                                 rotation: p.rotation.first().copied().unwrap_or(0.0),
+                                strip_index: p.boundary_index,
                             })
                             .collect();
 

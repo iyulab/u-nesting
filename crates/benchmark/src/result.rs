@@ -12,6 +12,8 @@ pub struct PlacementInfo {
     pub geometry_id: String,
     pub position: [f64; 2],
     pub rotation: f64,
+    /// Which strip/boundary this placement belongs to (0-indexed)
+    pub strip_index: usize,
 }
 
 /// Result of a single benchmark run.

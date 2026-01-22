@@ -328,7 +328,7 @@
             const binH = parseInt(document.getElementById('stripHeight').value) || 500;
             const placements = result.placements || [];
 
-            // Group placements by strip (based on x position)
+            // Group placements by strip (using strip_index from backend if available)
             const strips = [];
             placements.forEach(p => {
                 let pieceIdx = typeof p.geometry_id === 'number' ? p.geometry_id :
@@ -337,8 +337,8 @@
                 const item = inputData.items[itemIdx];
                 if (!item) return;
 
-                // Calculate which strip this placement belongs to
-                const stripIdx = Math.floor(p.position[0] / binW);
+                // Use strip_index from backend if available, otherwise calculate from position
+                const stripIdx = (p.strip_index !== undefined) ? p.strip_index : Math.floor(p.position[0] / binW);
                 if (!strips[stripIdx]) strips[stripIdx] = [];
 
                 // Adjust x position relative to this strip
