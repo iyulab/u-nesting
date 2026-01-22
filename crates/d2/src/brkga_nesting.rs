@@ -16,6 +16,7 @@
 //! algorithm for 2D and 3D bin packing problems.
 
 use crate::boundary::Boundary2D;
+use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{compute_ifp, compute_nfp, find_bottom_left_placement, Nfp, PlacedGeometry};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -187,36 +188,30 @@ impl BrkgaNestingProblem {
             // Clamp to ensure placement keeps geometry within boundary.
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
             if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
-                // Compute valid position bounds based on geometry AABB at this rotation
-                let (g_min, g_max) = geom.aabb_at_rotation(rotation_angle);
-                let (b_min, b_max) = self.boundary.aabb();
-
                 // Clamp position to keep geometry within boundary
-                // Use .max(b_min) to ensure origin position >= boundary min
-                let min_valid_x = (b_min[0] - g_min[0]).max(b_min[0]);
-                let max_valid_x = b_max[0] - g_max[0];
-                let min_valid_y = (b_min[1] - g_min[1]).max(b_min[1]);
-                let max_valid_y = b_max[1] - g_max[1];
+                let geom_aabb = geom.aabb_at_rotation(rotation_angle);
+                let boundary_aabb = self.boundary.aabb();
 
-                let clamped_x = x.clamp(min_valid_x, max_valid_x);
-                let clamped_y = y.clamp(min_valid_y, max_valid_y);
+                if let Some((clamped_x, clamped_y)) =
+                    clamp_placement_to_boundary(x, y, geom_aabb, boundary_aabb)
+                {
+                    let placement = Placement::new_2d(
+                        geom.id().clone(),
+                        info.instance_num,
+                        clamped_x,
+                        clamped_y,
+                        rotation_angle,
+                    );
 
-                let placement = Placement::new_2d(
-                    geom.id().clone(),
-                    info.instance_num,
-                    clamped_x,
-                    clamped_y,
-                    rotation_angle,
-                );
-
-                placements.push(placement);
-                placed_geometries.push(PlacedGeometry::new(
-                    geom.clone(),
-                    (clamped_x, clamped_y),
-                    rotation_angle,
-                ));
-                total_placed_area += geom.measure();
-                placed_count += 1;
+                    placements.push(placement);
+                    placed_geometries.push(PlacedGeometry::new(
+                        geom.clone(),
+                        (clamped_x, clamped_y),
+                        rotation_angle,
+                    ));
+                    total_placed_area += geom.measure();
+                    placed_count += 1;
+                }
             }
         }
 

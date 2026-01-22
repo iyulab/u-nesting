@@ -16,6 +16,7 @@
 //! - **NFP**: NFP-guided placement for optimal positioning
 
 use crate::boundary::Boundary2D;
+use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{compute_ifp, compute_nfp, find_bottom_left_placement, Nfp, PlacedGeometry};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -275,29 +276,23 @@ impl GdrrNestingProblem {
             // Clamp to ensure placement keeps geometry within boundary.
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
             if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
-                // Compute valid position bounds based on geometry AABB at this rotation
-                let (g_min, g_max) = geom.aabb_at_rotation(rotation);
-                let (b_min, b_max) = self.boundary.aabb();
-
                 // Clamp position to keep geometry within boundary
-                // Use .max(b_min) to ensure origin position >= boundary min
-                let min_valid_x = (b_min[0] - g_min[0]).max(b_min[0]);
-                let max_valid_x = b_max[0] - g_max[0];
-                let min_valid_y = (b_min[1] - g_min[1]).max(b_min[1]);
-                let max_valid_y = b_max[1] - g_max[1];
+                let geom_aabb = geom.aabb_at_rotation(rotation);
+                let boundary_aabb = self.boundary.aabb();
 
-                let clamped_x = x.clamp(min_valid_x, max_valid_x);
-                let clamped_y = y.clamp(min_valid_y, max_valid_y);
-
-                if clamped_y < best_y {
-                    best_y = clamped_y;
-                    best_placement = Some(PlacedItem {
-                        instance_idx,
-                        x: clamped_x,
-                        y: clamped_y,
-                        rotation,
-                        score: clamped_y, // Score based on Y position
-                    });
+                if let Some((clamped_x, clamped_y)) =
+                    clamp_placement_to_boundary(x, y, geom_aabb, boundary_aabb)
+                {
+                    if clamped_y < best_y {
+                        best_y = clamped_y;
+                        best_placement = Some(PlacedItem {
+                            instance_idx,
+                            x: clamped_x,
+                            y: clamped_y,
+                            rotation,
+                            score: clamped_y, // Score based on Y position
+                        });
+                    }
                 }
             }
         }

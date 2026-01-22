@@ -2,6 +2,7 @@
 
 use crate::alns_nesting::run_alns_nesting;
 use crate::boundary::Boundary2D;
+use crate::clamp_placement_to_boundary_with_margin;
 use crate::brkga_nesting::run_brkga_nesting;
 use crate::ga_nesting::{run_ga_nesting, run_ga_nesting_with_progress};
 use crate::gdrr_nesting::run_gdrr_nesting;
@@ -184,36 +185,33 @@ impl Nester2D {
                     let origin_x = place_x - g_min[0];
                     let origin_y = place_y - g_min[1];
 
-                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
-                    // The position represents the geometry's origin (where local (0,0) is placed).
-                    // For geometries with g_min > 0, the leftmost point is at origin + g_min.
-                    // To ensure the origin position is >= boundary min (important for multi-strip
-                    // scenarios where viewers determine strip by origin position), we use
-                    // max(calculated_min, boundary_min) for the minimum valid position.
-                    let (g_min_rot, g_max_rot) = geom.aabb_at_rotation(rotation);
-                    let min_valid_x = (b_min[0] + margin - g_min_rot[0]).max(b_min[0] + margin);
-                    let max_valid_x = b_max[0] - margin - g_max_rot[0];
-                    let min_valid_y = (b_min[1] + margin - g_min_rot[1]).max(b_min[1] + margin);
-                    let max_valid_y = b_max[1] - margin - g_max_rot[1];
+                    // Clamp to ensure geometry stays within boundary
+                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    let boundary_aabb = (b_min, b_max);
 
-                    let clamped_x = origin_x.clamp(min_valid_x, max_valid_x);
-                    let clamped_y = origin_y.clamp(min_valid_y, max_valid_y);
+                    if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
+                        origin_x,
+                        origin_y,
+                        geom_aabb,
+                        boundary_aabb,
+                        margin,
+                    ) {
+                        let placement = Placement::new_2d(
+                            geom.id().clone(),
+                            instance,
+                            clamped_x,
+                            clamped_y,
+                            rotation,
+                        );
 
-                    let placement = Placement::new_2d(
-                        geom.id().clone(),
-                        instance,
-                        clamped_x,
-                        clamped_y,
-                        rotation,
-                    );
+                        placements.push(placement);
+                        total_placed_area += geom.measure();
 
-                    placements.push(placement);
-                    total_placed_area += geom.measure();
-
-                    // Update position for next piece
-                    current_x = place_x + g_width + spacing;
-                    current_y = place_y;
-                    row_height = row_height.max(g_height);
+                        // Update position for next piece
+                        current_x = place_x + g_width + spacing;
+                        current_y = place_y;
+                        row_height = row_height.max(g_height);
+                    }
                 } else {
                     // Can't place this piece with any rotation
                     result.unplaced.push(geom.id().clone());
@@ -351,33 +349,36 @@ impl Nester2D {
 
                 // Place the geometry at the best position found
                 if let Some((x, y, rotation)) = best_placement {
-                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
-                    // Ensure origin position >= boundary min for multi-strip compatibility
-                    let (b_min, b_max) = boundary.aabb();
-                    let (g_min, g_max) = geom.aabb_at_rotation(rotation);
-                    let min_valid_x = (b_min[0] + margin - g_min[0]).max(b_min[0] + margin);
-                    let max_valid_x = b_max[0] - margin - g_max[0];
-                    let min_valid_y = (b_min[1] + margin - g_min[1]).max(b_min[1] + margin);
-                    let max_valid_y = b_max[1] - margin - g_max[1];
+                    // Clamp to ensure geometry stays within boundary
+                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    let boundary_aabb = boundary.aabb();
 
-                    let clamped_x = x.clamp(min_valid_x, max_valid_x);
-                    let clamped_y = y.clamp(min_valid_y, max_valid_y);
+                    if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
+                        x,
+                        y,
+                        geom_aabb,
+                        boundary_aabb,
+                        margin,
+                    ) {
+                        let placement = Placement::new_2d(
+                            geom.id().clone(),
+                            instance,
+                            clamped_x,
+                            clamped_y,
+                            rotation,
+                        );
 
-                    let placement = Placement::new_2d(
-                        geom.id().clone(),
-                        instance,
-                        clamped_x,
-                        clamped_y,
-                        rotation,
-                    );
-
-                    placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(
-                        geom.clone(),
-                        (clamped_x, clamped_y),
-                        rotation,
-                    ));
-                    total_placed_area += geom.measure();
+                        placements.push(placement);
+                        placed_geometries.push(PlacedGeometry::new(
+                            geom.clone(),
+                            (clamped_x, clamped_y),
+                            rotation,
+                        ));
+                        total_placed_area += geom.measure();
+                    } else {
+                        // Could not place - geometry doesn't fit
+                        result.unplaced.push(geom.id().clone());
+                    }
                 } else {
                     // Could not place this instance
                     result.unplaced.push(geom.id().clone());
@@ -854,41 +855,44 @@ impl Nester2D {
                     let origin_x = place_x - g_min[0];
                     let origin_y = place_y - g_min[1];
 
-                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
-                    // Ensure origin position >= boundary min for multi-strip compatibility
-                    let (g_min_rot, g_max_rot) = geom.aabb_at_rotation(rotation);
-                    let min_valid_x = (b_min[0] + margin - g_min_rot[0]).max(b_min[0] + margin);
-                    let max_valid_x = b_max[0] - margin - g_max_rot[0];
-                    let min_valid_y = (b_min[1] + margin - g_min_rot[1]).max(b_min[1] + margin);
-                    let max_valid_y = b_max[1] - margin - g_max_rot[1];
+                    // Clamp to ensure geometry stays within boundary
+                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    let boundary_aabb = (b_min, b_max);
 
-                    let clamped_x = origin_x.clamp(min_valid_x, max_valid_x);
-                    let clamped_y = origin_y.clamp(min_valid_y, max_valid_y);
+                    if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
+                        origin_x,
+                        origin_y,
+                        geom_aabb,
+                        boundary_aabb,
+                        margin,
+                    ) {
+                        let placement = Placement::new_2d(
+                            geom.id().clone(),
+                            instance,
+                            clamped_x,
+                            clamped_y,
+                            rotation,
+                        );
 
-                    let placement = Placement::new_2d(
-                        geom.id().clone(),
-                        instance,
-                        clamped_x,
-                        clamped_y,
-                        rotation,
-                    );
+                        placements.push(placement);
+                        total_placed_area += geom.measure();
+                        placed_count += 1;
 
-                    placements.push(placement);
-                    total_placed_area += geom.measure();
-                    placed_count += 1;
+                        current_x = place_x + g_width + spacing;
+                        current_y = place_y;
+                        row_height = row_height.max(g_height);
 
-                    current_x = place_x + g_width + spacing;
-                    current_y = place_y;
-                    row_height = row_height.max(g_height);
-
-                    // Progress callback every piece
-                    callback(
-                        ProgressInfo::new()
-                            .with_phase("BLF Placement")
-                            .with_items(placed_count, total_pieces)
-                            .with_utilization(total_placed_area / boundary.measure())
-                            .with_elapsed(start.elapsed().as_millis() as u64),
-                    );
+                        // Progress callback every piece
+                        callback(
+                            ProgressInfo::new()
+                                .with_phase("BLF Placement")
+                                .with_items(placed_count, total_pieces)
+                                .with_utilization(total_placed_area / boundary.measure())
+                                .with_elapsed(start.elapsed().as_millis() as u64),
+                        );
+                    } else {
+                        result.unplaced.push(geom.id().clone());
+                    }
                 } else {
                     result.unplaced.push(geom.id().clone());
                 }
@@ -1043,42 +1047,44 @@ impl Nester2D {
                 }
 
                 if let Some((x, y, rotation)) = best_placement {
-                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
-                    // Ensure origin position >= boundary min for multi-strip compatibility
-                    let (b_min, b_max) = boundary.aabb();
-                    let (g_min, g_max) = geom.aabb_at_rotation(rotation);
-                    let min_valid_x = (b_min[0] + margin - g_min[0]).max(b_min[0] + margin);
-                    let max_valid_x = b_max[0] - margin - g_max[0];
-                    let min_valid_y = (b_min[1] + margin - g_min[1]).max(b_min[1] + margin);
-                    let max_valid_y = b_max[1] - margin - g_max[1];
+                    // Clamp to ensure geometry stays within boundary
+                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    let boundary_aabb = boundary.aabb();
 
-                    let clamped_x = x.clamp(min_valid_x, max_valid_x);
-                    let clamped_y = y.clamp(min_valid_y, max_valid_y);
+                    if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
+                        x,
+                        y,
+                        geom_aabb,
+                        boundary_aabb,
+                        margin,
+                    ) {
+                        let placement = Placement::new_2d(
+                            geom.id().clone(),
+                            instance,
+                            clamped_x,
+                            clamped_y,
+                            rotation,
+                        );
+                        placements.push(placement);
+                        placed_geometries.push(PlacedGeometry::new(
+                            geom.clone(),
+                            (clamped_x, clamped_y),
+                            rotation,
+                        ));
+                        total_placed_area += geom.measure();
+                        placed_count += 1;
 
-                    let placement = Placement::new_2d(
-                        geom.id().clone(),
-                        instance,
-                        clamped_x,
-                        clamped_y,
-                        rotation,
-                    );
-                    placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(
-                        geom.clone(),
-                        (clamped_x, clamped_y),
-                        rotation,
-                    ));
-                    total_placed_area += geom.measure();
-                    placed_count += 1;
-
-                    // Progress callback every piece
-                    callback(
-                        ProgressInfo::new()
-                            .with_phase("NFP Placement")
-                            .with_items(placed_count, total_pieces)
-                            .with_utilization(total_placed_area / boundary.measure())
-                            .with_elapsed(start.elapsed().as_millis() as u64),
-                    );
+                        // Progress callback every piece
+                        callback(
+                            ProgressInfo::new()
+                                .with_phase("NFP Placement")
+                                .with_items(placed_count, total_pieces)
+                                .with_utilization(total_placed_area / boundary.measure())
+                                .with_elapsed(start.elapsed().as_millis() as u64),
+                        );
+                    } else {
+                        result.unplaced.push(geom.id().clone());
+                    }
                 } else {
                     result.unplaced.push(geom.id().clone());
                 }
