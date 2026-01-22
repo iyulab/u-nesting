@@ -609,18 +609,19 @@ impl Nester2D {
 
     /// Goal-Driven Ruin and Recreate (GDRR) optimization.
     fn gdrr(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        // Configure GDRR with reasonable defaults
-        // Use user's time limit, default to 60s if not specified
+        // Configure GDRR with faster defaults for multi-strip scenarios
+        // Use user's time limit, default to 10s per strip if not specified
         let time_limit = if self.config.time_limit_ms > 0 {
-            self.config.time_limit_ms
+            // Use 1/4 of total time limit per strip to allow for multiple strips
+            (self.config.time_limit_ms / 4).max(5000)
         } else {
-            60000
+            10000 // 10 seconds default per strip
         };
         let gdrr_config = GdrrConfig::default()
-            .with_max_iterations(5000)
+            .with_max_iterations(1000) // Reduced from 5000 for faster execution
             .with_time_limit_ms(time_limit)
-            .with_ruin_ratio(0.1, 0.4)
-            .with_lahc_list_length(50);
+            .with_ruin_ratio(0.1, 0.3) // Smaller ruin ratio for faster convergence
+            .with_lahc_list_length(30); // Smaller list for faster convergence
 
         let result = run_gdrr_nesting(
             geometries,
@@ -635,20 +636,21 @@ impl Nester2D {
 
     /// Adaptive Large Neighborhood Search (ALNS) optimization.
     fn alns(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        // Configure ALNS with reasonable defaults
-        // Use user's time limit, default to 60s if not specified
+        // Configure ALNS with faster defaults for multi-strip scenarios
+        // Use user's time limit, default to 10s per strip if not specified
         let time_limit = if self.config.time_limit_ms > 0 {
-            self.config.time_limit_ms
+            // Use 1/4 of total time limit per strip to allow for multiple strips
+            (self.config.time_limit_ms / 4).max(5000)
         } else {
-            60000
+            10000 // 10 seconds default per strip
         };
         let alns_config = AlnsConfig::default()
-            .with_max_iterations(5000)
+            .with_max_iterations(1000) // Reduced from 5000 for faster execution
             .with_time_limit_ms(time_limit)
-            .with_segment_size(100)
+            .with_segment_size(50) // Smaller segments for faster adaptation
             .with_scores(33.0, 9.0, 13.0)
-            .with_reaction_factor(0.1)
-            .with_temperature(100.0, 0.9995, 0.1);
+            .with_reaction_factor(0.15) // Slightly higher for faster adaptation
+            .with_temperature(100.0, 0.999, 0.1); // Faster cooling
 
         let result = run_alns_nesting(
             geometries,
@@ -1155,6 +1157,10 @@ impl Nester2D {
                 Strategy::HybridExact => self.hybrid_exact(&remaining_geometries, boundary),
                 _ => self.nfp_guided_blf(&remaining_geometries, boundary),
             }?;
+
+            // Validate and filter out-of-bounds placements for this strip
+            let strip_result =
+                validate_and_filter_placements(strip_result, &remaining_geometries, boundary);
 
             if strip_result.placements.is_empty() {
                 // No progress - items too large for strip
