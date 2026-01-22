@@ -3,9 +3,24 @@
 
 $ErrorActionPreference = "Stop"
 $devDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$projectRoot = Split-Path -Parent $devDir
 
 Write-Host "U-Nesting Demo Server" -ForegroundColor Cyan
 Write-Host "=====================" -ForegroundColor Cyan
+
+# Build the benchmark binary (always rebuild to get latest changes)
+Write-Host "Building u-nesting-benchmark (release)..." -ForegroundColor Yellow
+Push-Location $projectRoot
+try {
+    cargo build --release -p u-nesting-benchmark
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Build failed!" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "Build complete!" -ForegroundColor Green
+} finally {
+    Pop-Location
+}
 
 # Check if port 8888 is already in use
 $existing = Get-NetTCPConnection -LocalPort 8888 -ErrorAction SilentlyContinue
