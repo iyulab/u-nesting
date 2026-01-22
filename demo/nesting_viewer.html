@@ -296,6 +296,7 @@
                 strip_height: stripH
             };
 
+            const startTime = performance.now();
             try {
                 const resp = await fetch('/api/optimize', {
                     method: 'POST',
@@ -304,7 +305,8 @@
                 });
                 if (!resp.ok) throw new Error('Server error');
                 const result = await resp.json();
-                renderResult(result);
+                const elapsedMs = Math.round(performance.now() - startTime);
+                renderResult(result, elapsedMs);
                 showPhase('OPTIMIZED!', 'done');
                 setTimeout(hidePhase, 2000);
             } catch (e) {
@@ -313,7 +315,7 @@
             }
         }
 
-        function renderResult(result) {
+        function renderResult(result, elapsedMs) {
             const container = document.getElementById('bins');
             container.innerHTML = '';
 
@@ -373,7 +375,8 @@
 
             const totalArea = binW * binH * totalStrips;
             const util = ((totalUsedArea / totalArea) * 100).toFixed(1);
-            setStatus('Placed: ' + placements.length + '/' + inputData.total + ', Strips: ' + totalStrips + ' (' + binW + '×' + binH + '), Util: ' + util + '%', 'success');
+            const timeStr = elapsedMs >= 1000 ? (elapsedMs / 1000).toFixed(1) + 's' : elapsedMs + 'ms';
+            setStatus('Placed: ' + placements.length + '/' + inputData.total + ', Strips: ' + totalStrips + ' (' + binW + '×' + binH + '), Util: ' + util + '%, Time: ' + timeStr, 'success');
         }
 
         function createCard(title, stats) {
