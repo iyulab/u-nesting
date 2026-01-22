@@ -260,7 +260,7 @@ impl DatasetManager {
             for entry in fs::read_dir(&self.base_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "json") {
+                if path.extension().is_some_and(|e| e == "json") {
                     if let Some(stem) = path.file_stem() {
                         cached.push(stem.to_string_lossy().to_string());
                     }
@@ -278,7 +278,7 @@ impl DatasetManager {
             for entry in fs::read_dir(&self.base_dir)? {
                 let entry = entry?;
                 let path = entry.path();
-                if path.extension().map_or(false, |e| e == "json") {
+                if path.extension().is_some_and(|e| e == "json") {
                     fs::remove_file(path)?;
                 }
             }

@@ -547,7 +547,7 @@ impl ReportGenerator {
         if let Some(gap) = report.overall.avg_gap_percent {
             md.push_str(&format!("| Avg Gap from Best Known | {:.2}% |\n", gap));
         }
-        md.push_str("\n");
+        md.push('\n');
 
         // Strategy Analysis
         md.push_str("## Strategy Analysis\n\n");
@@ -566,7 +566,7 @@ impl ReportGenerator {
                 s.wins
             ));
         }
-        md.push_str("\n");
+        md.push('\n');
 
         // Rankings
         md.push_str("## Rankings\n\n");
@@ -582,7 +582,7 @@ impl ReportGenerator {
                 r.value * 100.0
             ));
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md.push_str("### By Speed\n\n");
         md.push_str("| Rank | Strategy | Avg Time (ms) |\n");
@@ -593,7 +593,7 @@ impl ReportGenerator {
                 r.rank, r.strategy, r.value
             ));
         }
-        md.push_str("\n");
+        md.push('\n');
 
         md.push_str("### By Consistency\n\n");
         md.push_str("| Rank | Strategy | Std Deviation |\n");
@@ -606,7 +606,7 @@ impl ReportGenerator {
                 r.value * 100.0
             ));
         }
-        md.push_str("\n");
+        md.push('\n');
 
         // Dataset Analysis
         md.push_str("## Dataset Analysis\n\n");
@@ -621,7 +621,7 @@ impl ReportGenerator {
                 d.best_utilization * 100.0
             ));
         }
-        md.push_str("\n");
+        md.push('\n');
 
         // Strategy Comparison
         if !report.comparison.strategies.is_empty() {
@@ -636,7 +636,7 @@ impl ReportGenerator {
             for _ in 0..=report.comparison.strategies.len() {
                 md.push_str("----|");
             }
-            md.push_str("\n");
+            md.push('\n');
 
             for (i, si) in report.comparison.strategies.iter().enumerate() {
                 md.push_str(&format!("| {} |", si));
@@ -647,7 +647,7 @@ impl ReportGenerator {
                         md.push_str(&format!(" {} |", report.comparison.win_matrix[i][j]));
                     }
                 }
-                md.push_str("\n");
+                md.push('\n');
             }
         }
 

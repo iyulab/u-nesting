@@ -33,7 +33,7 @@
 use crate::boundary::Boundary2D;
 use crate::geometry::Geometry2D;
 #[cfg(feature = "milp")]
-use crate::nfp::{compute_ifp_with_margin, compute_nfp, Nfp};
+use crate::nfp::{compute_nfp, Nfp};
 #[cfg(feature = "milp")]
 use u_nesting_core::exact::{ExactConfig, ExactResult};
 use u_nesting_core::geometry::{Boundary, Geometry};
@@ -509,7 +509,7 @@ fn solve_nfp_cm_milp(
     let mut problem = vars.minimise(strip_length).using(default_solver);
 
     // Constraint: each piece must be assigned exactly one position
-    for (i, piece) in pieces.iter().enumerate() {
+    for (i, _piece) in pieces.iter().enumerate() {
         if cancelled.load(Ordering::Relaxed) {
             return None;
         }

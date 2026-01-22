@@ -318,7 +318,7 @@ fn solve_milp(
         let width_expr: Expression = (0..r)
             .map(|k| pieces[i].widths[k] * rot[i][k])
             .fold(Expression::from(0.0), |acc, term| acc + term);
-        problem = problem.with(constraint!(x[i] + width_expr <= width));
+        problem = problem.with(constraint!(x[i] + width_expr.clone() <= width));
 
         // Strip length constraint
         problem = problem.with(constraint!(x[i] + width_expr <= strip_length));
