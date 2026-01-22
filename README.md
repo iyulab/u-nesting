@@ -77,7 +77,7 @@ Optimization results using different algorithms on the same dataset (50 pieces, 
 | **SA** (Simulated Annealing) | <img src="assets/SA.png" alt="SA Result" width="300"> | 64.1% | 34.3s |
 | **BLF** (Bottom-Left Fill) | <img src="assets/BLF.png" alt="BLF Result" width="300"> | 60.0% | 338ms |
 
-> **Note**: Higher utilization = better packing efficiency. GA achieves best quality (70.6%), NFP offers best speed/quality balance (68.5% in 5s), BLF is fastest but least efficient (60%).
+> **Note**: Higher utilization = better material efficiency. Results may vary depending on piece shapes, quantities, and constraints. Run your own benchmarks to find the best algorithm for your specific use case.
 
 ## Installation
 
@@ -361,16 +361,11 @@ SolveResult {
 
 Licensed under either of:
 
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
+- MIT license ([LICENSE-MIT](LICENSE))
 
 ## Contributing
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-## Related Projects
-
-- [U-RAS](https://github.com/iyulab/U-RAS) - Resource allocation and scheduling algorithms
-- [U-APS](https://github.com/iyulab/U-APS-releases) - Manufacturing scheduling system
 
 ---
 
