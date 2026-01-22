@@ -65,17 +65,19 @@ A test dataset with **9 different polygon shapes** and **50 total pieces** on a 
 
 ### Algorithm Comparison
 
-Optimization results using different algorithms on the same dataset:
+Optimization results using different algorithms on the same dataset (100 pieces, strip height 200):
 
-| Algorithm | Result |
-|-----------|--------|
-| **BLF** (Bottom-Left Fill) | <img src="assets/BLF.png" alt="BLF Result" width="300"> |
-| **NFP** (No-Fit Polygon Guided) | <img src="assets/NFP.png" alt="NFP Result" width="300"> |
-| **GA** (Genetic Algorithm) | <img src="assets/GA.png" alt="GA Result" width="300"> |
-| **BRKGA** (Biased Random-Key GA) | <img src="assets/BRKGA.png" alt="BRKGA Result" width="300"> |
-| **SA** (Simulated Annealing) | <img src="assets/SA.png" alt="SA Result" width="300"> |
-| **GDRR** (Greedy Descent with Restarts) | <img src="assets/GDRR.png" alt="GDRR Result" width="300"> |
-| **ALNS** (Adaptive Large Neighborhood Search) | <img src="assets/ALNS.png" alt="ALNS Result" width="300"> |
+| Algorithm | Result | Time | Efficiency |
+|-----------|--------|------|------------|
+| **BLF** (Bottom-Left Fill) | <img src="assets/BLF.png" alt="BLF Result" width="300"> | <1ms | 49.2% |
+| **NFP** (No-Fit Polygon Guided) | <img src="assets/NFP.png" alt="NFP Result" width="300"> | 10.5s | 45.8% |
+| **GA** (Genetic Algorithm) | <img src="assets/GA.png" alt="GA Result" width="300"> | 12.6s | 96.4% |
+| **BRKGA** (Biased Random-Key GA) | <img src="assets/BRKGA.png" alt="BRKGA Result" width="300"> | 15.6s | 23.3% |
+| **SA** (Simulated Annealing) | <img src="assets/SA.png" alt="SA Result" width="300"> | 62.5s | 91.3% |
+| **GDRR** (Goal-Driven Ruin & Recreate) | <img src="assets/GDRR.png" alt="GDRR Result" width="300"> | 5.0s | **100%** |
+| **ALNS** (Adaptive Large Neighborhood Search) | <img src="assets/ALNS.png" alt="ALNS Result" width="300"> | 5.0s | **100%** |
+
+> **Note**: Efficiency = Best strip length / Algorithm strip length. GDRR and ALNS achieved the optimal result (160.33 strip length) in this benchmark.
 
 ## Installation
 
