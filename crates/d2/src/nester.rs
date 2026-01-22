@@ -209,8 +209,11 @@ impl Nester2D {
                         total_placed_area += geom.measure();
 
                         // Update position for next piece
-                        current_x = place_x + g_width + spacing;
-                        current_y = place_y;
+                        // Use actual clamped AABB position, not original place_x/place_y
+                        let actual_place_x = clamped_x + g_min[0];
+                        let actual_place_y = clamped_y + g_min[1];
+                        current_x = actual_place_x + g_width + spacing;
+                        current_y = actual_place_y;
                         row_height = row_height.max(g_height);
                     }
                 } else {

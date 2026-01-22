@@ -223,36 +223,53 @@ pub fn validate_and_filter_placements(
     // Build a map from geometry ID to geometry for quick lookup
     let geom_map: HashMap<_, _> = geometries.iter().map(|g| (g.id().clone(), g)).collect();
 
+    let (b_min, b_max) = boundary.aabb();
+    log::debug!(
+        "Validating placements against boundary: ({:.2}, {:.2}) to ({:.2}, {:.2})",
+        b_min[0], b_min[1], b_max[0], b_max[1]
+    );
+
     let mut valid_placements = Vec::new();
     let mut total_valid_area = 0.0;
+    let mut filtered_count = 0;
 
     for placement in result.placements {
         if let Some(geom) = geom_map.get(&placement.geometry_id) {
+            let px = placement.position.first().copied().unwrap_or(0.0);
+            let py = placement.position.get(1).copied().unwrap_or(0.0);
+            let rot = placement.rotation.first().copied().unwrap_or(0.0);
+
             if is_placement_within_bounds(&placement, geom, boundary, TOLERANCE) {
                 total_valid_area += geom.measure();
                 valid_placements.push(placement);
             } else {
-                // Log the invalid placement for debugging
-                #[cfg(debug_assertions)]
-                {
-                    let px = placement.position.first().copied().unwrap_or(0.0);
-                    let py = placement.position.get(1).copied().unwrap_or(0.0);
-                    let rot = placement.rotation.first().copied().unwrap_or(0.0);
-                    eprintln!(
-                        "WARNING: Placement for {} at ({:.2}, {:.2}) rot={:.2}° is outside boundary",
-                        placement.geometry_id,
-                        px,
-                        py,
-                        rot.to_degrees()
-                    );
-                }
+                // Calculate actual bounds for debugging
+                let (g_min, g_max) = geom.aabb_at_rotation(rot);
+                let placed_min_x = px + g_min[0];
+                let placed_max_x = px + g_max[0];
+                let placed_min_y = py + g_min[1];
+                let placed_max_y = py + g_max[1];
+
+                log::warn!(
+                    "FILTERED: {} at ({:.2}, {:.2}) rot={:.2}° - bounds ({:.2}, {:.2}) to ({:.2}, {:.2}) outside boundary",
+                    placement.geometry_id,
+                    px, py,
+                    rot.to_degrees(),
+                    placed_min_x, placed_min_y, placed_max_x, placed_max_y
+                );
+                filtered_count += 1;
                 // Add to unplaced list
                 result.unplaced.push(placement.geometry_id.clone());
             }
         } else {
             // Geometry not found - shouldn't happen but handle gracefully
+            log::warn!("Geometry {} not found in lookup map", placement.geometry_id);
             result.unplaced.push(placement.geometry_id.clone());
         }
+    }
+
+    if filtered_count > 0 {
+        log::warn!("Validation filtered out {} placements as out-of-bounds", filtered_count);
     }
 
     // Update result with valid placements only
