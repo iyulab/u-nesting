@@ -179,11 +179,25 @@ impl Nester2D {
                         row_height = 0.0;
                     }
 
+                    // Compute origin position from AABB position
+                    let origin_x = place_x - g_min[0];
+                    let origin_y = place_y - g_min[1];
+
+                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
+                    let (g_min_rot, g_max_rot) = geom.aabb_at_rotation(rotation);
+                    let min_valid_x = b_min[0] + margin - g_min_rot[0];
+                    let max_valid_x = b_max[0] - margin - g_max_rot[0];
+                    let min_valid_y = b_min[1] + margin - g_min_rot[1];
+                    let max_valid_y = b_max[1] - margin - g_max_rot[1];
+
+                    let clamped_x = origin_x.clamp(min_valid_x, max_valid_x);
+                    let clamped_y = origin_y.clamp(min_valid_y, max_valid_y);
+
                     let placement = Placement::new_2d(
                         geom.id().clone(),
                         instance,
-                        place_x - g_min[0],
-                        place_y - g_min[1],
+                        clamped_x,
+                        clamped_y,
                         rotation,
                     );
 
@@ -332,10 +346,21 @@ impl Nester2D {
 
                 // Place the geometry at the best position found
                 if let Some((x, y, rotation)) = best_placement {
-                    let placement = Placement::new_2d(geom.id().clone(), instance, x, y, rotation);
+                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
+                    let (b_min, b_max) = boundary.aabb();
+                    let (g_min, g_max) = geom.aabb_at_rotation(rotation);
+                    let min_valid_x = b_min[0] + margin - g_min[0];
+                    let max_valid_x = b_max[0] - margin - g_max[0];
+                    let min_valid_y = b_min[1] + margin - g_min[1];
+                    let max_valid_y = b_max[1] - margin - g_max[1];
+
+                    let clamped_x = x.clamp(min_valid_x, max_valid_x);
+                    let clamped_y = y.clamp(min_valid_y, max_valid_y);
+
+                    let placement = Placement::new_2d(geom.id().clone(), instance, clamped_x, clamped_y, rotation);
 
                     placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (x, y), rotation));
+                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation));
                     total_placed_area += geom.measure();
                 } else {
                     // Could not place this instance
@@ -781,11 +806,25 @@ impl Nester2D {
                         row_height = 0.0;
                     }
 
+                    // Compute origin position from AABB position
+                    let origin_x = place_x - g_min[0];
+                    let origin_y = place_y - g_min[1];
+
+                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
+                    let (g_min_rot, g_max_rot) = geom.aabb_at_rotation(rotation);
+                    let min_valid_x = b_min[0] + margin - g_min_rot[0];
+                    let max_valid_x = b_max[0] - margin - g_max_rot[0];
+                    let min_valid_y = b_min[1] + margin - g_min_rot[1];
+                    let max_valid_y = b_max[1] - margin - g_max_rot[1];
+
+                    let clamped_x = origin_x.clamp(min_valid_x, max_valid_x);
+                    let clamped_y = origin_y.clamp(min_valid_y, max_valid_y);
+
                     let placement = Placement::new_2d(
                         geom.id().clone(),
                         instance,
-                        place_x - g_min[0],
-                        place_y - g_min[1],
+                        clamped_x,
+                        clamped_y,
                         rotation,
                     );
 
@@ -947,9 +986,20 @@ impl Nester2D {
                 }
 
                 if let Some((x, y, rotation)) = best_placement {
-                    let placement = Placement::new_2d(geom.id().clone(), instance, x, y, rotation);
+                    // Compute valid position bounds and clamp to ensure geometry stays within boundary
+                    let (b_min, b_max) = boundary.aabb();
+                    let (g_min, g_max) = geom.aabb_at_rotation(rotation);
+                    let min_valid_x = b_min[0] + margin - g_min[0];
+                    let max_valid_x = b_max[0] - margin - g_max[0];
+                    let min_valid_y = b_min[1] + margin - g_min[1];
+                    let max_valid_y = b_max[1] - margin - g_max[1];
+
+                    let clamped_x = x.clamp(min_valid_x, max_valid_x);
+                    let clamped_y = y.clamp(min_valid_y, max_valid_y);
+
+                    let placement = Placement::new_2d(geom.id().clone(), instance, clamped_x, clamped_y, rotation);
                     placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (x, y), rotation));
+                    placed_geometries.push(PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation));
                     total_placed_area += geom.measure();
                     placed_count += 1;
 
