@@ -6,6 +6,12 @@ on:
     paths:
       - 'Cargo.toml'
   workflow_dispatch:
+    inputs:
+      force:
+        description: 'Force publish even if version unchanged'
+        required: false
+        default: 'true'
+        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -35,94 +41,11 @@ jobs:
         run: |
           git diff HEAD~1 HEAD -- Cargo.toml | grep -q '+version = ' && echo "changed=true" >> $GITHUB_OUTPUT || echo "changed=false" >> $GITHUB_OUTPUT
 
-  # Build release artifacts
-  build:
-    name: Build ${{ matrix.target }}
-    needs: check-version
-    if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-            ext: so
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-            ext: dll
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            ext: dylib
-          - target: aarch64-apple-darwin
-            os: macos-latest
-            ext: dylib
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build release
-        run: cargo build --release --target ${{ matrix.target }} -p u-nesting-ffi
-
-      - name: Package artifacts (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          mkdir -p dist
-          cp target/${{ matrix.target }}/release/libu_nesting_ffi.${{ matrix.ext }} dist/
-          cp crates/ffi/include/u_nesting.h dist/ 2>/dev/null || true
-          tar -czvf u-nesting-${{ matrix.target }}.tar.gz -C dist .
-
-      - name: Package artifacts (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          mkdir dist
-          copy target\${{ matrix.target }}\release\u_nesting_ffi.dll dist\
-          copy target\${{ matrix.target }}\release\u_nesting_ffi.lib dist\
-          Compress-Archive -Path dist\* -DestinationPath u-nesting-${{ matrix.target }}.zip
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: u-nesting-${{ matrix.target }}
-          path: |
-            u-nesting-*.tar.gz
-            u-nesting-*.zip
-
-  # Create GitHub release
-  release:
-    name: Create Release
-    needs: [check-version, build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Create release
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.check-version.outputs.version }}
-          name: Release v${{ needs.check-version.outputs.version }}
-          files: artifacts/**/*
-          generate_release_notes: true
-
   # Publish to crates.io
   publish-crates:
     name: Publish to crates.io
-    needs: [check-version, release]
+    needs: check-version
+    if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
