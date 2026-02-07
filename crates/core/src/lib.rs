@@ -90,3 +90,16 @@ pub use sa::{
 };
 pub use solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 pub use transform::{Transform2D, Transform3D, AABB2D, AABB3D};
+
+/// Re-exports from `u-metaheur` for direct access to generic optimization frameworks.
+///
+/// Consumers can use these to access the generic (domain-agnostic) metaheuristic
+/// frameworks from u-metaheur, while the nesting-specific implementations in
+/// this crate's `ga`, `sa`, `brkga`, `alns` modules provide nesting-tailored
+/// abstractions.
+pub mod metaheur {
+    pub use u_metaheur::ga as generic_ga;
+    pub use u_metaheur::sa as generic_sa;
+    pub use u_metaheur::brkga as generic_brkga;
+    pub use u_metaheur::alns as generic_alns;
+}

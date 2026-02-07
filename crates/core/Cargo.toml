@@ -18,6 +18,8 @@ thiserror.workspace = true
 rayon.workspace = true
 rand.workspace = true
 log.workspace = true
+u-metaheur = { path = "../../../u-metaheur" }
+u-optim = { path = "../../../u-optim" }
 
 [dev-dependencies]
 proptest.workspace = true

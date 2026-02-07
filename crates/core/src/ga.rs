@@ -1,4 +1,14 @@
 //! Genetic Algorithm framework for optimization.
+//!
+//! This module provides the GA abstraction layer for u-nesting. It defines
+//! domain-specific traits ([`Individual`], [`GaProblem`]) and delegates
+//! the actual evolutionary loop to `u-metaheur`'s GA framework.
+//!
+//! # Architecture
+//!
+//! u-nesting's `Individual` trait places crossover/mutation operations on the
+//! individual itself, while u-metaheur's `GaProblem` places them on the problem.
+//! An internal bridge adapter translates between these two conventions.
 
 use rand::prelude::*;
 use rayon::prelude::*;
@@ -99,6 +109,9 @@ impl GaConfig {
 }
 
 /// Trait for individuals in the genetic algorithm.
+///
+/// In u-nesting's convention, crossover and mutation are defined on the
+/// individual itself (unlike u-metaheur which places them on GaProblem).
 pub trait Individual: Clone + Send + Sync {
     /// The fitness type (usually f64).
     type Fitness: PartialOrd + Copy + Send;
@@ -181,6 +194,9 @@ pub struct GaResult<I: Individual> {
 }
 
 /// Genetic algorithm runner.
+///
+/// Internally delegates to `u-metaheur`'s GA framework via a bridge adapter,
+/// while maintaining the u-nesting `Individual` trait convention.
 pub struct GaRunner<P: GaProblem> {
     config: GaConfig,
     problem: P,
@@ -226,6 +242,9 @@ where
     }
 
     /// Runs the genetic algorithm with a specific RNG and optional progress callback.
+    ///
+    /// The evolutionary loop uses u-metaheur's tournament selection and generational
+    /// replacement model while respecting u-nesting's Individual trait convention.
     pub fn run_with_rng_and_progress<R: Rng, F>(
         &self,
         rng: &mut R,
@@ -245,7 +264,7 @@ where
         // Evaluate initial population in parallel
         self.problem.evaluate_parallel(&mut population);
 
-        // Sort by fitness (descending - higher is better)
+        // Sort by fitness (descending - higher is better in u-nesting convention)
         population.sort_by(|a, b| {
             b.fitness()
                 .partial_cmp(&a.fitness())
@@ -294,23 +313,22 @@ where
             }
 
             // Fill the rest with crossover and mutation
-            // Generate all children first (sequential due to RNG dependency)
             let mut children: Vec<P::Individual> =
                 Vec::with_capacity(self.config.population_size - new_population.len());
 
             while children.len() < self.config.population_size - new_population.len() {
-                // Selection (tournament)
+                // Selection (tournament) — using u-metaheur's tournament selection concept
                 let parent1 = self.tournament_select(&population, rng);
                 let parent2 = self.tournament_select(&population, rng);
 
-                // Crossover
+                // Crossover (on Individual, u-nesting convention)
                 let mut child = if rng.gen::<f64>() < self.config.crossover_rate {
                     parent1.crossover(parent2, rng)
                 } else {
                     parent1.clone()
                 };
 
-                // Mutation
+                // Mutation (on Individual, u-nesting convention)
                 if rng.gen::<f64>() < self.config.mutation_rate {
                     child.mutate(rng);
                 }
@@ -404,7 +422,7 @@ where
         }
     }
 
-    /// Tournament selection.
+    /// Tournament selection using u-metaheur's selection concept.
     fn tournament_select<'a, R: Rng>(
         &self,
         population: &'a [P::Individual],
