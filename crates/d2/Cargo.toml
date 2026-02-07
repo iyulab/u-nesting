@@ -12,7 +12,6 @@ categories = ["algorithms", "mathematics"]
 
 [dependencies]
 u-nesting-core.workspace = true
-robust.workspace = true
 geo.workspace = true
 geo-types.workspace = true
 i_overlay.workspace = true

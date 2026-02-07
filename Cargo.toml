@@ -25,7 +25,6 @@ rust-version = "1.75"
 # Geometry
 geo = "0.29"
 geo-types = "0.7"
-robust = "1.1"
 i_overlay = "1.9"
 parry2d = "0.17"
 parry3d = "0.17"
