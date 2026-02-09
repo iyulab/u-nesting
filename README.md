@@ -367,8 +367,9 @@ Licensed under either of:
 
 Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
----
+## Related
 
-**One-liner:**
-
-> Domain-agnostic 2D/3D spatial optimization engine in Rust.
+- [u-optim](https://github.com/iyulab/u-optim) — Mathematical primitives
+- [u-metaheur](https://github.com/iyulab/u-metaheur) — Metaheuristic optimization (GA, SA, ALNS, CP)
+- [u-geometry](https://github.com/iyulab/u-geometry) — Computational geometry
+- [u-schedule](https://github.com/iyulab/u-schedule) — Scheduling framework
