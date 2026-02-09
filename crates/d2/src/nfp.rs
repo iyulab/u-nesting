@@ -22,7 +22,6 @@
 
 use crate::geometry::Geometry2D;
 use crate::nfp_sliding::{compute_nfp_sliding, SlidingNfpConfig};
-use u_nesting_core::geom::polygon as geom_polygon;
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::single::SingleFloatOverlay;
@@ -30,6 +29,7 @@ use rayon::prelude::*;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 use std::sync::{Arc, RwLock};
+use u_nesting_core::geom::polygon as geom_polygon;
 use u_nesting_core::geometry::Geometry2DExt;
 use u_nesting_core::robust::{orient2d_filtered, Orientation};
 use u_nesting_core::{Error, Result};
