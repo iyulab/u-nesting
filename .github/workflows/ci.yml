@@ -95,7 +95,15 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
-  # Security audit
+  bench:
+    name: Benchmark Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo bench --workspace --exclude u-nesting-python --no-run
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
