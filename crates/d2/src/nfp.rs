@@ -22,7 +22,7 @@
 
 use crate::geometry::Geometry2D;
 use crate::nfp_sliding::{compute_nfp_sliding, SlidingNfpConfig};
-use geo::{ConvexHull, Coord, LineString};
+use u_nesting_core::geom::polygon as geom_polygon;
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
 use i_overlay::float::single::SingleFloatOverlay;
@@ -1023,22 +1023,7 @@ fn merge_edge_vectors(
 
 /// Computes convex hull of a set of points.
 fn convex_hull_of_points(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
-    if points.len() < 3 {
-        return points.to_vec();
-    }
-
-    let coords: Vec<Coord<f64>> = points.iter().map(|&(x, y)| Coord { x, y }).collect();
-
-    let line_string = LineString::from(coords);
-    let hull = line_string.convex_hull();
-
-    hull.exterior()
-        .coords()
-        .map(|c| (c.x, c.y))
-        .collect::<Vec<_>>()
-        .into_iter()
-        .take(hull.exterior().coords().count().saturating_sub(1)) // Remove duplicate closing point
-        .collect()
+    geom_polygon::convex_hull(points)
 }
 
 // ============================================================================

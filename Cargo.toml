@@ -23,8 +23,6 @@ rust-version = "1.75"
 
 [workspace.dependencies]
 # Geometry
-geo = "0.29"
-geo-types = "0.7"
 i_overlay = "1.9"
 rstar = "0.12"
 

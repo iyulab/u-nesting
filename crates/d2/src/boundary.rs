@@ -1,6 +1,6 @@
 //! 2D boundary types.
 
-use geo::{Contains, Coord, LineString, Point, Polygon as GeoPolygon};
+use u_nesting_core::geom::polygon as geom_polygon;
 use u_nesting_core::geometry::{Boundary, Boundary2DExt};
 use u_nesting_core::transform::AABB2D;
 use u_nesting_core::{Error, Result};
@@ -101,37 +101,16 @@ impl Boundary2D {
         &self.holes
     }
 
-    /// Converts to a geo crate Polygon.
-    pub fn to_geo_polygon(&self) -> GeoPolygon<f64> {
-        let exterior = LineString::from(
-            self.exterior
-                .iter()
-                .map(|&(x, y)| Coord { x, y })
-                .collect::<Vec<_>>(),
-        );
-
-        let holes: Vec<LineString<f64>> = self
-            .holes
-            .iter()
-            .map(|hole| {
-                LineString::from(
-                    hole.iter()
-                        .map(|&(x, y)| Coord { x, y })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect();
-
-        GeoPolygon::new(exterior, holes)
-    }
-
-    /// Calculates the area of the boundary.
+    /// Calculates the area of the boundary (exterior minus holes).
     fn calculate_area(&self) -> f64 {
         if self.infinite_length {
             return f64::INFINITY;
         }
-        use geo::Area;
-        self.to_geo_polygon().unsigned_area()
+        let mut total = geom_polygon::area(&self.exterior);
+        for hole in &self.holes {
+            total -= geom_polygon::area(hole);
+        }
+        total
     }
 }
 
@@ -196,9 +175,17 @@ impl Boundary for Boundary2D {
         if point.len() < 2 {
             return false;
         }
-        let p = Point::new(point[0], point[1]);
-        let poly = self.to_geo_polygon();
-        poly.contains(&p)
+        let p = (point[0], point[1]);
+        // Must be inside exterior and outside all holes
+        if !geom_polygon::contains_point(&self.exterior, p) {
+            return false;
+        }
+        for hole in &self.holes {
+            if geom_polygon::contains_point(hole, p) {
+                return false;
+            }
+        }
+        true
     }
 }
 
@@ -213,13 +200,16 @@ impl Boundary2DExt for Boundary2D {
     }
 
     fn contains_polygon(&self, polygon: &[(f64, f64)]) -> bool {
-        let boundary_poly = self.to_geo_polygon();
-
-        // Check if all vertices are inside
-        for &(x, y) in polygon {
-            let p = Point::new(x, y);
-            if !boundary_poly.contains(&p) {
+        // Check if all vertices are inside the boundary
+        for &p in polygon {
+            if !geom_polygon::contains_point(&self.exterior, p) {
                 return false;
+            }
+            // Also check that vertices are not inside any hole
+            for hole in &self.holes {
+                if geom_polygon::contains_point(hole, p) {
+                    return false;
+                }
             }
         }
 
@@ -238,10 +228,8 @@ impl Boundary2DExt for Boundary2D {
             let eff_h = (h - 2.0 * margin).max(0.0);
             eff_w * eff_h
         } else {
-            // For non-rectangular boundaries, use buffer operation
-            // For now, approximate by subtracting perimeter * margin
-            use geo::{Euclidean, Length};
-            let perim = self.to_geo_polygon().exterior().length::<Euclidean>();
+            // For non-rectangular boundaries, approximate by subtracting perimeter * margin
+            let perim = geom_polygon::perimeter(&self.exterior);
             (self.calculate_area() - perim * margin).max(0.0)
         }
     }

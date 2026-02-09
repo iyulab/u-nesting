@@ -175,30 +175,6 @@ impl Geometry2D {
         self.allow_flip
     }
 
-    /// Converts to a geo crate Polygon (for interop with geo-based algorithms).
-    pub fn to_geo_polygon(&self) -> geo::Polygon<f64> {
-        let exterior = geo::LineString::from(
-            self.exterior
-                .iter()
-                .map(|&(x, y)| geo::Coord { x, y })
-                .collect::<Vec<_>>(),
-        );
-
-        let holes: Vec<geo::LineString<f64>> = self
-            .holes
-            .iter()
-            .map(|hole| {
-                geo::LineString::from(
-                    hole.iter()
-                        .map(|&(x, y)| geo::Coord { x, y })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .collect();
-
-        geo::Polygon::new(exterior, holes)
-    }
-
     /// Clears all cached values.
     fn clear_cache(&mut self) {
         self.cached_area = None;

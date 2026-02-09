@@ -12,8 +12,6 @@ categories = ["algorithms", "mathematics"]
 
 [dependencies]
 u-nesting-core.workspace = true
-geo.workspace = true
-geo-types.workspace = true
 i_overlay.workspace = true
 rstar.workspace = true
 serde = { workspace = true, optional = true }
@@ -32,7 +30,7 @@ criterion.workspace = true
 
 [features]
 default = []
-serde = ["dep:serde", "u-nesting-core/serde", "geo/use-serde"]
+serde = ["dep:serde", "u-nesting-core/serde"]
 milp = ["dep:good_lp"]
 
 [[bench]]
