@@ -30,6 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
