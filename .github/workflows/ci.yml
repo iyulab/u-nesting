@@ -16,49 +16,57 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run cargo check
-        run: cargo check --workspace --all-features
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-optim
+          path: ../u-optim
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-metaheur
+          path: ../u-metaheur
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-geometry
+          path: ../u-geometry
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace --all-features
 
   fmt:
     name: Format
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-
-      - name: Check formatting
-        run: cargo fmt --all -- --check
+      - run: cargo fmt --all -- --check
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-optim
+          path: ../u-optim
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-metaheur
+          path: ../u-metaheur
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-geometry
+          path: ../u-geometry
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Run clippy
-        run: cargo clippy --workspace --all-features -- -D warnings
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --workspace --all-features -- -D warnings
 
   test:
-    name: Test
+    name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -66,13 +74,20 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-optim
+          path: ../u-optim
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-metaheur
+          path: ../u-metaheur
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-geometry
+          path: ../u-geometry
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Run tests
         run: cargo test --workspace --all-features
         env:
@@ -83,15 +98,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build documentation
-        run: cargo doc --workspace --no-deps --all-features
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-optim
+          path: ../u-optim
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-metaheur
+          path: ../u-metaheur
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-geometry
+          path: ../u-geometry
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo doc --workspace --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
 
@@ -100,6 +121,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-optim
+          path: ../u-optim
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-metaheur
+          path: ../u-metaheur
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-geometry
+          path: ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo bench --workspace --exclude u-nesting-python --no-run
@@ -109,37 +142,47 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-optim
+          path: ../u-optim
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-metaheur
+          path: ../u-metaheur
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-geometry
+          path: ../u-geometry
       - name: Install cargo-audit
         run: cargo install cargo-audit
+      - run: cargo audit
 
-      - name: Run security audit
-        run: cargo audit
-
-  # Coverage (optional, runs on main only)
   coverage:
     name: Coverage
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-optim
+          path: ../u-optim
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-metaheur
+          path: ../u-metaheur
+      - uses: actions/checkout@v4
+        with:
+          repository: iyulab/u-geometry
+          path: ../u-geometry
+      - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
-
-      - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
-
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@v2
-
-      - name: Generate coverage report
-        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+      - uses: codecov/codecov-action@v4
         with:
           files: lcov.info
           fail_ci_if_error: false
