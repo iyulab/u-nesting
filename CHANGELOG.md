@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Dependencies
 - `u-geometry` 0.1 — Computational geometry primitives
 - `u-metaheur` 0.1 — Metaheuristic optimization
-- `u-numerics` 0.1 — Mathematical primitives
+- `u-numflow` 0.1 — Mathematical primitives
 - `i_overlay` 1.9 — Boolean polygon operations
 - `rstar` 0.12 — R*-tree spatial indexing
 - `rayon` 1.10 — Parallelization

@@ -19,7 +19,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
@@ -34,7 +34,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
@@ -50,7 +50,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
@@ -71,7 +71,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
@@ -89,7 +89,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
@@ -106,7 +106,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
@@ -121,7 +121,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - name: Install cargo-audit
@@ -137,7 +137,7 @@ jobs:
       - name: Checkout path dependencies
         run: |
           mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numerics.git ../../foundation/u-numerics
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable

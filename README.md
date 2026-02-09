@@ -369,7 +369,7 @@ Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for gu
 
 ## Related
 
-- [u-numerics](https://github.com/iyulab/u-numerics) — Mathematical primitives
+- [u-numflow](https://github.com/iyulab/u-numflow) — Mathematical primitives
 - [u-metaheur](https://github.com/iyulab/u-metaheur) — Metaheuristic optimization (GA, SA, ALNS, CP)
 - [u-geometry](https://github.com/iyulab/u-geometry) — Computational geometry
 - [u-schedule](https://github.com/iyulab/u-schedule) — Scheduling framework
