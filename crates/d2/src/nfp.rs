@@ -604,60 +604,25 @@ fn bounding_box(polygon: &[(f64, f64)]) -> (f64, f64, f64, f64) {
     (min_x, min_y, max_x, max_y)
 }
 
-/// Computes NFP for two convex polygons using Minkowski sum.
+/// Computes NFP for two convex polygons using u-geometry's Minkowski sum.
 ///
-/// For the NFP, we compute: A ⊕ (-B) where ⊕ is Minkowski sum
-/// This gives all positions where B's reference point would cause overlap with A.
+/// Delegates to u-geometry's O(n+m) rotating calipers algorithm.
+/// For the NFP, computes: A ⊕ (-B) where ⊕ is Minkowski sum.
 fn compute_nfp_convex(stationary: &[(f64, f64)], orbiting: &[(f64, f64)]) -> Result<Nfp> {
-    // Reflect the orbiting polygon about origin (negate coordinates)
-    let reflected: Vec<(f64, f64)> = orbiting.iter().map(|&(x, y)| (-x, -y)).collect();
+    use u_nesting_core::geom::minkowski::nfp_convex;
 
-    compute_minkowski_sum_convex(stationary, &reflected)
+    let polygon = nfp_convex(stationary, orbiting);
+    Ok(Nfp::from_polygon(polygon))
 }
 
-/// Computes Minkowski sum of two convex polygons.
+/// Computes Minkowski sum of two convex polygons via u-geometry.
 ///
-/// Algorithm: Merge sorted edge vectors from both polygons.
 /// Time complexity: O(n + m) where n, m are vertex counts.
 fn compute_minkowski_sum_convex(poly_a: &[(f64, f64)], poly_b: &[(f64, f64)]) -> Result<Nfp> {
-    // Ensure polygons are in counter-clockwise order
-    let a = ensure_ccw(poly_a);
-    let b = ensure_ccw(poly_b);
+    use u_nesting_core::geom::minkowski::minkowski_sum_convex;
 
-    // Get edge vectors for both polygons
-    let edges_a = get_edge_vectors(&a);
-    let edges_b = get_edge_vectors(&b);
-
-    // Find starting vertices (bottom-most, then left-most)
-    let start_a = find_bottom_left_vertex(&a);
-    let start_b = find_bottom_left_vertex(&b);
-
-    // Starting point of Minkowski sum
-    let start_point = (a[start_a].0 + b[start_b].0, a[start_a].1 + b[start_b].1);
-
-    // Merge edge vectors by angle
-    let merged_edges = merge_edge_vectors(&edges_a, start_a, &edges_b, start_b);
-
-    // Build the result polygon by following merged edges
-    let mut result = Vec::with_capacity(merged_edges.len() + 1);
-    let mut current = start_point;
-    result.push(current);
-
-    for (dx, dy) in merged_edges.iter() {
-        current = (current.0 + dx, current.1 + dy);
-        result.push(current);
-    }
-
-    // Remove the last point if it's the same as the first (closed polygon)
-    if result.len() > 1 {
-        let first = result[0];
-        let last = result[result.len() - 1];
-        if (first.0 - last.0).abs() < 1e-10 && (first.1 - last.1).abs() < 1e-10 {
-            result.pop();
-        }
-    }
-
-    Ok(Nfp::from_polygon(result))
+    let polygon = minkowski_sum_convex(poly_a, poly_b);
+    Ok(Nfp::from_polygon(polygon))
 }
 
 /// Computes NFP for non-convex polygons using convex decomposition + union.
@@ -936,89 +901,6 @@ fn signed_area(polygon: &[(f64, f64)]) -> f64 {
     }
 
     area / 2.0
-}
-
-/// Gets edge vectors from a polygon.
-fn get_edge_vectors(polygon: &[(f64, f64)]) -> Vec<(f64, f64)> {
-    let n = polygon.len();
-    (0..n)
-        .map(|i| {
-            let j = (i + 1) % n;
-            (polygon[j].0 - polygon[i].0, polygon[j].1 - polygon[i].1)
-        })
-        .collect()
-}
-
-/// Finds the index of the bottom-most (then left-most) vertex.
-fn find_bottom_left_vertex(polygon: &[(f64, f64)]) -> usize {
-    let mut min_idx = 0;
-
-    for (i, &(x, y)) in polygon.iter().enumerate() {
-        let (min_x, min_y) = polygon[min_idx];
-        if y < min_y || (y == min_y && x < min_x) {
-            min_idx = i;
-        }
-    }
-
-    min_idx
-}
-
-/// Computes the angle of an edge vector (in radians, 0 to 2π).
-fn edge_angle(dx: f64, dy: f64) -> f64 {
-    let angle = dy.atan2(dx);
-    if angle < 0.0 {
-        angle + 2.0 * PI
-    } else {
-        angle
-    }
-}
-
-/// Merges edge vectors from two polygons by angle for Minkowski sum.
-fn merge_edge_vectors(
-    edges_a: &[(f64, f64)],
-    start_a: usize,
-    edges_b: &[(f64, f64)],
-    start_b: usize,
-) -> Vec<(f64, f64)> {
-    let n_a = edges_a.len();
-    let n_b = edges_b.len();
-    let total = n_a + n_b;
-
-    let mut result = Vec::with_capacity(total);
-    let mut i_a = 0;
-    let mut i_b = 0;
-
-    while i_a < n_a || i_b < n_b {
-        if i_a >= n_a {
-            // Only edges from B remaining
-            let idx = (start_b + i_b) % n_b;
-            result.push(edges_b[idx]);
-            i_b += 1;
-        } else if i_b >= n_b {
-            // Only edges from A remaining
-            let idx = (start_a + i_a) % n_a;
-            result.push(edges_a[idx]);
-            i_a += 1;
-        } else {
-            // Compare angles
-            let idx_a = (start_a + i_a) % n_a;
-            let idx_b = (start_b + i_b) % n_b;
-
-            let angle_a = edge_angle(edges_a[idx_a].0, edges_a[idx_a].1);
-            let angle_b = edge_angle(edges_b[idx_b].0, edges_b[idx_b].1);
-
-            if angle_a <= angle_b + 1e-10 {
-                result.push(edges_a[idx_a]);
-                i_a += 1;
-            }
-            if angle_b <= angle_a + 1e-10 {
-                result.push(edges_b[idx_b]);
-                i_b += 1;
-            }
-        }
-    }
-
-    result
 }
 
 /// Computes convex hull of a set of points.
@@ -1628,21 +1510,6 @@ mod tests {
 
         // Different rotations should be cached separately
         assert_eq!(cache.len(), 2);
-    }
-
-    #[test]
-    fn test_edge_angle() {
-        // Right (0 degrees)
-        assert_relative_eq!(edge_angle(1.0, 0.0), 0.0, epsilon = 1e-10);
-
-        // Up (90 degrees)
-        assert_relative_eq!(edge_angle(0.0, 1.0), PI / 2.0, epsilon = 1e-10);
-
-        // Left (180 degrees)
-        assert_relative_eq!(edge_angle(-1.0, 0.0), PI, epsilon = 1e-10);
-
-        // Down (270 degrees)
-        assert_relative_eq!(edge_angle(0.0, -1.0), 3.0 * PI / 2.0, epsilon = 1e-10);
     }
 
     #[test]
