@@ -16,18 +16,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-optim
-          path: ../u-optim
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-metaheur
-          path: ../u-metaheur
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-geometry
-          path: ../u-geometry
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --all-features
@@ -47,18 +40,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-optim
-          path: ../u-optim
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-metaheur
-          path: ../u-metaheur
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-geometry
-          path: ../u-geometry
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -74,18 +60,11 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-optim
-          path: ../u-optim
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-metaheur
-          path: ../u-metaheur
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-geometry
-          path: ../u-geometry
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
@@ -98,18 +77,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-optim
-          path: ../u-optim
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-metaheur
-          path: ../u-metaheur
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-geometry
-          path: ../u-geometry
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps --all-features
@@ -121,18 +93,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-optim
-          path: ../u-optim
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-metaheur
-          path: ../u-metaheur
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-geometry
-          path: ../u-geometry
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo bench --workspace --exclude u-nesting-python --no-run
@@ -142,18 +107,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-optim
-          path: ../u-optim
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-metaheur
-          path: ../u-metaheur
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-geometry
-          path: ../u-geometry
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - name: Install cargo-audit
         run: cargo install cargo-audit
       - run: cargo audit
@@ -164,18 +122,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-optim
-          path: ../u-optim
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-metaheur
-          path: ../u-metaheur
-      - uses: actions/checkout@v4
-        with:
-          repository: iyulab/u-geometry
-          path: ../u-geometry
+      - name: Checkout path dependencies
+        run: |
+          git clone --depth 1 https://github.com/iyulab/u-optim.git ../u-optim
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../u-geometry
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: llvm-tools-preview
