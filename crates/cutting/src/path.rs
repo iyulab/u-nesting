@@ -16,7 +16,7 @@ use crate::gtsp;
 use crate::hierarchy::CuttingDag;
 use crate::kerf;
 use crate::result::{CutStep, CuttingPathResult};
-use crate::sequence::optimize_sequence;
+use crate::sequence::optimize_sequence_with_adjacency;
 
 /// Optimizes the cutting path for a nesting solve result.
 ///
@@ -82,8 +82,8 @@ where
         return CuttingPathResult::new();
     }
 
-    // Step 2: Detect common edges (informational)
-    let _common_edges = common_edge::detect_common_edges(
+    // Step 2: Detect common edges (used for sequence adjacency bonus)
+    let common_edges = common_edge::detect_common_edges(
         &contours,
         config.kerf_width + config.tolerance,
         0.1,
@@ -130,8 +130,8 @@ where
             current_pos = candidate.end_point;
         }
     } else {
-        // Legacy path: NN + 2-opt with single pierce selection
-        let seq_result = optimize_sequence(&contours, &dag, config);
+        // Legacy path: NN + 2-opt with single pierce selection + adjacency bonus
+        let seq_result = optimize_sequence_with_adjacency(&contours, &dag, config, Some(&common_edges));
 
         for (i, &contour_id) in seq_result.order.iter().enumerate() {
             let contour = match contours.iter().find(|c| c.id == contour_id) {

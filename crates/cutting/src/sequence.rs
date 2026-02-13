@@ -14,8 +14,9 @@
 //!
 //! - Dewil et al. (2016), Section 4: "Construction heuristics"
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
+use crate::common_edge::CommonEdgeResult;
 use crate::config::CuttingConfig;
 use crate::contour::CutContour;
 use crate::cost::{closest_point_on_polygon, point_distance};
@@ -39,6 +40,21 @@ pub fn optimize_sequence(
     dag: &CuttingDag,
     config: &CuttingConfig,
 ) -> SequenceResult {
+    optimize_sequence_with_adjacency(contours, dag, config, None)
+}
+
+/// Optimizes the cutting sequence with optional common-edge adjacency bonus.
+///
+/// When `common_edges` is provided, the NN heuristic applies a distance
+/// discount for contours sharing edges with the previously cut contour.
+/// This encourages consecutive cutting of adjacent parts, reducing rapid
+/// travel and enabling potential common-edge single-pass cutting.
+pub fn optimize_sequence_with_adjacency(
+    contours: &[CutContour],
+    dag: &CuttingDag,
+    config: &CuttingConfig,
+    common_edges: Option<&CommonEdgeResult>,
+) -> SequenceResult {
     if contours.is_empty() {
         return SequenceResult {
             order: Vec::new(),
@@ -47,8 +63,11 @@ pub fn optimize_sequence(
         };
     }
 
-    // Step 1: Nearest Neighbor construction
-    let mut order = nearest_neighbor(contours, dag, config);
+    // Build adjacency map from common edges
+    let adjacency = build_adjacency_map(common_edges);
+
+    // Step 1: Nearest Neighbor construction with adjacency bonus
+    let mut order = nearest_neighbor_with_adjacency(contours, dag, config, &adjacency);
 
     // Step 2: 2-opt improvement
     if config.max_2opt_iterations > 0 {
@@ -65,24 +84,54 @@ pub fn optimize_sequence(
     }
 }
 
-/// Nearest Neighbor construction heuristic.
+/// Builds a map of adjacent contour pairs from common edge results.
+/// Returns: contour_id -> set of adjacent contour_ids with shared edge lengths.
+fn build_adjacency_map(
+    common_edges: Option<&CommonEdgeResult>,
+) -> HashMap<usize, Vec<(usize, f64)>> {
+    let mut adjacency: HashMap<usize, Vec<(usize, f64)>> = HashMap::new();
+
+    if let Some(result) = common_edges {
+        for edge in &result.common_edges {
+            adjacency
+                .entry(edge.contour_a)
+                .or_default()
+                .push((edge.contour_b, edge.overlap_length));
+            adjacency
+                .entry(edge.contour_b)
+                .or_default()
+                .push((edge.contour_a, edge.overlap_length));
+        }
+    }
+
+    adjacency
+}
+
+/// Nearest Neighbor construction heuristic with adjacency bonus.
 ///
 /// Starts from the home position and greedily selects the closest uncut
-/// contour whose prerequisites are all already cut.
-fn nearest_neighbor(
+/// contour whose prerequisites are all already cut. Contours sharing
+/// common edges with the last-cut contour receive a distance discount.
+fn nearest_neighbor_with_adjacency(
     contours: &[CutContour],
     dag: &CuttingDag,
     config: &CuttingConfig,
+    adjacency: &HashMap<usize, Vec<(usize, f64)>>,
 ) -> Vec<usize> {
     let n = contours.len();
     let mut visited: HashSet<usize> = HashSet::with_capacity(n);
     let mut order = Vec::with_capacity(n);
     let mut current_pos = config.home_position;
+    let mut last_id: Option<usize> = None;
+
+    // Adjacency discount factor: 0.5 means adjacent contours appear
+    // 50% closer than their actual distance.
+    const ADJACENCY_DISCOUNT: f64 = 0.5;
 
     for _ in 0..n {
         // Find the nearest unvisited contour whose prerequisites are satisfied
         let mut best_idx = None;
-        let mut best_dist = f64::MAX;
+        let mut best_score = f64::MAX;
 
         for contour in contours.iter() {
             if visited.contains(&contour.id) {
@@ -102,8 +151,18 @@ fn nearest_neighbor(
                 .map(|(pt, _, _)| point_distance(current_pos, pt))
                 .unwrap_or(f64::MAX);
 
-            if dist < best_dist {
-                best_dist = dist;
+            // Apply adjacency bonus if sharing a common edge with last-cut contour
+            let mut score = dist;
+            if let Some(last) = last_id {
+                if let Some(neighbors) = adjacency.get(&last) {
+                    if neighbors.iter().any(|(adj_id, _)| *adj_id == contour.id) {
+                        score *= ADJACENCY_DISCOUNT;
+                    }
+                }
+            }
+
+            if score < best_score {
+                best_score = score;
                 best_idx = Some(contour.id);
             }
         }
@@ -111,6 +170,7 @@ fn nearest_neighbor(
         if let Some(id) = best_idx {
             visited.insert(id);
             order.push(id);
+            last_id = Some(id);
 
             // Update current position to the pierce point
             if let Some(contour) = contours.iter().find(|c| c.id == id) {
@@ -309,5 +369,74 @@ mod tests {
             result.total_rapid_distance,
             reverse_rapid
         );
+    }
+
+    #[test]
+    fn test_adjacency_bonus_prefers_neighbor() {
+        // Three contours: 0 at origin, 1 far away, 2 also far but adjacent to 0
+        // Without adjacency: NN visits 0 → 1 or 0 → 2 based on distance
+        // With adjacency (0↔2 share edge): should prefer 0 → 2 → 1
+        let contours = vec![
+            make_contour(0, 10.0, 10.0, ContourType::Exterior),
+            make_contour(1, 80.0, 10.0, ContourType::Exterior),
+            make_contour(2, 90.0, 10.0, ContourType::Exterior),
+        ];
+        let dag = CuttingDag::build(&contours);
+        let config = CuttingConfig::default();
+
+        // Create fake common edge between contour 0 and 2
+        let common_edges = CommonEdgeResult {
+            common_edges: vec![crate::common_edge::CommonEdge {
+                contour_a: 0,
+                edge_a: 0,
+                contour_b: 2,
+                edge_b: 0,
+                overlap_length: 10.0,
+                midpoint: (50.0, 10.0),
+            }],
+            total_common_length: 10.0,
+        };
+
+        let result_with = optimize_sequence_with_adjacency(
+            &contours,
+            &dag,
+            &config,
+            Some(&common_edges),
+        );
+        let result_without = optimize_sequence(&contours, &dag, &config);
+
+        // Both should produce valid sequences
+        assert_eq!(result_with.order.len(), 3);
+        assert_eq!(result_without.order.len(), 3);
+
+        // With adjacency, contour 2 should be visited right after contour 0
+        // since they share an edge (adjacency discount makes it appear closer)
+        if result_with.order[0] == 0 {
+            assert_eq!(
+                result_with.order[1], 2,
+                "Adjacent contour 2 should follow contour 0"
+            );
+        }
+    }
+
+    #[test]
+    fn test_adjacency_with_no_common_edges() {
+        // No common edges — should behave identically to optimize_sequence
+        let contours = vec![
+            make_contour(0, 10.0, 10.0, ContourType::Exterior),
+            make_contour(1, 30.0, 10.0, ContourType::Exterior),
+        ];
+        let dag = CuttingDag::build(&contours);
+        let config = CuttingConfig::default();
+
+        let result_with = optimize_sequence_with_adjacency(
+            &contours,
+            &dag,
+            &config,
+            None,
+        );
+        let result_without = optimize_sequence(&contours, &dag, &config);
+
+        assert_eq!(result_with.order, result_without.order);
     }
 }
