@@ -114,6 +114,9 @@ where
 
             result.sequence.push(CutStep {
                 contour_id: candidate.contour_id,
+                geometry_id: contour.geometry_id.clone(),
+                instance: contour.instance,
+                contour_type: contour.contour_type,
                 pierce_point: candidate.point,
                 cut_direction: candidate.direction,
                 rapid_from: if i == 0 { None } else { Some(current_pos) },
@@ -141,6 +144,9 @@ where
 
             result.sequence.push(CutStep {
                 contour_id,
+                geometry_id: contour.geometry_id.clone(),
+                instance: contour.instance,
+                contour_type: contour.contour_type,
                 pierce_point: pierce.point,
                 cut_direction: pierce.direction,
                 rapid_from: if i == 0 { None } else { Some(current_pos) },

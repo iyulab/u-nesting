@@ -3,7 +3,7 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
-use crate::contour::ContourId;
+use crate::contour::{ContourId, ContourType};
 
 /// Result of cutting path optimization.
 #[derive(Debug, Clone)]
@@ -69,6 +69,15 @@ impl Default for CuttingPathResult {
 pub struct CutStep {
     /// ID of the contour being cut.
     pub contour_id: ContourId,
+
+    /// ID of the source geometry this contour belongs to.
+    pub geometry_id: String,
+
+    /// Instance index of the placed geometry (0-based).
+    pub instance: usize,
+
+    /// Whether this is an exterior or interior contour.
+    pub contour_type: ContourType,
 
     /// Piercing point (entry point on the contour).
     pub pierce_point: (f64, f64),
