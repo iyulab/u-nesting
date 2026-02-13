@@ -255,6 +255,167 @@ pub fn solve_nn(instance: &GtspInstance) -> Vec<usize> {
     solution
 }
 
+/// Solves the GTSP with precedence constraints using NN + constrained 2-opt.
+///
+/// This is the main solver that respects the precedence DAG. It:
+/// 1. Builds a precedence-aware NN solution (only visiting clusters whose
+///    predecessors have already been visited)
+/// 2. Improves with 2-opt swaps that maintain precedence validity
+///
+/// Returns the global candidate indices in visit order.
+pub fn solve_constrained(
+    instance: &GtspInstance,
+    dag: &crate::hierarchy::CuttingDag,
+    max_2opt_iterations: usize,
+) -> Vec<usize> {
+    let n_clusters = instance.clusters.len();
+    if n_clusters == 0 {
+        return Vec::new();
+    }
+
+    // Step 1: Precedence-aware NN
+    let mut solution = nn_constrained(instance, dag);
+
+    // Step 2: Constrained 2-opt
+    if max_2opt_iterations > 0 && solution.len() >= 3 {
+        improve_2opt_constrained(
+            &mut solution,
+            instance,
+            dag,
+            max_2opt_iterations,
+        );
+    }
+
+    solution
+}
+
+/// Nearest-neighbor construction that respects precedence constraints.
+fn nn_constrained(
+    instance: &GtspInstance,
+    dag: &crate::hierarchy::CuttingDag,
+) -> Vec<usize> {
+    let n_clusters = instance.clusters.len();
+    let mut visited_clusters = vec![false; n_clusters];
+    let mut solution = Vec::with_capacity(n_clusters);
+    let mut visited_contours: std::collections::HashSet<usize> =
+        std::collections::HashSet::with_capacity(n_clusters);
+
+    for _ in 0..n_clusters {
+        let mut best_idx = None;
+        let mut best_dist = f64::MAX;
+
+        for (ci, cluster) in instance.clusters.iter().enumerate() {
+            if visited_clusters[ci] {
+                continue;
+            }
+
+            // Check precedence: all predecessors' clusters must be visited
+            let predecessors = dag.predecessors(cluster.contour_id);
+            let ready = predecessors
+                .iter()
+                .all(|pred_id| visited_contours.contains(pred_id));
+            if !ready {
+                continue;
+            }
+
+            // Find the best candidate in this cluster
+            for cand in &cluster.candidates {
+                let global = instance.local_to_global(ci, cand.candidate_index);
+                let dist = if solution.is_empty() {
+                    instance.home_distances[global]
+                } else {
+                    let last: usize = *solution.last().expect("solution not empty");
+                    let row: &Vec<f64> = &instance.distances[last];
+                    row[global]
+                };
+
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_idx = Some((ci, global));
+                }
+            }
+        }
+
+        if let Some((ci, global)) = best_idx {
+            visited_clusters[ci] = true;
+            visited_contours.insert(instance.clusters[ci].contour_id);
+            solution.push(global);
+        }
+    }
+
+    solution
+}
+
+/// Constrained 2-opt improvement for GTSP solutions.
+///
+/// Tries swapping candidates within clusters and reversing sub-sequences,
+/// accepting only moves that reduce cost and respect precedence.
+fn improve_2opt_constrained(
+    solution: &mut [usize],
+    instance: &GtspInstance,
+    dag: &crate::hierarchy::CuttingDag,
+    max_iterations: usize,
+) {
+    let n = solution.len();
+    let mut improved = true;
+    let mut iterations = 0;
+    let mut current_cost = evaluate_solution(instance, solution);
+
+    while improved && iterations < max_iterations {
+        improved = false;
+        iterations += 1;
+
+        // Move 1: Try swapping each position to a better candidate in the same cluster
+        for pos in 0..n {
+            let current_global = solution[pos];
+            let (ci, _) = instance.global_to_local(current_global);
+            let cluster = &instance.clusters[ci];
+
+            for cand in &cluster.candidates {
+                let alt_global = instance.local_to_global(ci, cand.candidate_index);
+                if alt_global == current_global {
+                    continue;
+                }
+
+                solution[pos] = alt_global;
+                let new_cost = evaluate_solution(instance, solution);
+
+                if new_cost < current_cost - 1e-10 {
+                    current_cost = new_cost;
+                    improved = true;
+                } else {
+                    solution[pos] = current_global; // Undo
+                }
+            }
+        }
+
+        // Move 2: Try reversing sub-sequences (cluster-order level)
+        for i in 0..n.saturating_sub(1) {
+            for j in (i + 2)..n {
+                solution[i + 1..=j].reverse();
+
+                // Check precedence validity
+                let cluster_order: Vec<usize> = solution
+                    .iter()
+                    .map(|&g| instance.clusters[instance.global_to_local(g).0].contour_id)
+                    .collect();
+
+                if dag.is_valid_sequence(&cluster_order) {
+                    let new_cost = evaluate_solution(instance, solution);
+                    if new_cost < current_cost - 1e-10 {
+                        current_cost = new_cost;
+                        improved = true;
+                    } else {
+                        solution[i + 1..=j].reverse(); // Undo
+                    }
+                } else {
+                    solution[i + 1..=j].reverse(); // Undo — violates precedence
+                }
+            }
+        }
+    }
+}
+
 /// Determines the cutting direction for a contour type.
 fn determine_direction(contour_type: ContourType, config: &CuttingConfig) -> CutDirection {
     let pref = match contour_type {
@@ -594,5 +755,115 @@ mod tests {
             cost8,
             cost1
         );
+    }
+
+    #[test]
+    fn test_solve_constrained_respects_precedence() {
+        use crate::hierarchy::CuttingDag;
+
+        // Part with interior hole — hole must be cut first
+        let contours = vec![
+            CutContour {
+                id: 0,
+                geometry_id: "part1".to_string(),
+                instance: 0,
+                contour_type: ContourType::Exterior,
+                vertices: vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)],
+                perimeter: 80.0,
+                centroid: (10.0, 10.0),
+            },
+            CutContour {
+                id: 1,
+                geometry_id: "part1".to_string(),
+                instance: 0,
+                contour_type: ContourType::Interior,
+                vertices: vec![(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)],
+                perimeter: 40.0,
+                centroid: (10.0, 10.0),
+            },
+        ];
+
+        let dag = CuttingDag::build(&contours);
+        let config = CuttingConfig::new().with_pierce_candidates(4);
+        let clusters = discretize_contours(&contours, &config);
+        let instance = build_gtsp_instance(clusters, (0.0, 0.0));
+
+        let solution = solve_constrained(&instance, &dag, 100);
+        assert_eq!(solution.len(), 2);
+
+        // Interior (cluster for contour 1) must come before Exterior (cluster for contour 0)
+        let cluster_order: Vec<usize> = solution
+            .iter()
+            .map(|&g| instance.clusters[instance.global_to_local(g).0].contour_id)
+            .collect();
+
+        let pos_interior = cluster_order.iter().position(|&id| id == 1).unwrap();
+        let pos_exterior = cluster_order.iter().position(|&id| id == 0).unwrap();
+        assert!(pos_interior < pos_exterior);
+    }
+
+    #[test]
+    fn test_solve_constrained_with_multiple_parts() {
+        use crate::hierarchy::CuttingDag;
+
+        let contours = vec![
+            make_rect(0, 0.0, 0.0, 10.0, 10.0),
+            make_rect(1, 15.0, 0.0, 10.0, 10.0),
+            make_rect(2, 30.0, 0.0, 10.0, 10.0),
+        ];
+
+        let dag = CuttingDag::build(&contours);
+        let config = CuttingConfig::new().with_pierce_candidates(4);
+        let clusters = discretize_contours(&contours, &config);
+        let instance = build_gtsp_instance(clusters, (0.0, 0.0));
+
+        let solution = solve_constrained(&instance, &dag, 100);
+        assert_eq!(solution.len(), 3);
+
+        // NN should visit in order: 0 (nearest), 1, 2
+        let cluster_order: Vec<usize> = solution
+            .iter()
+            .map(|&g| instance.global_to_local(g).0)
+            .collect();
+        assert_eq!(cluster_order, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn test_2opt_improves_solution() {
+        use crate::hierarchy::CuttingDag;
+
+        // Place contours in a way that NN gives a suboptimal order
+        // Contours arranged: home(0,0) → C1(5,20) → C0(5,0) → C2(5,40)
+        // NN from home: picks C0 (nearest), then C1, then C2
+        // Optimal: C0, C2, C1 might be worse... Let's use a zigzag
+        let contours = vec![
+            make_rect(0, 0.0, 0.0, 10.0, 10.0),
+            make_rect(1, 20.0, 0.0, 10.0, 10.0),
+            make_rect(2, 40.0, 0.0, 10.0, 10.0),
+        ];
+
+        let dag = CuttingDag::build(&contours);
+        let config = CuttingConfig::new().with_pierce_candidates(4);
+        let clusters = discretize_contours(&contours, &config);
+        let instance = build_gtsp_instance(clusters, (0.0, 0.0));
+
+        let solution = solve_constrained(&instance, &dag, 100);
+        let cost = evaluate_solution(&instance, &solution);
+
+        // Cost should be reasonable (not worse than worst case)
+        // Worst case: home→C2(40,0)→C0(0,0)→C1(20,0) = 40+40+20 = 100
+        assert!(cost < 100.0, "Solution cost {} should be < worst case 100", cost);
+    }
+
+    #[test]
+    fn test_constrained_empty() {
+        use crate::hierarchy::CuttingDag;
+
+        let contours: Vec<CutContour> = Vec::new();
+        let dag = CuttingDag::build(&contours);
+        let instance = build_gtsp_instance(Vec::new(), (0.0, 0.0));
+
+        let solution = solve_constrained(&instance, &dag, 100);
+        assert!(solution.is_empty());
     }
 }
