@@ -21,6 +21,7 @@
 //! - Dewil et al. (2016), "A review of cutting path algorithms for laser cutters"
 //! - Hu, Lin & Fu (2023), "Optimizing Cutting Sequences for Common-Edge Nested Parts"
 
+pub mod bridge;
 pub mod common_edge;
 pub mod config;
 pub mod contour;
