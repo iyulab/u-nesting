@@ -12,6 +12,7 @@ use crate::config::CuttingConfig;
 use crate::contour::extract_contours;
 use crate::cost::point_distance;
 use crate::hierarchy::CuttingDag;
+use crate::kerf;
 use crate::result::{CutStep, CuttingPathResult};
 use crate::sequence::optimize_sequence;
 
@@ -61,7 +62,19 @@ where
     let start = Instant::now();
 
     // Step 1: Extract contours
-    let contours = extract_contours(solve_result, geometries);
+    let raw_contours = extract_contours(solve_result, geometries);
+
+    if raw_contours.is_empty() {
+        return CuttingPathResult::new();
+    }
+
+    // Step 1.5: Apply kerf compensation (if kerf_width > 0)
+    let contours = if config.kerf_width > 0.0 {
+        let kerf_results = kerf::apply_kerf_compensation(&raw_contours, config);
+        kerf::filter_compensated(kerf_results)
+    } else {
+        raw_contours
+    };
 
     if contours.is_empty() {
         return CuttingPathResult::new();

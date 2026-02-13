@@ -132,6 +132,7 @@ pub mod geom {
     pub use u_geometry::collision;
     pub use u_geometry::minkowski;
     pub use u_geometry::nalgebra_types;
+    pub use u_geometry::offset;
     pub use u_geometry::polygon;
     pub use u_geometry::primitives;
     pub use u_geometry::robust as generic_robust;
