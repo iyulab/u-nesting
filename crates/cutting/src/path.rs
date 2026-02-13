@@ -8,9 +8,11 @@ use std::time::Instant;
 use u_nesting_core::geometry::{Geometry, Geometry2DExt};
 use u_nesting_core::SolveResult;
 
+use crate::common_edge;
 use crate::config::CuttingConfig;
 use crate::contour::extract_contours;
 use crate::cost::point_distance;
+use crate::gtsp;
 use crate::hierarchy::CuttingDag;
 use crate::kerf;
 use crate::result::{CutStep, CuttingPathResult};
@@ -80,38 +82,77 @@ where
         return CuttingPathResult::new();
     }
 
-    // Step 2: Build precedence DAG
+    // Step 2: Detect common edges (informational)
+    let _common_edges = common_edge::detect_common_edges(
+        &contours,
+        config.kerf_width + config.tolerance,
+        0.1,
+    );
+
+    // Step 3: Build precedence DAG
     let dag = CuttingDag::build(&contours);
 
-    // Step 3: Optimize sequence
-    let seq_result = optimize_sequence(&contours, &dag, config);
-
-    // Step 4: Assemble cutting path
+    // Step 4: Optimize sequence
+    // Use GTSP solver when multiple pierce candidates are configured
     let mut result = CuttingPathResult::new();
     let mut current_pos = config.home_position;
 
-    for (i, &contour_id) in seq_result.order.iter().enumerate() {
-        let contour = match contours.iter().find(|c| c.id == contour_id) {
-            Some(c) => c,
-            None => continue,
-        };
+    if config.pierce_candidates > 1 {
+        // GTSP path: discretize → build instance → solve with precedence
+        let clusters = gtsp::discretize_contours(&contours, config);
+        let instance = gtsp::build_gtsp_instance(clusters, config.home_position);
+        let solution = gtsp::solve_constrained(&instance, &dag, config.max_2opt_iterations);
 
-        let pierce = &seq_result.pierce_selections[i];
-        let rapid_dist = point_distance(current_pos, pierce.point);
+        for (i, &global_idx) in solution.iter().enumerate() {
+            let candidate = instance.candidate(global_idx);
+            let contour = match contours.iter().find(|c| c.id == candidate.contour_id) {
+                Some(c) => c,
+                None => continue,
+            };
 
-        result.sequence.push(CutStep {
-            contour_id,
-            pierce_point: pierce.point,
-            cut_direction: pierce.direction,
-            rapid_from: if i == 0 { None } else { Some(current_pos) },
-            rapid_distance: rapid_dist,
-            cut_distance: contour.perimeter,
-        });
+            let rapid_dist = point_distance(current_pos, candidate.point);
 
-        result.total_rapid_distance += rapid_dist;
-        result.total_cut_distance += contour.perimeter;
-        result.total_pierces += 1;
-        current_pos = pierce.end_point;
+            result.sequence.push(CutStep {
+                contour_id: candidate.contour_id,
+                pierce_point: candidate.point,
+                cut_direction: candidate.direction,
+                rapid_from: if i == 0 { None } else { Some(current_pos) },
+                rapid_distance: rapid_dist,
+                cut_distance: contour.perimeter,
+            });
+
+            result.total_rapid_distance += rapid_dist;
+            result.total_cut_distance += contour.perimeter;
+            result.total_pierces += 1;
+            current_pos = candidate.end_point;
+        }
+    } else {
+        // Legacy path: NN + 2-opt with single pierce selection
+        let seq_result = optimize_sequence(&contours, &dag, config);
+
+        for (i, &contour_id) in seq_result.order.iter().enumerate() {
+            let contour = match contours.iter().find(|c| c.id == contour_id) {
+                Some(c) => c,
+                None => continue,
+            };
+
+            let pierce = &seq_result.pierce_selections[i];
+            let rapid_dist = point_distance(current_pos, pierce.point);
+
+            result.sequence.push(CutStep {
+                contour_id,
+                pierce_point: pierce.point,
+                cut_direction: pierce.direction,
+                rapid_from: if i == 0 { None } else { Some(current_pos) },
+                rapid_distance: rapid_dist,
+                cut_distance: contour.perimeter,
+            });
+
+            result.total_rapid_distance += rapid_dist;
+            result.total_cut_distance += contour.perimeter;
+            result.total_pierces += 1;
+            current_pos = pierce.end_point;
+        }
     }
 
     result.computation_time_ms = start.elapsed().as_millis() as u64;
