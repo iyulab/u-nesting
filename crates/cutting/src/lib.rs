@@ -34,6 +34,7 @@ pub mod path;
 pub mod pierce;
 pub mod result;
 pub mod sequence;
+pub mod thermal;
 
 pub use config::CuttingConfig;
 pub use path::optimize_cutting_path;
