@@ -1,0 +1,27 @@
+[package]
+name = "u-nesting-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "WebAssembly bindings for U-Nesting spatial optimization engine"
+keywords = ["nesting", "bin-packing", "wasm", "webassembly"]
+categories = ["algorithms", "wasm"]
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+u-nesting-core = { workspace = true, features = ["serde"] }
+u-nesting-d2 = { workspace = true, features = ["serde"] }
+u-nesting-d3 = { workspace = true, features = ["serde"] }
+u-nesting-cutting = { workspace = true, features = ["serde"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+wasm-bindgen = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+getrandom_02 = { package = "getrandom", version = "0.2", features = ["js"] }

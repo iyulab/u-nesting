@@ -47,6 +47,8 @@
 //! - `serde`: Enable serialization/deserialization support
 
 pub mod alns;
+#[cfg(feature = "serde")]
+pub mod api_types;
 pub mod brkga;
 pub mod error;
 pub mod exact;

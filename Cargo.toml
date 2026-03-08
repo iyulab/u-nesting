@@ -9,6 +9,7 @@ members = [
     "crates/u-nesting",
     "crates/benchmark",
     "crates/python",
+    "crates/wasm",
 ]
 
 [workspace.package]
@@ -58,6 +59,9 @@ criterion = "0.5"
 
 # Python bindings
 pyo3 = { version = "0.24", features = ["extension-module"] }
+
+# WebAssembly bindings
+wasm-bindgen = "0.2"
 
 # Internal crates
 u-nesting-core = { version = "0.2.0", path = "crates/core" }
