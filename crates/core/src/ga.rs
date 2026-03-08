@@ -151,12 +151,9 @@ pub trait GaProblem: Send + Sync {
     /// Default implementation uses rayon when the `parallel` feature is enabled.
     fn evaluate_parallel(&self, individuals: &mut [Self::Individual]) {
         #[cfg(feature = "parallel")]
-        {
-            individuals.par_iter_mut().for_each(|ind| {
-                self.evaluate(ind);
-            });
-            return;
-        }
+        individuals.par_iter_mut().for_each(|ind| {
+            self.evaluate(ind);
+        });
         #[cfg(not(feature = "parallel"))]
         for ind in individuals.iter_mut() {
             self.evaluate(ind);

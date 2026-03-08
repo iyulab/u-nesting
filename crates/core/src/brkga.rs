@@ -249,12 +249,9 @@ pub trait BrkgaProblem: Send + Sync {
     /// Default implementation uses rayon when the `parallel` feature is enabled.
     fn evaluate_parallel(&self, chromosomes: &mut [RandomKeyChromosome]) {
         #[cfg(feature = "parallel")]
-        {
-            chromosomes.par_iter_mut().for_each(|c| {
-                self.evaluate(c);
-            });
-            return;
-        }
+        chromosomes.par_iter_mut().for_each(|c| {
+            self.evaluate(c);
+        });
         #[cfg(not(feature = "parallel"))]
         for c in chromosomes.iter_mut() {
             self.evaluate(c);
