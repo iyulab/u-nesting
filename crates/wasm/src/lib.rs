@@ -97,10 +97,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
     if let Some(ref config) = request.config {
         if let Some(ref strategy) = config.strategy {
             let s = strategy.to_lowercase();
-            if WASM_BLOCKED_STRATEGIES
-                .iter()
-                .any(|blocked| s == *blocked)
-            {
+            if WASM_BLOCKED_STRATEGIES.iter().any(|blocked| s == *blocked) {
                 return SolveResponse::error(format!(
                     "Strategy '{strategy}' is not available in WASM builds. \
                      Use 'blf', 'nfp', 'ga', 'brkga', 'sa', 'gdrr', or 'alns'."
@@ -177,10 +174,7 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
     if let Some(ref config) = request.config {
         if let Some(ref strategy) = config.strategy {
             let s = strategy.to_lowercase();
-            if WASM_BLOCKED_STRATEGIES
-                .iter()
-                .any(|blocked| s == *blocked)
-            {
+            if WASM_BLOCKED_STRATEGIES.iter().any(|blocked| s == *blocked) {
                 return SolveResponse::error(format!(
                     "Strategy '{strategy}' is not available in WASM builds. \
                      Use 'blf', 'ep', 'ga', 'brkga', or 'sa'."
@@ -194,9 +188,8 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
         .geometries
         .into_iter()
         .map(|g| {
-            let mut geom =
-                Geometry3D::new(g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
-                    .with_quantity(g.quantity);
+            let mut geom = Geometry3D::new(g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
+                .with_quantity(g.quantity);
 
             if let Some(mass) = g.mass {
                 geom = geom.with_mass(mass);
@@ -278,17 +271,15 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     // Reconstruct SolveResult from the response
     let mut solve_result = u_nesting_core::SolveResult::<f64>::new();
     for p in &request.solve_result.placements {
-        solve_result
-            .placements
-            .push(u_nesting_core::Placement {
-                geometry_id: p.geometry_id.clone(),
-                instance: p.instance,
-                position: p.position.clone(),
-                rotation: p.rotation.clone(),
-                boundary_index: p.boundary_index,
-                mirrored: false,
-                rotation_index: None,
-            });
+        solve_result.placements.push(u_nesting_core::Placement {
+            geometry_id: p.geometry_id.clone(),
+            instance: p.instance,
+            position: p.position.clone(),
+            rotation: p.rotation.clone(),
+            boundary_index: p.boundary_index,
+            mirrored: false,
+            rotation_index: None,
+        });
     }
     solve_result.boundaries_used = request.solve_result.boundaries_used;
     solve_result.utilization = request.solve_result.utilization;
@@ -387,9 +378,7 @@ fn parse_strategy(s: &str) -> Strategy {
     }
 }
 
-fn build_cutting_config(
-    request: Option<CuttingConfigRequest>,
-) -> u_nesting_cutting::CuttingConfig {
+fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutting::CuttingConfig {
     let mut config = u_nesting_cutting::CuttingConfig::default();
 
     if let Some(req) = request {
