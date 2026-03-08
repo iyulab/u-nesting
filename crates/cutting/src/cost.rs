@@ -7,7 +7,11 @@ use crate::config::CuttingConfig;
 /// Cost = total_rapid_distance + pierce_weight x pierce_count
 ///
 /// This is the primary objective function for sequence optimization.
-pub fn sequence_cost(total_rapid_distance: f64, pierce_count: usize, config: &CuttingConfig) -> f64 {
+pub fn sequence_cost(
+    total_rapid_distance: f64,
+    pierce_count: usize,
+    config: &CuttingConfig,
+) -> f64 {
     total_rapid_distance + config.pierce_weight * pierce_count as f64
 }
 
@@ -86,10 +90,7 @@ pub type ContourEndpoints = ((f64, f64), (f64, f64));
 ///
 /// `positions` contains the (start_point, end_point) for each contour in sequence order.
 /// The first rapid move is from `home` to the first contour's start point.
-pub fn total_rapid_distance(
-    home: (f64, f64),
-    positions: &[ContourEndpoints],
-) -> f64 {
+pub fn total_rapid_distance(home: (f64, f64), positions: &[ContourEndpoints]) -> f64 {
     if positions.is_empty() {
         return 0.0;
     }

@@ -102,10 +102,7 @@ impl GtspInstance {
 ///
 /// * `contours` - Cut contours to discretize
 /// * `config` - Cutting configuration (pierce_candidates, direction preferences)
-pub fn discretize_contours(
-    contours: &[CutContour],
-    config: &CuttingConfig,
-) -> Vec<GtspCluster> {
+pub fn discretize_contours(contours: &[CutContour], config: &CuttingConfig) -> Vec<GtspCluster> {
     let n_candidates = config.pierce_candidates.max(1);
 
     contours
@@ -155,10 +152,8 @@ pub fn build_gtsp_instance(clusters: Vec<GtspCluster>, home: (f64, f64)) -> Gtsp
     let total = offset;
 
     // Collect all candidates for distance computation
-    let all_candidates: Vec<&PierceCandidate> = clusters
-        .iter()
-        .flat_map(|c| c.candidates.iter())
-        .collect();
+    let all_candidates: Vec<&PierceCandidate> =
+        clusters.iter().flat_map(|c| c.candidates.iter()).collect();
 
     // Build distance matrix
     let mut distances = vec![vec![f64::MAX; total]; total];
@@ -278,22 +273,14 @@ pub fn solve_constrained(
 
     // Step 2: Constrained 2-opt
     if max_2opt_iterations > 0 && solution.len() >= 3 {
-        improve_2opt_constrained(
-            &mut solution,
-            instance,
-            dag,
-            max_2opt_iterations,
-        );
+        improve_2opt_constrained(&mut solution, instance, dag, max_2opt_iterations);
     }
 
     solution
 }
 
 /// Nearest-neighbor construction that respects precedence constraints.
-fn nn_constrained(
-    instance: &GtspInstance,
-    dag: &crate::hierarchy::CuttingDag,
-) -> Vec<usize> {
+fn nn_constrained(instance: &GtspInstance, dag: &crate::hierarchy::CuttingDag) -> Vec<usize> {
     let n_clusters = instance.clusters.len();
     let mut visited_clusters = vec![false; n_clusters];
     let mut solution = Vec::with_capacity(n_clusters);
@@ -476,7 +463,8 @@ fn generate_equidistant_candidates(
         let target_dist = k as f64 * spacing;
 
         // Find which edge this distance falls on
-        let (point, vertex_idx) = point_at_distance(vertices, &cumulative, &edge_lengths, target_dist);
+        let (point, vertex_idx) =
+            point_at_distance(vertices, &cumulative, &edge_lengths, target_dist);
 
         candidates.push(PierceCandidate {
             contour_id: contour.id,
@@ -530,12 +518,7 @@ mod tests {
             geometry_id: format!("part{}", id),
             instance: 0,
             contour_type: ContourType::Exterior,
-            vertices: vec![
-                (x, y),
-                (x + w, y),
-                (x + w, y + h),
-                (x, y + h),
-            ],
+            vertices: vec![(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
             perimeter: 2.0 * (w + h),
             centroid: (x + w / 2.0, y + h / 2.0),
         }
@@ -852,7 +835,11 @@ mod tests {
 
         // Cost should be reasonable (not worse than worst case)
         // Worst case: home→C2(40,0)→C0(0,0)→C1(20,0) = 40+40+20 = 100
-        assert!(cost < 100.0, "Solution cost {} should be < worst case 100", cost);
+        assert!(
+            cost < 100.0,
+            "Solution cost {} should be < worst case 100",
+            cost
+        );
     }
 
     #[test]

@@ -74,8 +74,8 @@ pub fn extract_contours<G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>>
         // Extract exterior contour
         let exterior_world = transform.transform_points(geom.outer_ring());
         let exterior_perim = u_nesting_core::geom::polygon::perimeter(&exterior_world);
-        let exterior_centroid = u_nesting_core::geom::polygon::centroid(&exterior_world)
-            .unwrap_or((0.0, 0.0));
+        let exterior_centroid =
+            u_nesting_core::geom::polygon::centroid(&exterior_world).unwrap_or((0.0, 0.0));
 
         contours.push(CutContour {
             id: next_id,
@@ -92,8 +92,8 @@ pub fn extract_contours<G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>>
         for hole in geom.holes() {
             let hole_world = transform.transform_points(hole);
             let hole_perim = u_nesting_core::geom::polygon::perimeter(&hole_world);
-            let hole_centroid = u_nesting_core::geom::polygon::centroid(&hole_world)
-                .unwrap_or((0.0, 0.0));
+            let hole_centroid =
+                u_nesting_core::geom::polygon::centroid(&hole_world).unwrap_or((0.0, 0.0));
 
             contours.push(CutContour {
                 id: next_id,

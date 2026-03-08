@@ -50,7 +50,9 @@ impl CuttingDag {
         }
 
         for group in part_groups.values() {
-            let exterior = group.iter().find(|c| c.contour_type == ContourType::Exterior);
+            let exterior = group
+                .iter()
+                .find(|c| c.contour_type == ContourType::Exterior);
             let interiors: Vec<&&CutContour> = group
                 .iter()
                 .filter(|c| c.contour_type == ContourType::Interior)
@@ -81,10 +83,7 @@ impl CuttingDag {
                     exteriors[i].centroid,
                 ) {
                     // Part i is inside part j -> all of part i must be cut before part j's exterior
-                    let part_i_key = (
-                        exteriors[i].geometry_id.as_str(),
-                        exteriors[i].instance,
-                    );
+                    let part_i_key = (exteriors[i].geometry_id.as_str(), exteriors[i].instance);
                     if let Some(part_i_contours) = part_groups.get(&part_i_key) {
                         for contour in part_i_contours {
                             precedences.push((contour.id, exteriors[j].id));

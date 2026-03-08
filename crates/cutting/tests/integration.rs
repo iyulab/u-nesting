@@ -3,7 +3,7 @@
 //! Tests the full pipeline: Geometry2D → Nester2D.solve() → optimize_cutting_path().
 
 use u_nesting_core::solver::{Config, Solver};
-use u_nesting_cutting::{CutDirection, CuttingConfig, ContourType};
+use u_nesting_cutting::{ContourType, CutDirection, CuttingConfig};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 
 /// Helper: solve nesting and then optimize cutting path.
@@ -14,7 +14,9 @@ fn solve_and_cut(
     cutting_config: CuttingConfig,
 ) -> u_nesting_cutting::CuttingPathResult {
     let nester = Nester2D::new(nesting_config);
-    let solve_result = nester.solve(geometries, boundary).expect("nesting should succeed");
+    let solve_result = nester
+        .solve(geometries, boundary)
+        .expect("nesting should succeed");
     u_nesting_cutting::optimize_cutting_path(&solve_result, geometries, &cutting_config)
 }
 
@@ -64,21 +66,9 @@ fn test_multiple_rectangles() {
 
 #[test]
 fn test_rectangle_with_hole() {
-    let geometries = vec![
-        Geometry2D::new("PartH")
-            .with_polygon(vec![
-                (0.0, 0.0),
-                (30.0, 0.0),
-                (30.0, 30.0),
-                (0.0, 30.0),
-            ])
-            .with_hole(vec![
-                (10.0, 10.0),
-                (20.0, 10.0),
-                (20.0, 20.0),
-                (10.0, 20.0),
-            ]),
-    ];
+    let geometries = vec![Geometry2D::new("PartH")
+        .with_polygon(vec![(0.0, 0.0), (30.0, 0.0), (30.0, 30.0), (0.0, 30.0)])
+        .with_hole(vec![(10.0, 10.0), (20.0, 10.0), (20.0, 20.0), (10.0, 20.0)])];
     let boundary = Boundary2D::rectangle(100.0, 100.0);
 
     let result = solve_and_cut(
@@ -102,22 +92,10 @@ fn test_rectangle_with_hole() {
 
 #[test]
 fn test_multiple_parts_with_holes() {
-    let geometries = vec![
-        Geometry2D::new("P1")
-            .with_polygon(vec![
-                (0.0, 0.0),
-                (20.0, 0.0),
-                (20.0, 20.0),
-                (0.0, 20.0),
-            ])
-            .with_hole(vec![
-                (5.0, 5.0),
-                (15.0, 5.0),
-                (15.0, 15.0),
-                (5.0, 15.0),
-            ])
-            .with_quantity(2),
-    ];
+    let geometries = vec![Geometry2D::new("P1")
+        .with_polygon(vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)])
+        .with_hole(vec![(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)])
+        .with_quantity(2)];
     let boundary = Boundary2D::rectangle(100.0, 100.0);
 
     let result = solve_and_cut(
@@ -143,12 +121,8 @@ fn test_multiple_parts_with_holes() {
 
     for types in instance_order.values() {
         // Interior should appear before Exterior for each instance
-        let int_pos = types
-            .iter()
-            .position(|t| *t == ContourType::Interior);
-        let ext_pos = types
-            .iter()
-            .position(|t| *t == ContourType::Exterior);
+        let int_pos = types.iter().position(|t| *t == ContourType::Interior);
+        let ext_pos = types.iter().position(|t| *t == ContourType::Exterior);
         if let (Some(ip), Some(ep)) = (int_pos, ext_pos) {
             assert!(ip < ep, "Interior should come before Exterior");
         }
@@ -163,18 +137,9 @@ fn test_cutting_with_kerf_compensation() {
     let config_no_kerf = CuttingConfig::default();
     let config_with_kerf = CuttingConfig::new().with_kerf_width(0.5);
 
-    let result_no_kerf = solve_and_cut(
-        &geometries,
-        &boundary,
-        Config::default(),
-        config_no_kerf,
-    );
-    let result_with_kerf = solve_and_cut(
-        &geometries,
-        &boundary,
-        Config::default(),
-        config_with_kerf,
-    );
+    let result_no_kerf = solve_and_cut(&geometries, &boundary, Config::default(), config_no_kerf);
+    let result_with_kerf =
+        solve_and_cut(&geometries, &boundary, Config::default(), config_with_kerf);
 
     // Kerf compensation should increase the cut distance (larger contour)
     assert!(
@@ -192,12 +157,7 @@ fn test_cutting_with_gtsp() {
 
     let config = CuttingConfig::new().with_pierce_candidates(4);
 
-    let result = solve_and_cut(
-        &geometries,
-        &boundary,
-        Config::default(),
-        config,
-    );
+    let result = solve_and_cut(&geometries, &boundary, Config::default(), config);
 
     assert_eq!(result.total_pierces, 3);
     assert_eq!(result.sequence.len(), 3);
@@ -215,12 +175,7 @@ fn test_cutting_time_estimation() {
         ..CuttingConfig::default()
     };
 
-    let result = solve_and_cut(
-        &geometries,
-        &boundary,
-        Config::default(),
-        config,
-    );
+    let result = solve_and_cut(&geometries, &boundary, Config::default(), config);
 
     assert!(result.estimated_time_seconds.is_some());
     let time = result.estimated_time_seconds.unwrap();
@@ -235,18 +190,8 @@ fn test_home_position_affects_rapid() {
     let config_origin = CuttingConfig::new().with_home_position(0.0, 0.0);
     let config_far = CuttingConfig::new().with_home_position(50.0, 50.0);
 
-    let result_origin = solve_and_cut(
-        &geometries,
-        &boundary,
-        Config::default(),
-        config_origin,
-    );
-    let result_far = solve_and_cut(
-        &geometries,
-        &boundary,
-        Config::default(),
-        config_far,
-    );
+    let result_origin = solve_and_cut(&geometries, &boundary, Config::default(), config_origin);
+    let result_far = solve_and_cut(&geometries, &boundary, Config::default(), config_far);
 
     // Different home positions should give different rapid distances
     // (unless the part happens to be equidistant from both, which is unlikely)
@@ -257,21 +202,9 @@ fn test_home_position_affects_rapid() {
 
 #[test]
 fn test_cut_direction() {
-    let geometries = vec![
-        Geometry2D::new("P1")
-            .with_polygon(vec![
-                (0.0, 0.0),
-                (20.0, 0.0),
-                (20.0, 20.0),
-                (0.0, 20.0),
-            ])
-            .with_hole(vec![
-                (5.0, 5.0),
-                (15.0, 5.0),
-                (15.0, 15.0),
-                (5.0, 15.0),
-            ]),
-    ];
+    let geometries = vec![Geometry2D::new("P1")
+        .with_polygon(vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)])
+        .with_hole(vec![(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)])];
     let boundary = Boundary2D::rectangle(100.0, 100.0);
 
     let result = solve_and_cut(

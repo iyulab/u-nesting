@@ -181,10 +181,7 @@ fn detect_edges_between(
             let t_b_min = t_a0.min(t_a1).max(0.0);
             let t_b_max = t_a0.max(t_a1).min(len_a);
             let t_mid = (t_b_min + t_b_max) / 2.0;
-            let midpoint = (
-                a0.0 + dir_a.0 * t_mid,
-                a0.1 + dir_a.1 * t_mid,
-            );
+            let midpoint = (a0.0 + dir_a.0 * t_mid, a0.1 + dir_a.1 * t_mid);
 
             results.push(CommonEdge {
                 contour_a: ca.id,
@@ -199,11 +196,7 @@ fn detect_edges_between(
 }
 
 /// Computes perpendicular distance from a point to a line defined by point + direction.
-fn perpendicular_distance(
-    line_point: (f64, f64),
-    line_dir: (f64, f64),
-    point: (f64, f64),
-) -> f64 {
+fn perpendicular_distance(line_point: (f64, f64), line_dir: (f64, f64), point: (f64, f64)) -> f64 {
     let dx = point.0 - line_point.0;
     let dy = point.1 - line_point.1;
     // Cross product magnitude gives perpendicular distance
@@ -211,11 +204,7 @@ fn perpendicular_distance(
 }
 
 /// Projects a point onto a line and returns the parameter t.
-fn project_onto_line(
-    line_origin: (f64, f64),
-    line_dir: (f64, f64),
-    point: (f64, f64),
-) -> f64 {
+fn project_onto_line(line_origin: (f64, f64), line_dir: (f64, f64), point: (f64, f64)) -> f64 {
     let dx = point.0 - line_origin.0;
     let dy = point.1 - line_origin.1;
     dx * line_dir.0 + dy * line_dir.1
@@ -255,12 +244,7 @@ mod tests {
             geometry_id: format!("part{}", id),
             instance: 0,
             contour_type: ContourType::Exterior,
-            vertices: vec![
-                (x, y),
-                (x + w, y),
-                (x + w, y + h),
-                (x, y + h),
-            ],
+            vertices: vec![(x, y), (x + w, y), (x + w, y + h), (x, y + h)],
             perimeter: 2.0 * (w + h),
             centroid: (x + w / 2.0, y + h / 2.0),
         }
@@ -314,9 +298,7 @@ mod tests {
 
     #[test]
     fn test_interior_contours_ignored() {
-        let mut contours = vec![
-            make_rect(0, 0.0, 0.0, 10.0, 10.0),
-        ];
+        let mut contours = vec![make_rect(0, 0.0, 0.0, 10.0, 10.0)];
         contours.push(CutContour {
             id: 1,
             geometry_id: "part1".to_string(),
@@ -328,7 +310,10 @@ mod tests {
         });
 
         let result = detect_common_edges(&contours, 0.5, 0.1);
-        assert!(result.common_edges.is_empty(), "Interior contours should not participate");
+        assert!(
+            result.common_edges.is_empty(),
+            "Interior contours should not participate"
+        );
     }
 
     #[test]

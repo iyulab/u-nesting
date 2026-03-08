@@ -332,8 +332,16 @@ mod tests {
 
         let result = optimize_sequence(&contours, &dag, &config);
         // Interior (id=1) must come before Exterior (id=0)
-        let pos_interior = result.order.iter().position(|&id| id == 1).expect("interior should be in order");
-        let pos_exterior = result.order.iter().position(|&id| id == 0).expect("exterior should be in order");
+        let pos_interior = result
+            .order
+            .iter()
+            .position(|&id| id == 1)
+            .expect("interior should be in order");
+        let pos_exterior = result
+            .order
+            .iter()
+            .position(|&id| id == 0)
+            .expect("exterior should be in order");
         assert!(pos_interior < pos_exterior);
     }
 
@@ -397,12 +405,8 @@ mod tests {
             total_common_length: 10.0,
         };
 
-        let result_with = optimize_sequence_with_adjacency(
-            &contours,
-            &dag,
-            &config,
-            Some(&common_edges),
-        );
+        let result_with =
+            optimize_sequence_with_adjacency(&contours, &dag, &config, Some(&common_edges));
         let result_without = optimize_sequence(&contours, &dag, &config);
 
         // Both should produce valid sequences
@@ -429,12 +433,7 @@ mod tests {
         let dag = CuttingDag::build(&contours);
         let config = CuttingConfig::default();
 
-        let result_with = optimize_sequence_with_adjacency(
-            &contours,
-            &dag,
-            &config,
-            None,
-        );
+        let result_with = optimize_sequence_with_adjacency(&contours, &dag, &config, None);
         let result_without = optimize_sequence(&contours, &dag, &config);
 
         assert_eq!(result_with.order, result_without.order);

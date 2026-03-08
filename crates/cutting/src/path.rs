@@ -83,11 +83,8 @@ where
     }
 
     // Step 2: Detect common edges (used for sequence adjacency bonus)
-    let common_edges = common_edge::detect_common_edges(
-        &contours,
-        config.kerf_width + config.tolerance,
-        0.1,
-    );
+    let common_edges =
+        common_edge::detect_common_edges(&contours, config.kerf_width + config.tolerance, 0.1);
 
     // Step 3: Build precedence DAG
     let dag = CuttingDag::build(&contours);
@@ -131,7 +128,8 @@ where
         }
     } else {
         // Legacy path: NN + 2-opt with single pierce selection + adjacency bonus
-        let seq_result = optimize_sequence_with_adjacency(&contours, &dag, config, Some(&common_edges));
+        let seq_result =
+            optimize_sequence_with_adjacency(&contours, &dag, config, Some(&common_edges));
 
         for (i, &contour_id) in seq_result.order.iter().enumerate() {
             let contour = match contours.iter().find(|c| c.id == contour_id) {

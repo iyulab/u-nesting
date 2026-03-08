@@ -1624,7 +1624,11 @@ mod tests {
         let cutting_json = serde_json::to_string(&cutting_request).unwrap();
         let response = optimize_cutting_path_internal(&cutting_json);
 
-        assert!(response.success, "Cutting should succeed: {:?}", response.error);
+        assert!(
+            response.success,
+            "Cutting should succeed: {:?}",
+            response.error
+        );
         assert_eq!(response.sequence.len(), 2, "Should have 2 cut steps");
         assert_eq!(response.total_pierces, 2);
         assert!(response.total_cut_distance > 0.0);
@@ -1634,12 +1638,14 @@ mod tests {
     #[test]
     fn test_cutting_path_ffi() {
         // Step 1: Solve nesting
-        let solve_response = solve_2d_internal(r#"{
+        let solve_response = solve_2d_internal(
+            r#"{
             "geometries": [
                 {"id": "rect1", "polygon": [[0,0], [10,0], [10,5], [0,5]], "quantity": 1}
             ],
             "boundary": {"width": 50, "height": 50}
-        }"#);
+        }"#,
+        );
 
         let cutting_request = CuttingRequest {
             geometries: vec![Geometry2DRequest {
@@ -1710,7 +1716,8 @@ mod tests {
     #[test]
     fn test_cutting_path_with_holes() {
         // Nesting request with holes
-        let solve_response = solve_2d_internal(r#"{
+        let solve_response = solve_2d_internal(
+            r#"{
             "geometries": [
                 {
                     "id": "part_with_hole",
@@ -1720,13 +1727,19 @@ mod tests {
                 }
             ],
             "boundary": {"width": 50, "height": 50}
-        }"#);
+        }"#,
+        );
 
         let cutting_request = CuttingRequest {
             geometries: vec![Geometry2DRequest {
                 id: "part_with_hole".to_string(),
                 polygon: vec![[0.0, 0.0], [20.0, 0.0], [20.0, 20.0], [0.0, 20.0]],
-                holes: Some(vec![vec![[5.0, 5.0], [15.0, 5.0], [15.0, 15.0], [5.0, 15.0]]]),
+                holes: Some(vec![vec![
+                    [5.0, 5.0],
+                    [15.0, 5.0],
+                    [15.0, 15.0],
+                    [5.0, 15.0],
+                ]]),
                 quantity: 1,
                 rotations: None,
                 allow_flip: false,

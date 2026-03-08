@@ -133,7 +133,12 @@ pub fn place_bridges(contour: &CutContour, config: &BridgeConfig) -> BridgePlace
         let target_dist = target_dist % perimeter;
 
         // Check corner clearance
-        if !is_clear_of_corners(target_dist, half_width, &cumulative, config.corner_clearance) {
+        if !is_clear_of_corners(
+            target_dist,
+            half_width,
+            &cumulative,
+            config.corner_clearance,
+        ) {
             // Try to shift the bridge position to find a valid spot
             if let Some(adjusted) = find_valid_position(
                 target_dist,
@@ -143,7 +148,12 @@ pub fn place_bridges(contour: &CutContour, config: &BridgeConfig) -> BridgePlace
                 perimeter,
             ) {
                 if let Some(bridge) = create_bridge(
-                    adjusted, half_width, vertices, &cumulative, &edge_lengths, perimeter,
+                    adjusted,
+                    half_width,
+                    vertices,
+                    &cumulative,
+                    &edge_lengths,
+                    perimeter,
                 ) {
                     bridges.push(bridge);
                 }
@@ -152,7 +162,12 @@ pub fn place_bridges(contour: &CutContour, config: &BridgeConfig) -> BridgePlace
         }
 
         if let Some(bridge) = create_bridge(
-            target_dist, half_width, vertices, &cumulative, &edge_lengths, perimeter,
+            target_dist,
+            half_width,
+            vertices,
+            &cumulative,
+            &edge_lengths,
+            perimeter,
         ) {
             bridges.push(bridge);
         }
@@ -391,7 +406,11 @@ mod tests {
             // Midpoint should be on the contour boundary
             let (mx, my) = bridge.midpoint;
             let on_boundary = (-0.1..=100.1).contains(&mx) && (-0.1..=50.1).contains(&my);
-            assert!(on_boundary, "Bridge midpoint ({}, {}) should be on contour boundary", mx, my);
+            assert!(
+                on_boundary,
+                "Bridge midpoint ({}, {}) should be on contour boundary",
+                mx, my
+            );
         }
     }
 
@@ -436,7 +455,10 @@ mod tests {
             ..BridgeConfig::default()
         };
         let result = place_bridges(&contour, &config);
-        assert!(result.bridges.is_empty(), "Too-small contour should get no bridges");
+        assert!(
+            result.bridges.is_empty(),
+            "Too-small contour should get no bridges"
+        );
     }
 
     #[test]

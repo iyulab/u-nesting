@@ -212,17 +212,14 @@ fn generate_arc_lead_in(
     segments: usize,
 ) -> Vec<(f64, f64)> {
     let segments = segments.max(2);
-    let center = (
-        pierce.0 + outward.0 * radius,
-        pierce.1 + outward.1 * radius,
-    );
+    let center = (pierce.0 + outward.0 * radius, pierce.1 + outward.1 * radius);
 
     // Arc from 180 degrees (opposite of outward) to pierce point (0 degrees relative)
     // In the local frame where outward = (1, 0), pierce is at angle = PI
     let start_angle = std::f64::consts::PI;
     let end_angle = 0.0_f64; // NOT 2*PI, but 0.0 to go from start to pierce point
     let angle_span = end_angle - start_angle; // -PI = clockwise quarter circle
-    // Actually we want a half-circle from start to pierce
+                                              // Actually we want a half-circle from start to pierce
 
     let mut points = Vec::with_capacity(segments + 1);
     for i in 0..=segments {
@@ -278,18 +275,17 @@ mod tests {
             geometry_id: format!("part{}", id),
             instance: 0,
             contour_type: ct,
-            vertices: vec![
-                (-half, -half),
-                (half, -half),
-                (half, half),
-                (-half, half),
-            ],
+            vertices: vec![(-half, -half), (half, -half), (half, half), (-half, half)],
             perimeter: 4.0 * size,
             centroid: (0.0, 0.0),
         }
     }
 
-    fn make_pierce(point: (f64, f64), vertex_index: usize, direction: CutDirection) -> PierceSelection {
+    fn make_pierce(
+        point: (f64, f64),
+        vertex_index: usize,
+        direction: CutDirection,
+    ) -> PierceSelection {
         PierceSelection {
             point,
             vertex_index,
@@ -302,7 +298,10 @@ mod tests {
     fn test_no_lead_in() {
         let contour = make_square_contour(0, 10.0, ContourType::Exterior);
         let pierce = make_pierce((-5.0, -5.0), 0, CutDirection::Ccw);
-        let config = LeadInConfig { lead_in_type: LeadInType::None, ..Default::default() };
+        let config = LeadInConfig {
+            lead_in_type: LeadInType::None,
+            ..Default::default()
+        };
 
         let result = generate_lead_in_out(&contour, &pierce, &config);
         assert!(result.lead_in.is_empty());
@@ -332,7 +331,11 @@ mod tests {
         // Start point should be further away from the contour
         let start = result.lead_in[0];
         let dist_start = ((start.0 - (-5.0)).powi(2) + (start.1 - (-5.0)).powi(2)).sqrt();
-        assert!(dist_start > 2.0, "Lead-in start should be offset from pierce: dist={}", dist_start);
+        assert!(
+            dist_start > 2.0,
+            "Lead-in start should be offset from pierce: dist={}",
+            dist_start
+        );
     }
 
     #[test]
@@ -396,7 +399,11 @@ mod tests {
         // outward (into waste) should be to the left (toward center)
         let start = result.lead_in[0];
         // Start should be to the left of the pierce (toward interior)
-        assert!(start.0 < 5.0, "Interior lead-in start should be inside hole: x={}", start.0);
+        assert!(
+            start.0 < 5.0,
+            "Interior lead-in start should be inside hole: x={}",
+            start.0
+        );
     }
 
     #[test]

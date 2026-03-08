@@ -108,8 +108,12 @@ pub fn thermal_penalty(
             let dist_sq = point_distance_sq(pierce_points[i], pierce_points[j]);
             let elapsed = cut_times[i] - cut_times[j];
 
-            accumulated_heat +=
-                heat_contribution(dist_sq, elapsed, config.haz_radius, config.cooling_time_constant);
+            accumulated_heat += heat_contribution(
+                dist_sq,
+                elapsed,
+                config.haz_radius,
+                config.cooling_time_constant,
+            );
         }
 
         if accumulated_heat > config.critical_heat {
@@ -218,11 +222,7 @@ mod tests {
     #[test]
     fn test_disabled_returns_zero() {
         let config = ThermalConfig::default(); // enabled = false
-        let penalty = thermal_penalty(
-            &[(0.0, 0.0), (1.0, 0.0)],
-            &[0.0, 0.1],
-            &config,
-        );
+        let penalty = thermal_penalty(&[(0.0, 0.0), (1.0, 0.0)], &[0.0, 0.1], &config);
         assert_eq!(penalty, 0.0);
     }
 
@@ -240,7 +240,10 @@ mod tests {
         let times = vec![0.0, 10.0];
 
         let penalty = thermal_penalty(&points, &times, &config);
-        assert!(penalty < 1e-10, "Distant cuts should have no thermal penalty");
+        assert!(
+            penalty < 1e-10,
+            "Distant cuts should have no thermal penalty"
+        );
     }
 
     #[test]
@@ -299,20 +302,15 @@ mod tests {
         };
 
         // Fast cuts (little cooling)
-        let fast_penalty = thermal_penalty(
-            &[(0.0, 0.0), (2.0, 0.0)],
-            &[0.0, 0.01],
-            &config,
-        );
+        let fast_penalty = thermal_penalty(&[(0.0, 0.0), (2.0, 0.0)], &[0.0, 0.01], &config);
 
         // Slow cuts (lots of cooling)
-        let slow_penalty = thermal_penalty(
-            &[(0.0, 0.0), (2.0, 0.0)],
-            &[0.0, 60.0],
-            &config,
-        );
+        let slow_penalty = thermal_penalty(&[(0.0, 0.0), (2.0, 0.0)], &[0.0, 60.0], &config);
 
-        assert!(fast_penalty > slow_penalty, "Fast cuts should have more penalty than slow");
+        assert!(
+            fast_penalty > slow_penalty,
+            "Fast cuts should have more penalty than slow"
+        );
     }
 
     #[test]
@@ -327,7 +325,10 @@ mod tests {
 
     #[test]
     fn test_empty_sequence() {
-        let config = ThermalConfig { enabled: true, ..ThermalConfig::default() };
+        let config = ThermalConfig {
+            enabled: true,
+            ..ThermalConfig::default()
+        };
         let penalty = thermal_penalty(&[], &[], &config);
         assert_eq!(penalty, 0.0);
 

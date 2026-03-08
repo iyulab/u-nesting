@@ -40,15 +40,15 @@ pub enum KerfResult {
 /// `KerfResult::Collapsed` rather than silently dropped.
 ///
 /// Returns an empty vec if `config.kerf_width` is zero or negative.
-pub fn apply_kerf_compensation(
-    contours: &[CutContour],
-    config: &CuttingConfig,
-) -> Vec<KerfResult> {
+pub fn apply_kerf_compensation(contours: &[CutContour], config: &CuttingConfig) -> Vec<KerfResult> {
     let half_kerf = config.kerf_width / 2.0;
 
     if half_kerf <= 0.0 {
         // No compensation needed — return contours as-is
-        return contours.iter().map(|c| KerfResult::Compensated(c.clone())).collect();
+        return contours
+            .iter()
+            .map(|c| KerfResult::Compensated(c.clone()))
+            .collect();
     }
 
     contours
@@ -64,10 +64,8 @@ fn compensate_contour(contour: &CutContour, half_kerf: f64) -> KerfResult {
         ContourType::Interior => -half_kerf, // Inward shrinkage
     };
 
-    let offset_results = u_nesting_core::geom::offset::offset_polygon(
-        &contour.vertices,
-        offset_distance,
-    );
+    let offset_results =
+        u_nesting_core::geom::offset::offset_polygon(&contour.vertices, offset_distance);
 
     if offset_results.is_empty() {
         return KerfResult::Collapsed {
@@ -88,8 +86,7 @@ fn compensate_contour(contour: &CutContour, half_kerf: f64) -> KerfResult {
         .expect("offset_results is non-empty after is_empty check");
 
     let new_perimeter = u_nesting_core::geom::polygon::perimeter(&best);
-    let new_centroid = u_nesting_core::geom::polygon::centroid(&best)
-        .unwrap_or(contour.centroid);
+    let new_centroid = u_nesting_core::geom::polygon::centroid(&best).unwrap_or(contour.centroid);
 
     KerfResult::Compensated(CutContour {
         id: contour.id,
@@ -111,7 +108,11 @@ pub fn filter_compensated(results: Vec<KerfResult>) -> Vec<CutContour> {
         .filter_map(|r| match r {
             KerfResult::Compensated(c) => Some(c),
             KerfResult::Collapsed { contour_id, reason } => {
-                log::warn!("Kerf compensation: contour {} collapsed — {}", contour_id, reason);
+                log::warn!(
+                    "Kerf compensation: contour {} collapsed — {}",
+                    contour_id,
+                    reason
+                );
                 None
             }
         })
@@ -129,12 +130,7 @@ mod tests {
             geometry_id: format!("part{}", id),
             instance: 0,
             contour_type: ct,
-            vertices: vec![
-                (-half, -half),
-                (half, -half),
-                (half, half),
-                (-half, half),
-            ],
+            vertices: vec![(-half, -half), (half, -half), (half, half), (-half, half)],
             perimeter: 4.0 * size,
             centroid: (0.0, 0.0),
         }
@@ -168,12 +164,14 @@ mod tests {
             // Exterior should be expanded: area should increase
             let original_area = u_nesting_core::geom::polygon::signed_area(
                 &make_square(0, 10.0, ContourType::Exterior).vertices,
-            ).abs();
+            )
+            .abs();
             let new_area = u_nesting_core::geom::polygon::signed_area(&c.vertices).abs();
             assert!(
                 new_area > original_area,
                 "Exterior kerf should expand: new_area={} > original_area={}",
-                new_area, original_area
+                new_area,
+                original_area
             );
         } else {
             panic!("expected Compensated");
@@ -192,12 +190,14 @@ mod tests {
             // Interior should shrink: area should decrease
             let original_area = u_nesting_core::geom::polygon::signed_area(
                 &make_square(0, 10.0, ContourType::Interior).vertices,
-            ).abs();
+            )
+            .abs();
             let new_area = u_nesting_core::geom::polygon::signed_area(&c.vertices).abs();
             assert!(
                 new_area < original_area,
                 "Interior kerf should shrink: new_area={} < original_area={}",
-                new_area, original_area
+                new_area,
+                original_area
             );
         } else {
             panic!("expected Compensated");
@@ -269,7 +269,11 @@ mod tests {
         let results = apply_kerf_compensation(&contours, &config);
         if let KerfResult::Compensated(c) = &results[0] {
             // Expanded square perimeter should be larger
-            assert!(c.perimeter > 40.0, "Perimeter should increase: {}", c.perimeter);
+            assert!(
+                c.perimeter > 40.0,
+                "Perimeter should increase: {}",
+                c.perimeter
+            );
         } else {
             panic!("expected Compensated");
         }
