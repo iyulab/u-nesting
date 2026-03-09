@@ -1,0 +1,64 @@
+name: Publish to npm
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'crates/wasm/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  publish:
+    name: Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Checkout path dependencies
+        shell: bash
+        run: |
+          mkdir -p ../../foundation ../../algorithms
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: jetli/wasm-pack-action@v0.4.0
+
+      - name: Build WASM package
+        run: wasm-pack build crates/wasm --target bundler --scope iyulab
+
+      - name: Prepare npm package
+        run: |
+          cd crates/wasm/pkg
+          # Rename package from @iyulab/u-nesting-wasm to @iyulab/u-nesting
+          sed -i 's/"@iyulab\/u-nesting-wasm"/"@iyulab\/u-nesting"/' package.json
+          # Copy README
+          cp ../../../npm/README.md . 2>/dev/null || cp ../../../README.md .
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        run: |
+          cd crates/wasm/pkg
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PKG_VER=$(node -p "require('./package.json').version")
+          if npm view "${PKG_NAME}@${PKG_VER}" version 2>/dev/null; then
+            echo "Version ${PKG_VER} already published, skipping"
+          else
+            npm publish --access public
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
