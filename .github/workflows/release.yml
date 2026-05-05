@@ -63,6 +63,8 @@ jobs:
           sleep 30
           cargo publish -p u-nesting-d3 --allow-dirty || true
           sleep 30
+          cargo publish -p u-nesting-cutting --allow-dirty || true
+          sleep 30
           cargo publish -p u-nesting --allow-dirty || true
           sleep 30
           cargo publish -p u-nesting-ffi --allow-dirty || true
