@@ -50,6 +50,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Clone path dependencies
+        run: |
+          BASE=$(dirname $(dirname $GITHUB_WORKSPACE))
+          mkdir -p $BASE/algorithms $BASE/foundation
+          git clone --depth 1 https://github.com/iyulab/u-geometry $BASE/algorithms/u-geometry
+          git clone --depth 1 https://github.com/iyulab/u-metaheur $BASE/algorithms/u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-numflow $BASE/foundation/u-numflow
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
