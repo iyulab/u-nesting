@@ -354,10 +354,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
                 success: false,
                 error: Some(format!("Invalid JSON: {}", e)),
                 placements: Vec::new(),
-                boundaries_used: 0,
+                sheets_used: 0,
                 utilization: 0.0,
                 unplaced: Vec::new(),
-                computation_time_ms: 0,
+                elapsed_ms: 0,
             };
         }
     };
@@ -402,10 +402,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             success: false,
             error: Some("Invalid boundary: specify width/height or polygon".into()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         };
     };
 
@@ -420,20 +420,20 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             success: true,
             error: None,
             placements: result.placements.into_iter().map(Into::into).collect(),
-            boundaries_used: result.boundaries_used,
+            sheets_used: result.boundaries_used,
             utilization: result.utilization,
             unplaced: result.unplaced,
-            computation_time_ms: result.computation_time_ms,
+            elapsed_ms: result.computation_time_ms,
         },
         Err(e) => SolveResponse {
             version: API_VERSION.to_string(),
             success: false,
             error: Some(e.to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         },
     }
 }
@@ -447,10 +447,10 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
                 success: false,
                 error: Some(format!("Invalid JSON: {}", e)),
                 placements: Vec::new(),
-                boundaries_used: 0,
+                sheets_used: 0,
                 utilization: 0.0,
                 unplaced: Vec::new(),
-                computation_time_ms: 0,
+                elapsed_ms: 0,
             };
         }
     };
@@ -497,20 +497,20 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
             success: true,
             error: None,
             placements: result.placements.into_iter().map(Into::into).collect(),
-            boundaries_used: result.boundaries_used,
+            sheets_used: result.boundaries_used,
             utilization: result.utilization,
             unplaced: result.unplaced,
-            computation_time_ms: result.computation_time_ms,
+            elapsed_ms: result.computation_time_ms,
         },
         Err(e) => SolveResponse {
             version: API_VERSION.to_string(),
             success: false,
             error: Some(e.to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         },
     }
 }
@@ -567,10 +567,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
                 success: false,
                 error: Some(format!("Invalid JSON: {}", e)),
                 placements: Vec::new(),
-                boundaries_used: 0,
+                sheets_used: 0,
                 utilization: 0.0,
                 unplaced: Vec::new(),
-                computation_time_ms: 0,
+                elapsed_ms: 0,
             };
         }
     };
@@ -594,10 +594,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             success: false,
             error: Some("Cancelled by user".to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         };
     }
 
@@ -641,10 +641,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             success: false,
             error: Some("Invalid boundary: specify width/height or polygon".into()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         };
     };
 
@@ -666,10 +666,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             success: false,
             error: Some("Cancelled by user".to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         };
     }
 
@@ -699,10 +699,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
                 success: true,
                 error: None,
                 placements: result.placements.into_iter().map(Into::into).collect(),
-                boundaries_used: result.boundaries_used,
+                sheets_used: result.boundaries_used,
                 utilization: result.utilization,
                 unplaced: result.unplaced,
-                computation_time_ms: result.computation_time_ms,
+                elapsed_ms: result.computation_time_ms,
             }
         }
         Err(e) => SolveResponse {
@@ -710,10 +710,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             success: false,
             error: Some(e.to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         },
     }
 }
@@ -727,10 +727,10 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
                 success: false,
                 error: Some(format!("Invalid JSON: {}", e)),
                 placements: Vec::new(),
-                boundaries_used: 0,
+                sheets_used: 0,
                 utilization: 0.0,
                 unplaced: Vec::new(),
-                computation_time_ms: 0,
+                elapsed_ms: 0,
             };
         }
     };
@@ -754,10 +754,10 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             success: false,
             error: Some("Cancelled by user".to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         };
     }
 
@@ -810,10 +810,10 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             success: false,
             error: Some("Cancelled by user".to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         };
     }
 
@@ -843,10 +843,10 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
                 success: true,
                 error: None,
                 placements: result.placements.into_iter().map(Into::into).collect(),
-                boundaries_used: result.boundaries_used,
+                sheets_used: result.boundaries_used,
                 utilization: result.utilization,
                 unplaced: result.unplaced,
-                computation_time_ms: result.computation_time_ms,
+                elapsed_ms: result.computation_time_ms,
             }
         }
         Err(e) => SolveResponse {
@@ -854,10 +854,10 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             success: false,
             error: Some(e.to_string()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         },
     }
 }
@@ -969,14 +969,14 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
         solve_result.placements.push(u_nesting_core::Placement {
             geometry_id: p.geometry_id.clone(),
             instance: p.instance,
-            position: p.position.clone(),
-            rotation: p.rotation.clone(),
-            boundary_index: p.boundary_index,
-            mirrored: false,
+            position: vec![p.x, p.y],
+            rotation: vec![p.rotation.to_radians()],
+            boundary_index: p.sheet_index,
+            mirrored: p.flipped,
             rotation_index: None,
         });
     }
-    solve_result.boundaries_used = request.solve_result.boundaries_used;
+    solve_result.boundaries_used = request.solve_result.sheets_used;
     solve_result.utilization = request.solve_result.utilization;
 
     // Build cutting config
@@ -1107,6 +1107,20 @@ mod tests {
             assert!(response.success);
             assert_eq!(response.placements.len(), 2);
             assert!(response.utilization > 0.0);
+
+            // Verify JSON schema: scalar fields, not arrays
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+            let p = &json["placements"][0];
+            assert!(p["id"].is_string(), "placement.id should be a string");
+            assert!(p["x"].is_number(), "placement.x should be a scalar number");
+            assert!(p["y"].is_number(), "placement.y should be a scalar number");
+            assert!(p["rotation"].is_number(), "placement.rotation should be a scalar number");
+            assert!(p["sheet_index"].is_number(), "placement.sheet_index should exist");
+            assert!(p["flipped"].is_boolean(), "placement.flipped should be a boolean");
+            assert!(p["position"].is_null() || !p.as_object().unwrap().contains_key("position"),
+                "placement.position array field must not exist");
+            assert!(json["sheets_used"].is_number(), "sheets_used should exist at top level");
+            assert!(json["elapsed_ms"].is_number(), "elapsed_ms should exist at top level");
 
             unesting_free_string(result_ptr);
         }

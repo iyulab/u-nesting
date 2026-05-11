@@ -181,8 +181,8 @@ pub struct SolveResponse {
     #[serde(default)]
     pub placements: Vec<PlacementResponse>,
 
-    /// Number of boundaries used.
-    pub boundaries_used: usize,
+    /// Number of sheets/bins used.
+    pub sheets_used: usize,
 
     /// Utilization ratio.
     pub utilization: f64,
@@ -192,26 +192,33 @@ pub struct SolveResponse {
     pub unplaced: Vec<String>,
 
     /// Computation time in milliseconds.
-    pub computation_time_ms: u64,
+    pub elapsed_ms: u64,
 }
 
 /// Placement response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlacementResponse {
     /// Geometry ID.
+    #[serde(rename = "id")]
     pub geometry_id: String,
 
-    /// Instance index.
+    /// Instance index (0-based) when multiple copies of the same geometry are placed.
     pub instance: usize,
 
-    /// Position [x, y] or [x, y, z].
-    pub position: Vec<f64>,
+    /// X position.
+    pub x: f64,
 
-    /// Rotation angle(s).
-    pub rotation: Vec<f64>,
+    /// Y position.
+    pub y: f64,
 
-    /// Boundary index.
-    pub boundary_index: usize,
+    /// Rotation angle in degrees.
+    pub rotation: f64,
+
+    /// Sheet/bin index (0-based).
+    pub sheet_index: usize,
+
+    /// Whether the geometry was flipped/mirrored.
+    pub flipped: bool,
 }
 
 fn default_quantity() -> usize {
@@ -223,9 +230,11 @@ impl From<crate::Placement<f64>> for PlacementResponse {
         Self {
             geometry_id: p.geometry_id,
             instance: p.instance,
-            position: p.position,
-            rotation: p.rotation,
-            boundary_index: p.boundary_index,
+            x: p.position.first().copied().unwrap_or(0.0),
+            y: p.position.get(1).copied().unwrap_or(0.0),
+            rotation: p.rotation.first().copied().unwrap_or(0.0).to_degrees(),
+            sheet_index: p.boundary_index,
+            flipped: p.mirrored,
         }
     }
 }
@@ -237,10 +246,10 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
             success: true,
             error: None,
             placements: Vec::new(), // Converted separately due to type constraints
-            boundaries_used: r.boundaries_used,
+            sheets_used: r.boundaries_used,
             utilization: r.utilization,
             unplaced: r.unplaced,
-            computation_time_ms: r.computation_time_ms,
+            elapsed_ms: r.computation_time_ms,
         }
     }
 }
@@ -369,10 +378,10 @@ impl SolveResponse {
             success: false,
             error: Some(msg.into()),
             placements: Vec::new(),
-            boundaries_used: 0,
+            sheets_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
-            computation_time_ms: 0,
+            elapsed_ms: 0,
         }
     }
 }

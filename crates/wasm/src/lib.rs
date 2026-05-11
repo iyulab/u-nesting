@@ -155,10 +155,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             success: true,
             error: None,
             placements: result.placements.into_iter().map(Into::into).collect(),
-            boundaries_used: result.boundaries_used,
+            sheets_used: result.boundaries_used,
             utilization: result.utilization,
             unplaced: result.unplaced,
-            computation_time_ms: result.computation_time_ms,
+            elapsed_ms: result.computation_time_ms,
         },
         Err(e) => SolveResponse::error(e.to_string()),
     }
@@ -225,10 +225,10 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
             success: true,
             error: None,
             placements: result.placements.into_iter().map(Into::into).collect(),
-            boundaries_used: result.boundaries_used,
+            sheets_used: result.boundaries_used,
             utilization: result.utilization,
             unplaced: result.unplaced,
-            computation_time_ms: result.computation_time_ms,
+            elapsed_ms: result.computation_time_ms,
         },
         Err(e) => SolveResponse::error(e.to_string()),
     }
@@ -274,14 +274,14 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
         solve_result.placements.push(u_nesting_core::Placement {
             geometry_id: p.geometry_id.clone(),
             instance: p.instance,
-            position: p.position.clone(),
-            rotation: p.rotation.clone(),
-            boundary_index: p.boundary_index,
-            mirrored: false,
+            position: vec![p.x, p.y],
+            rotation: vec![p.rotation.to_radians()],
+            boundary_index: p.sheet_index,
+            mirrored: p.flipped,
             rotation_index: None,
         });
     }
-    solve_result.boundaries_used = request.solve_result.boundaries_used;
+    solve_result.boundaries_used = request.solve_result.sheets_used;
     solve_result.utilization = request.solve_result.utilization;
 
     // Build cutting config
