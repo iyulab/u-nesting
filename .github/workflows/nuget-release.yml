@@ -17,6 +17,7 @@ env:
   CARGO_TERM_COLOR: always
   CSPROJ_PATH: bindings/csharp/UNesting/UNesting.csproj
   PACKAGE_NAME: UNesting
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   # ── Check if version changed ──
@@ -108,6 +109,7 @@ jobs:
           name: native-${{ matrix.rid }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
           if-no-files-found: error
+          retention-days: 1
 
   # ── Pack & Publish NuGet ──
   pack-and-publish:
@@ -168,6 +170,7 @@ jobs:
         with:
           name: nuget-package
           path: ./nupkg/*.nupkg
+          retention-days: 7
 
       - name: Publish to NuGet.org
         if: github.event_name == 'push' || inputs.publish != false
