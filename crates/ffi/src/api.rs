@@ -1114,13 +1114,30 @@ mod tests {
             assert!(p["id"].is_string(), "placement.id should be a string");
             assert!(p["x"].is_number(), "placement.x should be a scalar number");
             assert!(p["y"].is_number(), "placement.y should be a scalar number");
-            assert!(p["rotation"].is_number(), "placement.rotation should be a scalar number");
-            assert!(p["sheet_index"].is_number(), "placement.sheet_index should exist");
-            assert!(p["flipped"].is_boolean(), "placement.flipped should be a boolean");
-            assert!(p["position"].is_null() || !p.as_object().unwrap().contains_key("position"),
-                "placement.position array field must not exist");
-            assert!(json["sheets_used"].is_number(), "sheets_used should exist at top level");
-            assert!(json["elapsed_ms"].is_number(), "elapsed_ms should exist at top level");
+            assert!(
+                p["rotation"].is_number(),
+                "placement.rotation should be a scalar number"
+            );
+            assert!(
+                p["sheet_index"].is_number(),
+                "placement.sheet_index should exist"
+            );
+            assert!(
+                p["flipped"].is_boolean(),
+                "placement.flipped should be a boolean"
+            );
+            assert!(
+                p["position"].is_null() || !p.as_object().unwrap().contains_key("position"),
+                "placement.position array field must not exist"
+            );
+            assert!(
+                json["sheets_used"].is_number(),
+                "sheets_used should exist at top level"
+            );
+            assert!(
+                json["elapsed_ms"].is_number(),
+                "elapsed_ms should exist at top level"
+            );
 
             unesting_free_string(result_ptr);
         }
