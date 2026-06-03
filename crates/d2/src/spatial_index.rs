@@ -106,7 +106,7 @@ impl SpatialIndex2D {
     pub fn query_aabb(&self, min: [f64; 2], max: [f64; 2]) -> Vec<&SpatialEntry2D> {
         let envelope = AABB::from_corners(min, max);
         self.tree
-            .locate_in_envelope_intersecting(&envelope)
+            .locate_in_envelope_intersecting(envelope)
             .collect()
     }
 
