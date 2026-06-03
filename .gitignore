@@ -63,3 +63,5 @@ claudedocs/
 dev/
 .playwright-mcp/
 /bindings/csharp/TestApp/
+bindings/csharp/**/bin/
+bindings/csharp/**/obj/
