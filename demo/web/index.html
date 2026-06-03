@@ -31,14 +31,12 @@
           <select id="preset2d"></select>
         </label>
         <label>전략
+          <!-- sa/gdrr/alns 는 현재 WASM 빌드에서 panic(unreachable) — 라이브러리 수정 후 복원. claudedocs/issues 참조 -->
           <select id="strategy2d">
             <option value="blf">BLF (빠름)</option>
             <option value="nfp">NFP</option>
             <option value="ga">GA</option>
             <option value="brkga">BRKGA</option>
-            <option value="sa">SA</option>
-            <option value="gdrr">GDRR</option>
-            <option value="alns">ALNS</option>
           </select>
         </label>
         <label>시간제한(ms)
@@ -56,12 +54,9 @@
           <select id="preset3d"></select>
         </label>
         <label>전략
+          <!-- ep/ga/brkga 는 out-of-bounds 배치, sa 는 WASM panic — 현재 blf 만 검증됨. claudedocs/issues 참조 -->
           <select id="strategy3d">
-            <option value="blf">BLF (빠름)</option>
-            <option value="ep">Extreme Point</option>
-            <option value="ga">GA</option>
-            <option value="brkga">BRKGA</option>
-            <option value="sa">SA</option>
+            <option value="blf">BLF</option>
           </select>
         </label>
         <label>시간제한(ms)
