@@ -25,4 +25,4 @@ libc.workspace = true
 log.workspace = true
 
 [build-dependencies]
-cbindgen = "0.27"
+cbindgen = "0.29"
