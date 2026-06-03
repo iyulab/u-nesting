@@ -1860,4 +1860,42 @@ mod tests {
             unesting_free_string(result_ptr);
         }
     }
+
+    #[test]
+    fn schema_guard_3d_z_value_actually_flows() {
+        // The original 3D bug was *dropped data* (z hardcoded to 0), not a missing
+        // field. A type/presence assertion passes even when z == 0.0 for boxes on
+        // the floor — so it would sleep through the regression it exists to catch.
+        // Force a second layer (two 10^3 boxes in a 10x10x20 bin → the second
+        // stacks at z=10) and assert at least one placement carries z > 0. This is
+        // the proof that `position[2]` flows through build_pack3d_response, not the
+        // mere presence of the field. BLF is deterministic, so no flake.
+        let request = r#"{
+            "geometries": [
+                {"id": "box1", "dimensions": [10, 10, 10], "quantity": 2}
+            ],
+            "boundary": {"dimensions": [10, 10, 20]}
+        }"#;
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            let code = unesting_solve_3d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            let placements = json["placements"].as_array().expect("placements array");
+            assert_eq!(placements.len(), 2, "both boxes should be placed (stacked)");
+            let max_z = placements
+                .iter()
+                .map(|p| p["z"].as_f64().expect("z is a number"))
+                .fold(f64::MIN, f64::max);
+            assert!(
+                max_z > 0.0,
+                "z must carry real depth, not a hardcoded 0 — got max z = {max_z}"
+            );
+
+            unesting_free_string(result_ptr);
+        }
+    }
 }
