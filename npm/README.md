@@ -167,22 +167,49 @@ interface Request2D {
 
 ## Response Schema
 
+### `solve_2d` Response
+
 ```typescript
 interface SolveResponse {
   version: string;
   success: boolean;
   error?: string;
   placements: {
-    geometry_id: string;
-    instance: number;
-    position: { x: number; y: number; z?: number };
-    rotation: { angle?: number; rx?: number; ry?: number; rz?: number };
-    boundary_index: number;
+    id: string;            // geometry id
+    instance: number;      // 0-based copy index
+    x: number;
+    y: number;
+    rotation: number;      // degrees
+    sheet_index: number;   // 0-based sheet/bin index
+    flipped: boolean;      // mirrored
   }[];
-  boundaries_used: number;
+  sheets_used: number;
   utilization: number;
   unplaced: string[];
-  computation_time_ms: number;
+  elapsed_ms: number;
+}
+```
+
+### `solve_3d` Response
+
+```typescript
+interface Pack3DResponse {
+  version: string;
+  success: boolean;
+  error?: string;
+  placements: {
+    id: string;            // geometry id
+    instance: number;      // 0-based copy index
+    bin_index: number;     // 0-based bin index
+    x: number;
+    y: number;
+    z: number;             // depth/height position (min corner)
+    orientation: string;   // axis permutation, e.g. "xyz", "xzy"
+  }[];
+  bins_used: number;
+  utilization: number;
+  unplaced: string[];
+  elapsed_ms: number;
 }
 ```
 
