@@ -16,6 +16,26 @@ export const presets2d = {
     ],
     boundary: { width: 300, height: 300 },
   },
+  withHoles: {
+    label: '홀 포함 (washer)',
+    geometries: [
+      {
+        id: 'washer',
+        polygon: [[0, 0], [80, 0], [80, 80], [0, 80]],
+        holes: [[[25, 25], [55, 25], [55, 55], [25, 55]]],
+        quantity: 6,
+        rotations: [0, 90],
+      },
+    ],
+    boundary: { width: 320, height: 240 },
+  },
+  customBoundary: {
+    label: '커스텀 경계 (오각형)',
+    geometries: [
+      { id: 'sq', polygon: [[0, 0], [40, 0], [40, 40], [0, 40]], quantity: 8, rotations: [0, 90] },
+    ],
+    boundary: { polygon: [[0, 0], [300, 0], [360, 180], [180, 300], [0, 180]] },
+  },
 };
 
 export const presets3d = {
