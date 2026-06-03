@@ -44,6 +44,9 @@ temp_*.json
 !benchmark/scenarios/*.json
 !demo/*.html
 
+# GitHub Pages demo WASM build output
+demo/web/pkg/
+
 # Coverage
 lcov.info
 *.profraw

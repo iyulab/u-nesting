@@ -1,0 +1,24 @@
+:root { --bg: #0e1116; --panel: #161b22; --line: #2a3140; --fg: #e6edf3; --accent: #4f8cff; }
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+header { padding: 20px 24px 0; border-bottom: 1px solid var(--line); }
+h1 { margin: 0; font-size: 22px; }
+.badge { font-size: 11px; background: var(--accent); color: #fff; padding: 2px 6px; border-radius: 4px; vertical-align: middle; }
+header p { color: #9aa7b8; margin: 6px 0 14px; font-size: 14px; }
+.tabs { display: flex; gap: 4px; }
+.tab { background: none; border: none; color: #9aa7b8; padding: 10px 16px; cursor: pointer; border-bottom: 2px solid transparent; font-size: 14px; }
+.tab.active { color: var(--fg); border-bottom-color: var(--accent); }
+main { padding: 20px 24px; }
+.panel { display: none; }
+.panel.active { display: block; }
+.controls { display: flex; gap: 16px; flex-wrap: wrap; align-items: end; margin-bottom: 14px; }
+.controls label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: #9aa7b8; }
+.controls select, .controls input { background: var(--panel); color: var(--fg); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; font-size: 14px; }
+.controls button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 9px 20px; cursor: pointer; font-size: 14px; }
+.controls button:disabled { opacity: 0.5; cursor: progress; }
+.result { font-size: 13px; color: #9aa7b8; margin-bottom: 12px; min-height: 20px; }
+.result .warn { color: #f5b301; }
+.result .err { color: #ef5da8; }
+canvas { width: 100%; max-width: 900px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); display: block; }
+footer { padding: 16px 24px; border-top: 1px solid var(--line); font-size: 13px; }
+footer a { color: var(--accent); text-decoration: none; }

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>U-Nesting Demo — 2D/3D Spatial Optimization (WASM)</title>
+  <link rel="stylesheet" href="./style.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <header>
+    <h1>U-Nesting <span class="badge">WASM</span></h1>
+    <p>2D 네스팅 · 3D 빈패킹 — 브라우저에서 실제 엔진 실행</p>
+    <div class="tabs">
+      <button class="tab active" data-tab="d2">2D 네스팅</button>
+      <button class="tab" data-tab="d3">3D 빈패킹</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="panel-d2" class="panel active">
+      <div class="controls">
+        <label>프리셋
+          <select id="preset2d"></select>
+        </label>
+        <label>전략
+          <select id="strategy2d">
+            <option value="blf">BLF (빠름)</option>
+            <option value="nfp">NFP</option>
+            <option value="ga">GA</option>
+            <option value="brkga">BRKGA</option>
+            <option value="sa">SA</option>
+            <option value="gdrr">GDRR</option>
+            <option value="alns">ALNS</option>
+          </select>
+        </label>
+        <label>시간제한(ms)
+          <input id="time2d" type="number" value="2000" min="100" step="100" />
+        </label>
+        <button id="run2d">실행</button>
+      </div>
+      <div class="result" id="metrics2d"></div>
+      <canvas id="canvas2d" width="900" height="560"></canvas>
+    </section>
+
+    <section id="panel-d3" class="panel">
+      <div class="controls">
+        <label>프리셋
+          <select id="preset3d"></select>
+        </label>
+        <label>전략
+          <select id="strategy3d">
+            <option value="blf">BLF (빠름)</option>
+            <option value="ep">Extreme Point</option>
+            <option value="ga">GA</option>
+            <option value="brkga">BRKGA</option>
+            <option value="sa">SA</option>
+          </select>
+        </label>
+        <label>시간제한(ms)
+          <input id="time3d" type="number" value="2000" min="100" step="100" />
+        </label>
+        <button id="run3d">실행</button>
+      </div>
+      <div class="result" id="metrics3d"></div>
+      <canvas id="canvas3d" width="900" height="560"></canvas>
+    </section>
+  </main>
+
+  <footer>
+    <a href="https://github.com/iyulab/U-Nesting">GitHub</a> ·
+    <a href="https://www.npmjs.com/package/@iyulab/u-nesting">npm</a>
+  </footer>
+
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
