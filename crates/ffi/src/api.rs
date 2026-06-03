@@ -125,12 +125,20 @@ pub unsafe extern "C" fn unesting_solve(
 
     let mode = value.get("mode").and_then(|m| m.as_str()).unwrap_or("2d");
 
-    let response = match mode {
-        "3d" => solve_3d_internal(json_str),
-        _ => solve_2d_internal(json_str),
+    // 2D and 3D use distinct wire-response types (SolveResponse / Pack3DResponse),
+    // so serialize within each arm rather than over a unified value.
+    let (response_json, success) = match mode {
+        "3d" => {
+            let r = solve_3d_internal(json_str);
+            (serde_json::to_string(&r), r.success)
+        }
+        _ => {
+            let r = solve_2d_internal(json_str);
+            (serde_json::to_string(&r), r.success)
+        }
     };
 
-    let response_json = match serde_json::to_string(&response) {
+    let response_json = match response_json {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
     };
@@ -138,7 +146,7 @@ pub unsafe extern "C" fn unesting_solve(
     match CString::new(response_json) {
         Ok(cstr) => {
             *result_ptr = cstr.into_raw();
-            if response.success {
+            if success {
                 UNESTING_OK
             } else {
                 UNESTING_ERR_SOLVE_FAILED
@@ -318,12 +326,20 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
     let mode = value.get("mode").and_then(|m| m.as_str()).unwrap_or("2d");
     let callback_wrapper = CallbackWrapper::new(callback, user_data);
 
-    let response = match mode {
-        "3d" => solve_3d_with_callback(json_str, &callback_wrapper),
-        _ => solve_2d_with_callback(json_str, &callback_wrapper),
+    // 2D and 3D use distinct wire-response types (SolveResponse / Pack3DResponse),
+    // so serialize within each arm rather than over a unified value.
+    let (response_json, success) = match mode {
+        "3d" => {
+            let r = solve_3d_with_callback(json_str, &callback_wrapper);
+            (serde_json::to_string(&r), r.success)
+        }
+        _ => {
+            let r = solve_2d_with_callback(json_str, &callback_wrapper);
+            (serde_json::to_string(&r), r.success)
+        }
     };
 
-    let response_json = match serde_json::to_string(&response) {
+    let response_json = match response_json {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
     };
@@ -331,7 +347,7 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
     match CString::new(response_json) {
         Ok(cstr) => {
             *result_ptr = cstr.into_raw();
-            if response.success {
+            if success {
                 UNESTING_OK
             } else if callback_wrapper.is_cancelled() {
                 UNESTING_ERR_CANCELLED
@@ -438,21 +454,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
     }
 }
 
-fn solve_3d_internal(json_str: &str) -> SolveResponse {
+fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     let request: Request3D = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => {
-            return SolveResponse {
-                version: API_VERSION.to_string(),
-                success: false,
-                error: Some(format!("Invalid JSON: {}", e)),
-                placements: Vec::new(),
-                sheets_used: 0,
-                utilization: 0.0,
-                unplaced: Vec::new(),
-                elapsed_ms: 0,
-            };
-        }
+        Err(e) => return Pack3DResponse::error(format!("Invalid JSON: {}", e)),
     };
 
     // Convert geometries
@@ -492,26 +497,8 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
     // Solve
     let packer = Packer3D::new(config);
     match packer.solve(&geometries, &boundary) {
-        Ok(result) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: true,
-            error: None,
-            placements: result.placements.into_iter().map(Into::into).collect(),
-            sheets_used: result.boundaries_used,
-            utilization: result.utilization,
-            unplaced: result.unplaced,
-            elapsed_ms: result.computation_time_ms,
-        },
-        Err(e) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some(e.to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        },
+        Ok(result) => u_nesting_d3::build_pack3d_response(&result, &geometries),
+        Err(e) => Pack3DResponse::error(e.to_string()),
     }
 }
 
@@ -718,21 +705,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
     }
 }
 
-fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveResponse {
+fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DResponse {
     let request: Request3D = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => {
-            return SolveResponse {
-                version: API_VERSION.to_string(),
-                success: false,
-                error: Some(format!("Invalid JSON: {}", e)),
-                placements: Vec::new(),
-                sheets_used: 0,
-                utilization: 0.0,
-                unplaced: Vec::new(),
-                elapsed_ms: 0,
-            };
-        }
+        Err(e) => return Pack3DResponse::error(format!("Invalid JSON: {}", e)),
     };
 
     // Send initial progress
@@ -749,16 +725,7 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         running: true,
     };
     if !callback.invoke(&initial_progress) {
-        return SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some("Cancelled by user".to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        };
+        return Pack3DResponse::error("Cancelled by user");
     }
 
     // Convert geometries
@@ -805,16 +772,7 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         running: true,
     };
     if !callback.invoke(&solving_progress) {
-        return SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some("Cancelled by user".to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        };
+        return Pack3DResponse::error("Cancelled by user");
     }
 
     // Build config
@@ -838,27 +796,9 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             };
             callback.invoke(&done_progress);
 
-            SolveResponse {
-                version: API_VERSION.to_string(),
-                success: true,
-                error: None,
-                placements: result.placements.into_iter().map(Into::into).collect(),
-                sheets_used: result.boundaries_used,
-                utilization: result.utilization,
-                unplaced: result.unplaced,
-                elapsed_ms: result.computation_time_ms,
-            }
+            u_nesting_d3::build_pack3d_response(&result, &geometries)
         }
-        Err(e) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some(e.to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        },
+        Err(e) => Pack3DResponse::error(e.to_string()),
     }
 }
 
@@ -1161,7 +1101,7 @@ mod tests {
             assert!(!result_ptr.is_null());
 
             let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
-            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+            let response: Pack3DResponse = serde_json::from_str(result_str).unwrap();
 
             assert!(response.success);
             assert_eq!(response.placements.len(), 2);
@@ -1217,7 +1157,7 @@ mod tests {
             assert!(!result_ptr.is_null());
 
             let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
-            let response: SolveResponse = serde_json::from_str(result_str).unwrap();
+            let response: Pack3DResponse = serde_json::from_str(result_str).unwrap();
 
             assert!(response.success);
             assert_eq!(response.placements.len(), 1);
@@ -1814,5 +1754,110 @@ mod tests {
         assert_eq!(config.home_position, (10.0, 10.0));
         assert_eq!(config.pierce_candidates, 4);
         assert_eq!(config.tolerance, 0.001);
+    }
+
+    // --- FFI JSON schema regression guards (Cycle 114) ---
+    //
+    // These tests pin the Rust FFI wire output to the **C# binding contract**.
+    // The source of truth is the C# model classes, NOT the current Rust output:
+    //   - 2D: bindings/csharp/UNesting/Models/Geometry2D.cs (Placement2D, NestingResult)
+    //   - 3D: bindings/csharp/UNesting/Models/Geometry3D.cs (Placement3D, PackingResult)
+    //
+    // Rationale: a Rust-only snapshot would freeze whatever Rust emits — including
+    // bugs (a snapshot taken at 0.3.1 would have locked in `rotation:[0.0]`). By
+    // asserting the field names/types the C# classes declare, any rename or
+    // type change on the Rust side breaks the test. This is the regression guard
+    // for the 0.3.1 -> 0.3.2 `rotation` array-vs-scalar incident.
+
+    #[test]
+    fn schema_guard_2d_matches_csharp_placement2d_contract() {
+        // C# NestingResult: success(bool), placements[], sheets_used(int),
+        //   utilization(double), unplaced(string[]), elapsed_ms(long),
+        //   error(string?, omitted when null).
+        // C# Placement2D: id(string), sheet_index(int), x(double), y(double),
+        //   rotation(double SCALAR), flipped(bool).
+        let request = r#"{
+            "geometries": [
+                {"id": "rect1", "polygon": [[0,0], [10,0], [10,5], [0,5]],
+                 "quantity": 2, "rotations": [0, 90]}
+            ],
+            "boundary": {"width": 50, "height": 50}
+        }"#;
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            let code = unesting_solve_2d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            // NestingResult top-level contract.
+            assert!(json["success"].is_boolean(), "NestingResult.success");
+            assert!(json["placements"].is_array(), "NestingResult.placements");
+            assert!(json["sheets_used"].is_number(), "NestingResult.sheets_used");
+            assert!(json["utilization"].is_number(), "NestingResult.utilization");
+            assert!(json["unplaced"].is_array(), "NestingResult.unplaced");
+            assert!(json["elapsed_ms"].is_number(), "NestingResult.elapsed_ms");
+            // error is omitted (null-skipped) on success — C# WhenWritingNull.
+            assert!(
+                json.get("error").map(|e| e.is_null()).unwrap_or(true),
+                "NestingResult.error must be absent/null on success"
+            );
+
+            // Placement2D contract.
+            let p = &json["placements"][0];
+            assert!(p["id"].is_string(), "Placement2D.id");
+            assert!(p["sheet_index"].is_number(), "Placement2D.sheet_index");
+            assert!(p["x"].is_number(), "Placement2D.x");
+            assert!(p["y"].is_number(), "Placement2D.y");
+            assert!(
+                p["rotation"].is_number(),
+                "Placement2D.rotation is a scalar double, NOT an array (0.3.1 bug)"
+            );
+            assert!(p["flipped"].is_boolean(), "Placement2D.flipped");
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn schema_guard_3d_matches_csharp_placement3d_contract() {
+        // C# PackingResult: success(bool), placements[], bins_used(int),
+        //   utilization(double), unplaced(string[]), elapsed_ms(long), error(string?).
+        // C# Placement3D: id(string), bin_index(int), x(double), y(double),
+        //   z(double), orientation(string e.g. "xyz").
+        let request = r#"{
+            "geometries": [
+                {"id": "box1", "dimensions": [10, 10, 10], "quantity": 2}
+            ],
+            "boundary": {"dimensions": [50, 50, 50]}
+        }"#;
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            let code = unesting_solve_3d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            // PackingResult top-level contract.
+            assert!(json["success"].is_boolean(), "PackingResult.success");
+            assert!(json["placements"].is_array(), "PackingResult.placements");
+            assert!(json["bins_used"].is_number(), "PackingResult.bins_used");
+            assert!(json["utilization"].is_number(), "PackingResult.utilization");
+            assert!(json["unplaced"].is_array(), "PackingResult.unplaced");
+            assert!(json["elapsed_ms"].is_number(), "PackingResult.elapsed_ms");
+
+            // Placement3D contract.
+            let p = &json["placements"][0];
+            assert!(p["id"].is_string(), "Placement3D.id");
+            assert!(p["bin_index"].is_number(), "Placement3D.bin_index");
+            assert!(p["x"].is_number(), "Placement3D.x");
+            assert!(p["y"].is_number(), "Placement3D.y");
+            assert!(p["z"].is_number(), "Placement3D.z");
+            assert!(p["orientation"].is_string(), "Placement3D.orientation");
+
+            unesting_free_string(result_ptr);
+        }
     }
 }

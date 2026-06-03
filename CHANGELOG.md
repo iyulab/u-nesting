@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.3] - 2026-06-03
+
+### Fixed
+- **3D FFI/WASM response schema**: 3D solve now emits a dedicated `Pack3DResponse`
+  / `Placement3DResponse` wire format matching the C# `PackingResult` / `Placement3D`
+  binding. Previously the 3D path reused the 2D `SolveResponse`, so C# (and npm)
+  consumers silently lost each placement's depth (`z`), `orientation` label and
+  `bin_index` (and received `sheets_used` instead of `bins_used`). Same class as the
+  0.3.1→0.3.2 2D `rotation` array-vs-scalar fix.
+
+### Added
+- `Geometry3D::orientation_label(idx)` — maps an orientation index to an axis
+  permutation string (`"xyz"`, `"xzy"`, …).
+- `build_pack3d_response` (u-nesting-d3) — canonical 3D wire-response builder shared
+  by the C FFI and WASM bindings.
+- FFI JSON schema regression guards pinning the Rust output to the C# binding
+  contract for both 2D and 3D (`schema_guard_2d/3d_matches_csharp_*`).
+
 ## [0.2.0] - 2026-02-09
 
 ### Changed

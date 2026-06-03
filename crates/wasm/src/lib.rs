@@ -164,10 +164,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
     }
 }
 
-fn solve_3d_internal(json_str: &str) -> SolveResponse {
+fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     let request: Request3D = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => return SolveResponse::error(format!("Invalid JSON: {e}")),
+        Err(e) => return Pack3DResponse::error(format!("Invalid JSON: {e}")),
     };
 
     // Check for WASM-blocked strategies
@@ -175,7 +175,7 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
         if let Some(ref strategy) = config.strategy {
             let s = strategy.to_lowercase();
             if WASM_BLOCKED_STRATEGIES.iter().any(|blocked| s == *blocked) {
-                return SolveResponse::error(format!(
+                return Pack3DResponse::error(format!(
                     "Strategy '{strategy}' is not available in WASM builds. \
                      Use 'blf', 'ep', 'ga', 'brkga', or 'sa'."
                 ));
@@ -220,17 +220,8 @@ fn solve_3d_internal(json_str: &str) -> SolveResponse {
     // Solve
     let packer = Packer3D::new(config);
     match packer.solve(&geometries, &boundary) {
-        Ok(result) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: true,
-            error: None,
-            placements: result.placements.into_iter().map(Into::into).collect(),
-            sheets_used: result.boundaries_used,
-            utilization: result.utilization,
-            unplaced: result.unplaced,
-            elapsed_ms: result.computation_time_ms,
-        },
-        Err(e) => SolveResponse::error(e.to_string()),
+        Ok(result) => u_nesting_d3::build_pack3d_response(&result, &geometries),
+        Err(e) => Pack3DResponse::error(e.to_string()),
     }
 }
 

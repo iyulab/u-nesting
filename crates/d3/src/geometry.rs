@@ -151,6 +151,21 @@ impl Geometry3D {
         }
     }
 
+    /// Returns the orientation label for a given orientation index, as an
+    /// axis-permutation string (e.g. `"xyz"`, `"xzy"`).
+    ///
+    /// The permutation `(x_idx, y_idx, z_idx)` from [`allowed_orientations`]
+    /// is mapped to the axis letters `x`/`y`/`z`. Out-of-range indices fall
+    /// back to the identity orientation `"xyz"`.
+    ///
+    /// [`allowed_orientations`]: Self::allowed_orientations
+    pub fn orientation_label(&self, orientation: usize) -> String {
+        const AXES: [char; 3] = ['x', 'y', 'z'];
+        let orientations = self.allowed_orientations();
+        let (a, b, c) = orientations.get(orientation).copied().unwrap_or((0, 1, 2));
+        [AXES[a], AXES[b], AXES[c]].iter().collect()
+    }
+
     /// Returns dimensions for a given orientation index.
     pub fn dimensions_for_orientation(&self, orientation: usize) -> Vector3<f64> {
         let orientations = self.allowed_orientations();
@@ -256,6 +271,24 @@ mod tests {
         // Fixed should have 1 option
         let fixed = box3d.clone().with_orientation(OrientationConstraint::Fixed);
         assert_eq!(fixed.allowed_orientations().len(), 1);
+    }
+
+    #[test]
+    fn test_orientation_label() {
+        // Default constraint is Any → 6 axis permutations map to labels.
+        let geom = Geometry3D::new("B1", 10.0, 20.0, 30.0);
+        assert_eq!(geom.orientation_label(0), "xyz");
+        assert_eq!(geom.orientation_label(1), "xzy");
+        assert_eq!(geom.orientation_label(2), "yxz");
+        assert_eq!(geom.orientation_label(3), "yzx");
+        assert_eq!(geom.orientation_label(4), "zxy");
+        assert_eq!(geom.orientation_label(5), "zyx");
+        // Out-of-range index falls back to identity orientation.
+        assert_eq!(geom.orientation_label(99), "xyz");
+
+        // Fixed constraint only ever yields the identity orientation.
+        let fixed = geom.clone().with_orientation(OrientationConstraint::Fixed);
+        assert_eq!(fixed.orientation_label(0), "xyz");
     }
 
     #[test]

@@ -254,6 +254,86 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
     }
 }
 
+/// 3D packing response.
+///
+/// Distinct from [`SolveResponse`] (used for 2D) because the 3D wire contract
+/// differs: bins instead of sheets, and placements carry depth (`z`) and an
+/// `orientation` label. Mirrors the C# `PackingResult` binding
+/// (bindings/csharp/UNesting/Models/Geometry3D.cs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pack3DResponse {
+    /// API version.
+    pub version: String,
+
+    /// Whether the operation succeeded.
+    pub success: bool,
+
+    /// Error message if failed.
+    pub error: Option<String>,
+
+    /// Placements.
+    #[serde(default)]
+    pub placements: Vec<Placement3DResponse>,
+
+    /// Number of bins used.
+    pub bins_used: usize,
+
+    /// Volume utilization ratio.
+    pub utilization: f64,
+
+    /// IDs of unplaced geometries.
+    #[serde(default)]
+    pub unplaced: Vec<String>,
+
+    /// Computation time in milliseconds.
+    pub elapsed_ms: u64,
+}
+
+/// 3D placement response.
+///
+/// Mirrors the C# `Placement3D` binding: carries `z` and a string
+/// `orientation` label (e.g. `"xyz"`), and uses `bin_index` (not `sheet_index`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Placement3DResponse {
+    /// Geometry ID.
+    #[serde(rename = "id")]
+    pub geometry_id: String,
+
+    /// Instance index (0-based) when multiple copies of the same geometry are placed.
+    pub instance: usize,
+
+    /// Bin index (0-based).
+    pub bin_index: usize,
+
+    /// X position.
+    pub x: f64,
+
+    /// Y position.
+    pub y: f64,
+
+    /// Z position (depth).
+    pub z: f64,
+
+    /// Orientation label as an axis permutation, e.g. `"xyz"`, `"xzy"`.
+    pub orientation: String,
+}
+
+impl Pack3DResponse {
+    /// Creates an error response.
+    pub fn error(msg: impl Into<String>) -> Self {
+        Self {
+            version: API_VERSION.to_string(),
+            success: false,
+            error: Some(msg.into()),
+            placements: Vec::new(),
+            bins_used: 0,
+            utilization: 0.0,
+            unplaced: Vec::new(),
+            elapsed_ms: 0,
+        }
+    }
+}
+
 // --- Cutting Path Types ---
 
 /// Request for cutting path optimization.
