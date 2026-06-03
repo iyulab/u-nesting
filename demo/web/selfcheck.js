@@ -1,4 +1,4 @@
-// 데모 진단용 AABB 기반 self-check. 변환 정확성 회귀를 잡는 용도.
+// Demo diagnostic AABB self-check. Catches transform-accuracy regressions.
 const EPS = 1e-6;
 
 export function aabbOf(points) {
@@ -17,7 +17,7 @@ function aabbOverlap(a, b) {
          a.minY < b.maxY - EPS && a.maxY > b.minY + EPS;
 }
 
-// polys: 변환된 폴리곤 배열(같은 시트), boundary: { width, height } (원점 기준 사각형)
+// polys: transformed polygons (same sheet), boundary: { width, height } (origin-based rectangle)
 export function checkPlacements2d(polys, boundary) {
   const issues = [];
   const boxes = polys.map(aabbOf);

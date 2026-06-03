@@ -1,7 +1,7 @@
-// 데모 샘플 데이터. solve_2d / solve_3d 요청 JSON 형태와 동일.
+// Sample data for the demo. Same shape as solve_2d / solve_3d request JSON.
 export const presets2d = {
   rectangles: {
-    label: '사각형 혼합',
+    label: 'Rectangles',
     geometries: [
       { id: 'A', polygon: [[0, 0], [100, 0], [100, 50], [0, 50]], quantity: 4, rotations: [0, 90] },
       { id: 'B', polygon: [[0, 0], [60, 0], [60, 80], [0, 80]], quantity: 3, rotations: [0, 90] },
@@ -10,14 +10,14 @@ export const presets2d = {
     boundary: { width: 400, height: 300 },
   },
   lshape: {
-    label: 'L자 형상',
+    label: 'L-shape',
     geometries: [
       { id: 'L', polygon: [[0, 0], [80, 0], [80, 30], [30, 30], [30, 80], [0, 80]], quantity: 6, rotations: [0, 90, 180, 270] },
     ],
     boundary: { width: 300, height: 300 },
   },
   withHoles: {
-    label: '홀 포함 (washer)',
+    label: 'With holes (washer)',
     geometries: [
       {
         id: 'washer',
@@ -30,7 +30,7 @@ export const presets2d = {
     boundary: { width: 320, height: 240 },
   },
   customBoundary: {
-    label: '커스텀 경계 (오각형)',
+    label: 'Custom boundary (pentagon)',
     geometries: [
       { id: 'sq', polygon: [[0, 0], [40, 0], [40, 40], [0, 40]], quantity: 8, rotations: [0, 90] },
     ],
@@ -40,7 +40,7 @@ export const presets2d = {
 
 export const presets3d = {
   boxes: {
-    label: '박스 혼합',
+    label: 'Mixed boxes',
     geometries: [
       { id: 'big', dimensions: [40, 40, 40], quantity: 4 },
       { id: 'mid', dimensions: [30, 20, 25], quantity: 6 },

@@ -1,6 +1,6 @@
-// 2D placement 변환: P' = R(θ)·(flip(P)) + (x, y)
-// pivot = origin, 회전 먼저 → 평행이동. θ는 degrees.
-// 라이브러리 일치: crates/d2/src/geometry.rs::aabb_at_rotation
+// 2D placement transform: P' = R(theta) * flip(P) + (x, y)
+// pivot = origin, rotation first then translation. theta is in degrees.
+// Matches the library: crates/d2/src/geometry.rs::aabb_at_rotation
 export function transformPolygon2d(points, placement) {
   const { x = 0, y = 0, rotation = 0, flipped = false } = placement;
   const rad = (rotation * Math.PI) / 180;
@@ -14,8 +14,8 @@ export function transformPolygon2d(points, placement) {
   });
 }
 
-// 3D orientation 문자열로 원본 dims를 치환. "xyz"→[d0,d1,d2], "xzy"→[d0,d2,d1] ...
-// 라이브러리 일치: crates/d3/src/geometry.rs::orientation_label / dimensions_for_orientation
+// Permute the original dims by the orientation string. "xyz"->[d0,d1,d2], "xzy"->[d0,d2,d1] ...
+// Matches the library: crates/d3/src/geometry.rs::orientation_label / dimensions_for_orientation
 export function dimsForOrientation(dimensions, orientation) {
   const axis = { x: 0, y: 1, z: 2 };
   const o = (orientation || 'xyz').toLowerCase();

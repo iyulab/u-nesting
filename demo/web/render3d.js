@@ -24,8 +24,8 @@ function ensureScene(canvas) {
   animate();
 }
 
-// 3D self-check: 박스가 bin 내부에 있고 서로 겹치지 않는지 (라이브러리 좌표계 기준).
-// 라이브러리: dims=(width,depth,height)=(x,y,z), position=(x,y,z) min corner, z=up.
+// 3D self-check: boxes stay inside the bin and do not overlap (library coordinate system).
+// Library: dims=(width,depth,height)=(x,y,z), position=(x,y,z) min corner, z=up.
 function check3d(boxes, boundary) {
   const EPS = 1e-6;
   const [bw, bd, bh] = boundary.dimensions;
@@ -49,14 +49,14 @@ function check3d(boxes, boundary) {
   return issues;
 }
 
-// geometries: 요청 geometries (id→dimensions), response: Pack3DResponse, boundary: { dimensions:[w,d,h] }
+// geometries: request geometries (id->dimensions), response: Pack3DResponse, boundary: { dimensions:[w,d,h] }
 export function render3d(geometries, response, canvas, boundary) {
   ensureScene(canvas);
   group.clear();
   const dimsById = new Map(geometries.map((g) => [g.id, g.dimensions]));
   const [bw, bd, bh] = boundary.dimensions;
 
-  // bin 컨테이너 와이어프레임 (THREE: x=width, y=height(lib z), z=depth(lib y))
+  // bin container wireframe (THREE: x=width, y=height(lib z), z=depth(lib y))
   const binGeo = new THREE.BoxGeometry(bw, bh, bd);
   const binEdges = new THREE.LineSegments(
     new THREE.EdgesGeometry(binGeo),
@@ -68,7 +68,7 @@ export function render3d(geometries, response, canvas, boundary) {
   const checkBoxes = [];
   let k = 0;
   for (const p of response.placements) {
-    if (p.bin_index !== 0) continue; // 데모: 첫 bin만
+    if (p.bin_index !== 0) continue; // demo: first bin only
     const dims = dimsById.get(p.id);
     if (!dims) continue;
     const [w, d, h] = dimsForOrientation(dims, p.orientation); // [width(x), depth(y), height(z)]
@@ -78,7 +78,7 @@ export function render3d(geometries, response, canvas, boundary) {
       new THREE.BoxGeometry(w, h, d), // THREE(width, height, depth)
       new THREE.MeshLambertMaterial({ color: COLORS[k % COLORS.length] })
     );
-    // 라이브러리 (x,y,z) min corner, z=up → THREE 중심 (x+w/2, z+h/2, y+d/2)
+    // library (x,y,z) min corner, z=up -> THREE center (x+w/2, z+h/2, y+d/2)
     mesh.position.set(p.x + w / 2, p.z + h / 2, p.y + d / 2);
     group.add(mesh);
     const edge = new THREE.LineSegments(
@@ -90,7 +90,7 @@ export function render3d(geometries, response, canvas, boundary) {
     k++;
   }
 
-  // 카메라 배치
+  // camera placement
   const maxDim = Math.max(bw, bd, bh);
   camera.position.set(bw / 2 + maxDim, bh / 2 + maxDim, bd / 2 + maxDim);
   controls.target.set(bw / 2, bh / 2, bd / 2);

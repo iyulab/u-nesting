@@ -1,70 +1,75 @@
 import { transformPolygon2d } from './transform.js';
 import { checkPlacements2d } from './selfcheck.js';
 
-const COLORS = ['#4f8cff', '#ff7a59', '#33c08d', '#c084fc', '#f5b301', '#ef5da8', '#5ad1e6'];
+const PALETTE = ['#4f8cff', '#ff7a59', '#33c08d', '#c084fc', '#f5b301', '#ef5da8', '#5ad1e6', '#a3e635'];
+const colorCache = new Map();
+export function colorFor(id) {
+  if (!colorCache.has(id)) colorCache.set(id, PALETTE[colorCache.size % PALETTE.length]);
+  return colorCache.get(id);
+}
 
-// geometries: 요청의 geometries (id→polygon 조회용)
-// response: SolveResponse, canvas: HTMLCanvasElement, boundary: { width, height }
-export function render2d(geometries, response, canvas, boundary) {
-  const ctx = canvas.getContext('2d');
-  const polyById = new Map(geometries.map((g) => [g.id, g.polygon]));
+export function boundaryPolygon(boundary) {
+  if (boundary.polygon) return boundary.polygon;
+  return [[0, 0], [boundary.width, 0], [boundary.width, boundary.height], [0, boundary.height]];
+}
 
-  // 시트별 그룹화
-  const sheets = new Map();
-  for (const p of response.placements) {
-    if (!sheets.has(p.sheet_index)) sheets.set(p.sheet_index, []);
-    sheets.get(p.sheet_index).push(p);
-  }
-  const sheetIdx = [...sheets.keys()].sort((a, b) => a - b);
-  const cols = Math.min(sheetIdx.length || 1, 3);
-  const rows = Math.ceil((sheetIdx.length || 1) / cols);
+// boundary AABB (polygon or rectangle)
+export function boundaryExtent(boundary) {
+  const pts = boundaryPolygon(boundary);
+  let maxX = 0, maxY = 0;
+  for (const [x, y] of pts) { if (x > maxX) maxX = x; if (y > maxY) maxY = y; }
+  return { width: maxX, height: maxY };
+}
 
-  const pad = 16;
-  const cellW = (canvas.width - pad * (cols + 1)) / cols;
-  const cellH = (canvas.height - pad * (rows + 1)) / rows;
-  const scale = Math.min(cellW / boundary.width, cellH / boundary.height);
-
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+// ctx: CanvasRenderingContext2D, response: SolveResponse, viewport: Viewport2D
+// returns: { hitItems, issues, sheets }
+export function render2d(ctx, geometries, response, viewport, boundary, activeSheet) {
+  const canvas = ctx.canvas;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#0e1116';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  const allIssues = [];
+  const polyById = new Map(geometries.map((g) => [g.id, g.polygon]));
+  const sheets = [...new Set(response.placements.map((p) => p.sheet_index))].sort((a, b) => a - b);
 
-  sheetIdx.forEach((sIdx, gridPos) => {
-    const col = gridPos % cols;
-    const row = Math.floor(gridPos / cols);
-    const ox = pad + col * (cellW + pad);
-    const oy = pad + row * (cellH + pad);
+  // boundary outline
+  const bpoly = boundaryPolygon(boundary);
+  ctx.strokeStyle = '#3a4252';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  bpoly.forEach(([x, y], i) => { const [sx, sy] = viewport.toScreen(x, y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+  ctx.closePath();
+  ctx.stroke();
 
-    // 시트 boundary (좌상단 원점, y-down 화면)
-    ctx.strokeStyle = '#3a4252';
-    ctx.strokeRect(ox, oy, boundary.width * scale, boundary.height * scale);
-
-    const placements = sheets.get(sIdx);
-    const transformedForCheck = [];
-
-    placements.forEach((p, k) => {
-      const base = polyById.get(p.id);
-      if (!base) return;
-      const world = transformPolygon2d(base, p);
-      transformedForCheck.push(world);
-
+  const hitItems = [];
+  const placed = response.placements.filter((p) => p.sheet_index === activeSheet);
+  const checkPolys = [];
+  placed.forEach((p) => {
+    const base = polyById.get(p.id);
+    if (!base) return;
+    const world = transformPolygon2d(base, p);
+    checkPolys.push(world);
+    hitItems.push({ poly: world, id: p.id, instance: p.instance, rotation: p.rotation, sheet: p.sheet_index });
+    ctx.beginPath();
+    world.forEach(([x, y], i) => { const [sx, sy] = viewport.toScreen(x, y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
+    ctx.closePath();
+    ctx.fillStyle = colorFor(p.id) + 'cc';
+    ctx.fill();
+    ctx.strokeStyle = '#0e1116';
+    ctx.stroke();
+    // Draw holes
+    const baseHoles = (geometries.find((g) => g.id === p.id) || {}).holes || [];
+    for (const hole of baseHoles) {
+      const whole = transformPolygon2d(hole, p);
       ctx.beginPath();
-      world.forEach(([wx, wy], vi) => {
-        const sx = ox + wx * scale;
-        const sy = oy + wy * scale; // y-down 화면; boundary 원점=좌상단
-        if (vi === 0) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
-      });
+      whole.forEach(([x, y], i) => { const [sx, sy] = viewport.toScreen(x, y); i ? ctx.lineTo(sx, sy) : ctx.moveTo(sx, sy); });
       ctx.closePath();
-      ctx.fillStyle = COLORS[k % COLORS.length] + 'cc';
+      ctx.fillStyle = '#0e1116';
       ctx.fill();
-      ctx.strokeStyle = '#0e1116';
-      ctx.stroke();
-    });
-
-    const issues = checkPlacements2d(transformedForCheck, boundary);
-    if (issues.length) allIssues.push({ sheet: sIdx, issues });
+    }
   });
 
-  return allIssues;
+  const ext = boundaryExtent(boundary);
+  const issues = checkPlacements2d(checkPolys, ext);
+  return { hitItems, issues, sheets };
 }

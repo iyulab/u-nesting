@@ -1,4 +1,4 @@
-// WASM solve/cutting 오프로딩 워커. pkg/는 `wasm-pack build --target web` 출력.
+// Web Worker offloading WASM solve/cutting. pkg/ is the `wasm-pack build --target web` output.
 import init, { solve_2d, solve_3d, optimize_cutting_path, version, available_strategies }
   from './pkg/u_nesting_wasm.js';
 
