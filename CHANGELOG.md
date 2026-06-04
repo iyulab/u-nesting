@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.5] - 2026-06-04
+
+### Fixed
+- **3D Extreme-Point under-packing**: the EP heuristic precomputed a per-axis "residual"
+  free-space approximation and gated candidate points on it. That model under-counted
+  space for boxes placed flush against each other, discarded valid extreme points, and
+  stalled the pack (perfect-fill scenarios placed only 4/8 cubes). Replaced with an exact
+  fit test against the container bounds and placed boxes at placement time
+  (`ExtremePointSet::fits_at`): perfect-fill now 8/8, EP places 18 boxes vs BLF's 13.
+  Also corrected an `EP → BLF` mis-routing in `solve_with_progress`.
+
+### Changed
+- **3D gravity & stability now enforced in `solve`**: the physics/stability analyzer was
+  built but never wired into the solver. Added `enforce_support`, which reuses the
+  analyzer to drop unsupported boxes and recompute utilization, with the support floor at
+  `floor_z = margin` (a hard-coded `floor_z = 0` removed every box when `margin > 0` and
+  gravity was on). Gravity/stability toggles restored in the demo.
+
+## [0.3.4] - 2026-06-04
+
+### Fixed
+- **WASM runtime failures (0.3.3 regression)**: solve panicked under `wasm32` because the
+  SA loop was not gated for the single-threaded target and used a raw `Instant`. Promoted
+  `core::timing::Timer` to a `web-time` backend so `time_limit` works in the browser, and
+  gated parallel paths. A single-strip time budget could exceed the total limit; the
+  `.max(5000)` floor now also takes `.min(total)`.
+- **3D extreme-point out-of-bounds**: a swapped `fits` argument (`extreme_point.rs`) could
+  place a box outside the container.
+- **GA/BRKGA orientation mis-report**: `rotation_index` was left unset, so chosen
+  orientations were reported incorrectly in the response.
+- Added a WASM runtime smoke suite (`wasm_runtime_smoke.mjs`, 18 cases) to CI.
+
 ## [0.3.3] - 2026-06-03
 
 ### Fixed
