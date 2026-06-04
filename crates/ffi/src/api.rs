@@ -1898,4 +1898,43 @@ mod tests {
             unesting_free_string(result_ptr);
         }
     }
+
+    #[test]
+    fn schema_guard_3d_orientation_actually_flows() {
+        // Like the z-value guard: a presence/type assertion on `orientation` passes
+        // even when every placement reports the identity "xyz". The 0.3.3 EP/GA/BRKGA
+        // bug dropped the resolved orientation, so rotated boxes were reported as
+        // "xyz" and read as out-of-bounds by consumers. Force a rotation — a 25x25x80
+        // box only fits a 100x100x30 bin lying down — and assert the reported
+        // orientation is the rotated one, proving the index flows through
+        // build_pack3d_response. EP is deterministic, so no flake.
+        let request = r#"{
+            "geometries": [
+                {"id": "tall", "dimensions": [25, 25, 80], "quantity": 1}
+            ],
+            "boundary": {"dimensions": [100, 100, 30]},
+            "config": {"strategy": "ep"}
+        }"#;
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            let code = unesting_solve_3d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            let placements = json["placements"].as_array().expect("placements array");
+            assert_eq!(placements.len(), 1, "the tall box fits only when rotated");
+            let orientation = placements[0]["orientation"]
+                .as_str()
+                .expect("Placement3D.orientation is a string");
+            assert_ne!(
+                orientation, "xyz",
+                "a box that can only be placed rotated must not report the identity \
+                 orientation — got '{orientation}' (orientation index not flowing)"
+            );
+
+            unesting_free_string(result_ptr);
+        }
+    }
 }

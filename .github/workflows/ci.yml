@@ -161,7 +161,7 @@ jobs:
           fail_ci_if_error: false
 
   wasm:
-    name: WASM Check
+    name: WASM Check + Runtime Smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -177,3 +177,15 @@ jobs:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --workspace --exclude u-nesting-ffi --exclude u-nesting-python --exclude u-nesting-benchmark --target wasm32-unknown-unknown
+      # `cargo check` only compiles; it cannot catch runtime panics (e.g. Instant /
+      # thread on wasm) or wrong results. Build the actual wasm package and exercise
+      # every strategy through a real solve in Node to guard against those regressions.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      - name: Build WASM package
+        run: wasm-pack build crates/wasm --target web --out-dir /tmp/wasm-pkg --dev
+      - name: Run WASM runtime smoke tests
+        run: PKG=/tmp/wasm-pkg node --test demo/web/test/wasm_runtime_smoke.mjs

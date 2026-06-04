@@ -23,13 +23,13 @@ use crate::nfp::{
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 use u_nesting_core::gdrr::{
     GdrrConfig, GdrrProblem, GdrrResult, GdrrRunner, GdrrSolution, RecreateResult, RecreateType,
     RuinResult, RuinType, RuinedItem,
 };
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::Config;
+use u_nesting_core::timing::Timer;
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{expand_nfp, shrink_ifp, InstanceInfo};
@@ -137,7 +137,7 @@ pub struct GdrrNestingProblem {
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
     /// Start time for timeout checking.
-    start_time: Instant,
+    start_time: Timer,
     /// Time limit in milliseconds.
     time_limit_ms: u64,
 }
@@ -183,7 +183,7 @@ impl GdrrNestingProblem {
             rotation_angles,
             geometry_areas,
             cancelled,
-            start_time: Instant::now(),
+            start_time: Timer::now(),
             time_limit_ms,
         }
     }
@@ -193,7 +193,7 @@ impl GdrrNestingProblem {
         if self.time_limit_ms == 0 {
             return false;
         }
-        self.start_time.elapsed().as_millis() as u64 >= self.time_limit_ms
+        self.start_time.elapsed_ms() >= self.time_limit_ms
     }
 
     /// Returns the total number of instances.

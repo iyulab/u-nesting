@@ -26,8 +26,8 @@
 //! ```
 
 use crate::stability::{PlacedBox, StabilityAnalyzer, StabilityConstraint, StabilityReport};
-use std::time::Instant;
 use u_nesting_core::geom::nalgebra_types::{NaPoint3 as Point3, NaVector3 as Vector3};
+use u_nesting_core::timing::Timer;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -247,11 +247,11 @@ impl PhysicsSimulator {
         container_dims: Vector3<f64>,
         floor_z: f64,
     ) -> PhysicsResult {
-        let start = Instant::now();
+        let start = Timer::now();
         let mut result = PhysicsResult::new();
 
         if boxes.is_empty() {
-            result.computation_time_ms = start.elapsed().as_millis() as u64;
+            result.computation_time_ms = start.elapsed_ms();
             return result;
         }
 
@@ -379,7 +379,7 @@ impl PhysicsSimulator {
         let analyzer = StabilityAnalyzer::new(StabilityConstraint::partial_base(0.5));
         result.stability_report = Some(analyzer.analyze(&final_boxes, floor_z));
 
-        result.computation_time_ms = start.elapsed().as_millis() as u64;
+        result.computation_time_ms = start.elapsed_ms();
         result
     }
 

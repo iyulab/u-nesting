@@ -16,6 +16,9 @@ thiserror.workspace = true
 rayon = { workspace = true, optional = true }
 rand.workspace = true
 log.workspace = true
+# Wall-clock timing that works on both native (re-exports std::time) and wasm
+# (performance.now()). Restores time_limit_ms termination on wasm.
+web-time = "1"
 u-metaheur = { version = "0.2", path = "../../../../algorithms/u-metaheur" }
 u-numflow = { version = "0.2", path = "../../../../foundation/u-numflow" }
 u-geometry = { version = "0.1", path = "../../../../algorithms/u-geometry" }

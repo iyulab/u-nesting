@@ -1,15 +1,22 @@
 //! WASM-compatible timing abstraction.
 //!
-//! On native targets, uses [`std::time::Instant`] for wall-clock timing.
-//! On WASM (`wasm32`), provides a no-op timer that always reports zero elapsed time.
-//! This allows algorithms to compile and run on WASM without panicking,
-//! while still supporting time-based termination on native platforms.
+//! Wall-clock timing backed by [`web_time::Instant`], which transparently maps
+//! to [`std::time::Instant`] on native targets and to `performance.now()` on
+//! `wasm32`. This keeps time-based termination (`time_limit_ms`) working on both
+//! native and WASM — iteration limits remain the safety net that bounds every
+//! algorithm regardless of clock resolution.
+//!
+//! A previous WASM build used a no-op timer that always reported zero elapsed
+//! time; that silently disabled `time_limit_ms` on WASM, so strategies ran to
+//! their full iteration cap (multi-second freezes in the browser).
 
-#[cfg(not(target_arch = "wasm32"))]
 mod inner {
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
-    /// A wall-clock timer backed by [`Instant`] on native targets.
+    /// A wall-clock timer backed by [`web_time::Instant`].
+    ///
+    /// On native targets this is exactly [`std::time::Instant`]; on `wasm32` it
+    /// uses the JS `performance.now()` clock via `web-time`.
     #[derive(Debug, Clone, Copy)]
     pub struct Timer(Instant);
 
@@ -27,35 +34,6 @@ mod inner {
         /// Returns elapsed time in milliseconds.
         pub fn elapsed_ms(&self) -> u64 {
             self.0.elapsed().as_millis() as u64
-        }
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-mod inner {
-    use std::time::Duration;
-
-    /// A no-op timer for WASM targets.
-    ///
-    /// Always reports zero elapsed time. Algorithms terminate via
-    /// iteration limits instead of wall-clock time on WASM.
-    #[derive(Debug, Clone, Copy)]
-    pub struct Timer;
-
-    impl Timer {
-        /// No-op: returns immediately.
-        pub fn now() -> Self {
-            Timer
-        }
-
-        /// Always returns [`Duration::ZERO`].
-        pub fn elapsed(&self) -> Duration {
-            Duration::ZERO
-        }
-
-        /// Always returns `0`.
-        pub fn elapsed_ms(&self) -> u64 {
-            0
         }
     }
 }

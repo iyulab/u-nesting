@@ -19,9 +19,14 @@ function call(mode, request) {
   return new Promise((resolve) => { const id = ++reqId; pending.set(id, resolve); worker.postMessage({ id, mode, request }); });
 }
 
-// Strategies verified to work in the current WASM build (others disabled).
-// See claudedocs/issues/ISSUE-u-nesting-20260604-wasm-runtime-failures.md
-const VALID = { '2d': ['blf', 'nfp', 'ga', 'brkga'], '3d': ['blf'] };
+// Strategies verified to work in the current WASM build. The 0.3.4 release fixed the
+// runtime panics (sa/gdrr/alns 2D, sa 3D) and 3D orientation/out-of-bounds reporting
+// (ep/ga/brkga), so all strategies are now enabled. The wasm runtime smoke test
+// (test/wasm_runtime_smoke.mjs) guards every entry here.
+const VALID = {
+  '2d': ['blf', 'nfp', 'ga', 'brkga', 'sa', 'gdrr', 'alns'],
+  '3d': ['blf', 'ep', 'ga', 'brkga', 'sa'],
+};
 
 // --- DOM refs ---
 const $ = (id) => document.getElementById(id);

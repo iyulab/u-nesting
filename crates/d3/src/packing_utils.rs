@@ -207,7 +207,9 @@ pub fn layer_place_items(
             continue;
         }
 
-        // Place the item
+        // Place the item. Preserve the resolved orientation via `rotation_index` so the
+        // response reports the actual box footprint — without it, every rotated GA/BRKGA/SA
+        // placement reported the identity orientation and read as out-of-bounds downstream.
         let placement = Placement::new_3d(
             geom.id().clone(),
             info.instance_num,
@@ -217,7 +219,8 @@ pub fn layer_place_items(
             0.0,
             0.0,
             0.0,
-        );
+        )
+        .with_rotation_index(orientation_idx);
 
         placements.push(placement);
         total_placed_volume += geom.measure();
@@ -326,6 +329,74 @@ mod tests {
         )];
         let unplaced = build_unplaced_list(&placements, &geometries);
         assert_eq!(unplaced, vec!["B"]);
+    }
+
+    #[test]
+    fn test_layer_place_items_respects_bounds() {
+        // Invariant: every placed box lies fully inside the boundary for its actual
+        // resolved orientation, across mixed sizes and Fixed/Any constraints.
+        use crate::geometry::OrientationConstraint::{Any, Fixed};
+        let dims_pool = [
+            (30.0, 20.0, 25.0),
+            (40.0, 10.0, 40.0),
+            (60.0, 70.0, 15.0),
+            (15.0, 80.0, 35.0),
+            (50.0, 30.0, 45.0),
+            (90.0, 90.0, 10.0),
+        ];
+        let boundary = Boundary3D::new(100.0, 100.0, 100.0);
+        let config = Config::default();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let mut seed: u64 = 0xABCD_1234;
+        let mut next = || {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as usize
+        };
+        for constraint in [Fixed, Any] {
+            for _ in 0..200 {
+                // Each geometry quantity 1 with a unique id → deterministic orientation map.
+                let n = 3 + next() % 8;
+                let orients: Vec<usize> = (0..n).map(|_| next()).collect();
+                let geometries: Vec<_> = (0..n)
+                    .map(|g| {
+                        let (w, d, h) = dims_pool[next() % dims_pool.len()];
+                        Geometry3D::new(format!("g{g}"), w, d, h).with_orientation(constraint)
+                    })
+                    .collect();
+                let instances = build_instances(&geometries);
+                let items: Vec<PlacementItem> = (0..instances.len())
+                    .map(|i| PlacementItem {
+                        instance_idx: i,
+                        orientation_idx: orients[i],
+                    })
+                    .collect();
+                let result = layer_place_items(
+                    &items,
+                    &instances,
+                    &geometries,
+                    &boundary,
+                    &config,
+                    &cancelled,
+                );
+                for p in &result.placements {
+                    let gi: usize = p.geometry_id[1..].parse().unwrap();
+                    let oc = geometries[gi].allowed_orientations().len().max(1);
+                    let dm = geometries[gi].dimensions_for_orientation(orients[gi] % oc);
+                    let (px, py, pz) = (p.x(), p.y(), p.z().unwrap_or(0.0));
+                    let e = 1e-6;
+                    assert!(
+                        px + dm.x <= 100.0 + e && py + dm.y <= 100.0 + e && pz + dm.z <= 100.0 + e,
+                        "{} out of bounds: pos({px:.1},{py:.1},{pz:.1}) dims({:.1},{:.1},{:.1})",
+                        p.geometry_id,
+                        dm.x,
+                        dm.y,
+                        dm.z,
+                    );
+                }
+            }
+        }
     }
 
     #[test]

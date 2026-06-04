@@ -250,7 +250,12 @@ impl ExtremePointSet {
         // Find the best fitting EP
         let mut best_ep_idx: Option<usize> = None;
         for (idx, ep) in candidates.iter().enumerate() {
-            if ep.fits(width, height, depth) || ep.fits(width, depth, height) {
+            // The orientation (and therefore dims) is already fixed by the caller's
+            // loop, so the box must fit at this EP with its actual extents. A prior
+            // version also tested `fits(width, height, depth)` — swapping depth/height
+            // — which let a box pass on residuals it did not actually occupy and then
+            // get placed with its real dims, producing out-of-bounds placements.
+            if ep.fits(width, depth, height) {
                 // Check if placement would overlap with existing boxes
                 let test_box = PlacedBox {
                     id: String::new(),
@@ -563,6 +568,50 @@ mod tests {
         // Should be able to fit multiple boxes
         assert!(placements.len() >= 4);
         assert!(utilization > 0.05);
+    }
+
+    #[test]
+    fn test_ep_packing_all_placements_in_bounds() {
+        // Regression for the 0.3.3 EP out-of-bounds bug: `try_place` accepted an EP
+        // via `fits(width, height, depth)` (depth/height swapped), then placed the box
+        // with its real dims, overflowing the boundary. These configs each produced
+        // out-of-bounds placements before the fix (y- and z-violations); every
+        // placement must now lie fully inside the boundary for its chosen orientation.
+        use crate::geometry::OrientationConstraint::Any;
+        let boundary = Boundary3D::new(100.0, 100.0, 100.0);
+        let configs = [
+            ("flat-deep", 60.0, 70.0, 15.0, 4usize), // pre-fix: pos(0,70,0) -> y=140
+            ("tall-thin", 40.0, 10.0, 40.0, 20usize), // pre-fix: pos(0,0,80) -> z=120
+            ("issue-mid", 30.0, 20.0, 25.0, 6usize),
+        ];
+
+        for (label, w, d, h, qty) in configs {
+            let geometries = vec![Geometry3D::new(label, w, d, h)
+                .with_quantity(qty)
+                .with_orientation(Any)];
+            let (placements, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
+
+            for (id, instance, pos, orientation) in &placements {
+                let dims = geometries[0].dimensions_for_orientation(*orientation);
+                let eps = 1e-6;
+                assert!(
+                    pos.x + dims.x <= boundary.width() + eps
+                        && pos.y + dims.y <= boundary.depth() + eps
+                        && pos.z + dims.z <= boundary.height() + eps
+                        && pos.x >= -eps
+                        && pos.y >= -eps
+                        && pos.z >= -eps,
+                    "[{label}] {id}#{instance} out of bounds: pos({:.1},{:.1},{:.1}) \
+                     dims({:.1},{:.1},{:.1}) orientation {orientation} exceeds 100x100x100",
+                    pos.x,
+                    pos.y,
+                    pos.z,
+                    dims.x,
+                    dims.y,
+                    dims.z,
+                );
+            }
+        }
     }
 
     #[test]

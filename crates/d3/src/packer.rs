@@ -379,14 +379,18 @@ impl Packer3D {
             boundary.max_mass(),
         );
 
-        // Convert EP placements to Placement structs
+        // Convert EP placements to Placement structs. The orientation index must be
+        // preserved via `rotation_index` so the response can report the actual box
+        // footprint; dropping it made every EP placement report the identity
+        // orientation, which read as out-of-bounds for rotated boxes downstream.
         let mut placements = Vec::new();
-        for (id, instance, position, _orientation) in ep_placements {
+        for (id, instance, position, orientation) in ep_placements {
             let placement = Placement::new_3d(
                 id, instance, position.x, position.y, position.z, 0.0, // rotation_x
                 0.0, // rotation_y
-                0.0, // rotation_z (orientation handled internally)
-            );
+                0.0, // rotation_z (orientation encoded via rotation_index)
+            )
+            .with_rotation_index(orientation);
             placements.push(placement);
         }
 
@@ -786,6 +790,71 @@ mod tests {
         // All 4 boxes should be placed
         assert_eq!(result.placements.len(), 4);
         assert!(result.unplaced.is_empty());
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_3d_response_orientation_in_bounds() {
+        use crate::build_pack3d_response;
+        use crate::geometry::OrientationConstraint;
+
+        // A tall box in a flat container can only be placed rotated. The response must
+        // report the orientation that was actually used, so reconstructing the box
+        // footprint from the reported orientation label keeps it inside the boundary.
+        // Pre-fix, EP/GA/BRKGA dropped the orientation and reported "xyz" (identity),
+        // making rotated placements read as out-of-bounds (the 0.3.3 "oob" reports).
+        let (bw, bd, bh) = (100.0_f64, 100.0_f64, 30.0_f64);
+        let boundary = Boundary3D::new(bw, bd, bh);
+
+        for strategy in [
+            Strategy::ExtremePoint,
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+        ] {
+            let geometries = vec![Geometry3D::new("tall", 25.0, 25.0, 80.0)
+                .with_quantity(3)
+                .with_orientation(OrientationConstraint::Any)];
+            let config = Config::default().with_strategy(strategy);
+            let packer = Packer3D::new(config);
+            let result = packer.solve(&geometries, &boundary).unwrap();
+            let response = build_pack3d_response(&result, &geometries);
+
+            // EP is deterministic and must place at least one box (only fits rotated).
+            if strategy == Strategy::ExtremePoint {
+                assert!(
+                    !response.placements.is_empty(),
+                    "EP should place the tall box by rotating it into the flat container"
+                );
+            }
+
+            let base = geometries[0].dimensions_for_orientation(0); // unrotated dims
+            for p in &response.placements {
+                let axes: Vec<usize> = p
+                    .orientation
+                    .chars()
+                    .map(|c| match c {
+                        'x' => 0,
+                        'y' => 1,
+                        'z' => 2,
+                        _ => panic!("unexpected orientation label '{}'", p.orientation),
+                    })
+                    .collect();
+                let (dx, dy, dz) = (base[axes[0]], base[axes[1]], base[axes[2]]);
+                let e = 1e-6;
+                assert!(
+                    p.x + dx <= bw + e && p.y + dy <= bd + e && p.z + dz <= bh + e,
+                    "{:?} {}#{} out of bounds for reported orientation '{}': \
+                     pos({:.1},{:.1},{:.1}) dims({dx:.1},{dy:.1},{dz:.1}) boundary({bw},{bd},{bh})",
+                    strategy,
+                    p.geometry_id,
+                    p.instance,
+                    p.orientation,
+                    p.x,
+                    p.y,
+                    p.z,
+                );
+            }
+        }
     }
 
     #[test]

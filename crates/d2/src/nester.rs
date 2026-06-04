@@ -455,7 +455,12 @@ impl Nester2D {
         // Configure GA with time limit for multi-strip scenarios
         let time_limit_ms = if self.config.time_limit_ms > 0 {
             // Use 1/4 of total time limit per strip to allow for multiple strips
-            (self.config.time_limit_ms / 4).max(5000)
+            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
+            // never exceed the user's total limit: a single-strip solve must honor an
+            // explicit short budget instead of being floored up to 5s.
+            (self.config.time_limit_ms / 4)
+                .max(5000)
+                .min(self.config.time_limit_ms)
         } else {
             15000 // 15 seconds default per strip
         };
@@ -485,7 +490,12 @@ impl Nester2D {
         // Configure BRKGA with time limit for multi-strip scenarios
         let time_limit_ms = if self.config.time_limit_ms > 0 {
             // Use 1/4 of total time limit per strip to allow for multiple strips
-            (self.config.time_limit_ms / 4).max(5000)
+            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
+            // never exceed the user's total limit: a single-strip solve must honor an
+            // explicit short budget instead of being floored up to 5s.
+            (self.config.time_limit_ms / 4)
+                .max(5000)
+                .min(self.config.time_limit_ms)
         } else {
             15000 // 15 seconds default per strip
         };
@@ -522,7 +532,12 @@ impl Nester2D {
         // Note: Each decode() call is O(N²) NFP computations, so we need fewer iterations
         let time_limit_ms = if self.config.time_limit_ms > 0 {
             // Use 1/4 of total time limit per strip to allow for multiple strips
-            (self.config.time_limit_ms / 4).max(5000)
+            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
+            // never exceed the user's total limit: a single-strip solve must honor an
+            // explicit short budget instead of being floored up to 5s.
+            (self.config.time_limit_ms / 4)
+                .max(5000)
+                .min(self.config.time_limit_ms)
         } else {
             10000 // 10 seconds default per strip
         };
@@ -552,7 +567,12 @@ impl Nester2D {
         // Use user's time limit, default to 10s per strip if not specified
         let time_limit = if self.config.time_limit_ms > 0 {
             // Use 1/4 of total time limit per strip to allow for multiple strips
-            (self.config.time_limit_ms / 4).max(5000)
+            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
+            // never exceed the user's total limit: a single-strip solve must honor an
+            // explicit short budget instead of being floored up to 5s.
+            (self.config.time_limit_ms / 4)
+                .max(5000)
+                .min(self.config.time_limit_ms)
         } else {
             10000 // 10 seconds default per strip
         };
@@ -579,7 +599,12 @@ impl Nester2D {
         // Use user's time limit, default to 10s per strip if not specified
         let time_limit = if self.config.time_limit_ms > 0 {
             // Use 1/4 of total time limit per strip to allow for multiple strips
-            (self.config.time_limit_ms / 4).max(5000)
+            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
+            // never exceed the user's total limit: a single-strip solve must honor an
+            // explicit short budget instead of being floored up to 5s.
+            (self.config.time_limit_ms / 4)
+                .max(5000)
+                .min(self.config.time_limit_ms)
         } else {
             10000 // 10 seconds default per strip
         };

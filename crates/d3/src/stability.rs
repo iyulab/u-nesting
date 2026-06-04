@@ -25,6 +25,7 @@
 
 use std::collections::HashMap;
 use u_nesting_core::geom::nalgebra_types::{NaPoint3 as Point3, NaVector3 as Vector3};
+use u_nesting_core::timing::Timer;
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -326,11 +327,11 @@ impl StabilityAnalyzer {
 
     /// Analyzes the stability of all placed boxes.
     pub fn analyze(&self, boxes: &[PlacedBox], floor_z: f64) -> StabilityReport {
-        let start = std::time::Instant::now();
+        let start = Timer::now();
         let mut report = StabilityReport::new();
 
         if boxes.is_empty() || !self.constraint.is_enabled() {
-            report.analysis_time_ms = start.elapsed().as_millis() as u64;
+            report.analysis_time_ms = start.elapsed_ms();
             return report;
         }
 
@@ -345,7 +346,7 @@ impl StabilityAnalyzer {
 
         // Compute summary statistics
         self.compute_summary(&mut report, boxes);
-        report.analysis_time_ms = start.elapsed().as_millis() as u64;
+        report.analysis_time_ms = start.elapsed_ms();
 
         report
     }
