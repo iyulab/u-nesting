@@ -40,10 +40,21 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Current version: $VERSION"
 
-      - name: Check if version changed
+      - name: Check if version is unpublished on crates.io
         id: check
         run: |
-          git diff HEAD~1 HEAD -- Cargo.toml | grep -q '+version = ' && echo "changed=true" >> $GITHUB_OUTPUT || echo "changed=false" >> $GITHUB_OUTPUT
+          VERSION=${{ steps.get_version.outputs.version }}
+          PUBLISHED=$(curl -sf "https://crates.io/api/v1/crates/u-nesting/versions" \
+            -H "User-Agent: u-nesting-ci/1.0" \
+            | python3 -c "import sys,json; vs=[v['num'] for v in json.load(sys.stdin).get('versions',[])]; print('true' if '${VERSION}' in vs else 'false')" \
+            2>/dev/null || echo "false")
+          if [ "$PUBLISHED" = "false" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "Version ${VERSION} not yet on crates.io — will publish"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version ${VERSION} already on crates.io — skipping"
+          fi
 
   # Publish to crates.io
   publish-crates:
@@ -69,14 +80,25 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          cargo publish -p u-nesting-core --allow-dirty || true
+          publish_crate() {
+            local pkg=$1
+            local out
+            out=$(cargo publish -p "$pkg" --allow-dirty 2>&1) && { echo "$pkg: published"; return 0; }
+            if echo "$out" | grep -q "already uploaded"; then
+              echo "$pkg: already on crates.io — skipping"
+            else
+              echo "::error::$pkg publish failed: $out"
+              exit 1
+            fi
+          }
+          publish_crate u-nesting-core
           sleep 30
-          cargo publish -p u-nesting-d2 --allow-dirty || true
+          publish_crate u-nesting-d2
           sleep 30
-          cargo publish -p u-nesting-d3 --allow-dirty || true
+          publish_crate u-nesting-d3
           sleep 30
-          cargo publish -p u-nesting-cutting --allow-dirty || true
+          publish_crate u-nesting-cutting
           sleep 30
-          cargo publish -p u-nesting --allow-dirty || true
+          publish_crate u-nesting
           sleep 30
-          cargo publish -p u-nesting-ffi --allow-dirty || true
+          publish_crate u-nesting-ffi

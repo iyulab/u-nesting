@@ -45,18 +45,21 @@ jobs:
       - name: Decide whether to publish
         id: decide
         run: |
+          VERSION=${{ steps.read.outputs.version }}
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
             echo "Manual trigger — will publish"
           else
-            OLD=$(git show HEAD~1:${{ env.CSPROJ_PATH }} 2>/dev/null | grep -oPm1 '(?<=<Version>)[^<]+' || echo "")
-            NEW=$(grep -oPm1 '(?<=<Version>)[^<]+' ${{ env.CSPROJ_PATH }})
-            if [ "$OLD" != "$NEW" ]; then
+            PUBLISHED=$(curl -sf \
+              "https://api.nuget.org/v3-flatcontainer/unesting/index.json" \
+              | python3 -c "import sys,json; vs=json.load(sys.stdin).get('versions',[]); print('true' if '${VERSION}' in vs else 'false')" \
+              2>/dev/null || echo "false")
+            if [ "$PUBLISHED" = "false" ]; then
               echo "should_publish=true" >> "$GITHUB_OUTPUT"
-              echo "Version changed: $OLD → $NEW"
+              echo "Version ${VERSION} not yet on NuGet — will publish"
             else
               echo "should_publish=false" >> "$GITHUB_OUTPUT"
-              echo "Version unchanged ($NEW) — skipping"
+              echo "Version ${VERSION} already on NuGet — skipping"
             fi
           fi
 

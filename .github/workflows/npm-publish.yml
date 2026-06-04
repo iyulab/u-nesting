@@ -36,7 +36,8 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      - uses: jetli/wasm-pack-action@v0.4.0
+      - name: Install wasm-pack
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
       - name: Build WASM package
         run: wasm-pack build crates/wasm --target bundler --scope iyulab
