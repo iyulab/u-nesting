@@ -26,7 +26,7 @@ use u_nesting_core::geometry::{Boundary, Geometry};
 ///
 /// An extreme point only carries its position. Whether a box actually fits there is
 /// decided exactly against the container bounds and the placed boxes at placement time
-/// (see [`ExtremePointSet::fits_at`]). A previous design precomputed per-axis "residual"
+/// (see `ExtremePointSet::fits_at`). A previous design precomputed per-axis "residual"
 /// free space and gated EPs on it; that approximation under-counted space for boxes
 /// placed flush against each other and discarded valid EPs, stalling the pack.
 #[derive(Debug, Clone, Copy)]
@@ -491,8 +491,15 @@ mod tests {
 
         let (placements, utilization) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
 
-        assert_eq!(placements.len(), 8, "EP must place all 8 perfectly-fitting cubes");
-        assert!((utilization - 1.0).abs() < 1e-6, "expected 100% utilization, got {utilization}");
+        assert_eq!(
+            placements.len(),
+            8,
+            "EP must place all 8 perfectly-fitting cubes"
+        );
+        assert!(
+            (utilization - 1.0).abs() < 1e-6,
+            "expected 100% utilization, got {utilization}"
+        );
 
         // And every placement must be in-bounds and pairwise non-overlapping.
         let boxes: Vec<PlacedBox> = placements

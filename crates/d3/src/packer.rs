@@ -1212,7 +1212,11 @@ mod tests {
             &geometries,
             &Boundary3D::new(100.0, 100.0, 100.0).with_gravity(true),
         );
-        assert_eq!(grav.placements.len(), 2, "gravity keeps a box that touches below");
+        assert_eq!(
+            grav.placements.len(),
+            2,
+            "gravity keeps a box that touches below"
+        );
 
         let mut stab = make();
         packer.enforce_support(
