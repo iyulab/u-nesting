@@ -22,40 +22,30 @@ use std::collections::BinaryHeap;
 use u_nesting_core::geom::nalgebra_types::NaVector3 as Vector3;
 use u_nesting_core::geometry::{Boundary, Geometry};
 
-/// A 3D point representing a potential placement position.
+/// A 3D point representing a candidate placement position (a box's min corner).
+///
+/// An extreme point only carries its position. Whether a box actually fits there is
+/// decided exactly against the container bounds and the placed boxes at placement time
+/// (see [`ExtremePointSet::fits_at`]). A previous design precomputed per-axis "residual"
+/// free space and gated EPs on it; that approximation under-counted space for boxes
+/// placed flush against each other and discarded valid EPs, stalling the pack.
 #[derive(Debug, Clone, Copy)]
 pub struct ExtremePoint {
-    /// Position (x, y, z).
+    /// Position (x, y, z) — the box min corner this point represents.
     pub position: Vector3<f64>,
-    /// The residual space in x direction from this point.
-    pub residual_x: f64,
-    /// The residual space in y direction from this point.
-    pub residual_y: f64,
-    /// The residual space in z direction from this point.
-    pub residual_z: f64,
 }
 
 impl ExtremePoint {
-    /// Creates a new extreme point.
-    pub fn new(x: f64, y: f64, z: f64, res_x: f64, res_y: f64, res_z: f64) -> Self {
+    /// Creates a new extreme point at the given position.
+    pub fn new(x: f64, y: f64, z: f64) -> Self {
         Self {
             position: Vector3::new(x, y, z),
-            residual_x: res_x,
-            residual_y: res_y,
-            residual_z: res_z,
         }
     }
 
     /// Returns the position as a tuple.
     pub fn pos(&self) -> (f64, f64, f64) {
         (self.position.x, self.position.y, self.position.z)
-    }
-
-    /// Checks if a box with given dimensions fits at this point.
-    pub fn fits(&self, width: f64, depth: f64, height: f64) -> bool {
-        width <= self.residual_x + 1e-9
-            && depth <= self.residual_y + 1e-9
-            && height <= self.residual_z + 1e-9
     }
 }
 
@@ -182,16 +172,9 @@ impl ExtremePointSet {
             margin,
         };
 
-        // Initial extreme point at origin (with margin)
-        let initial_ep = ExtremePoint::new(
-            margin,
-            margin,
-            margin,
-            container.x - 2.0 * margin,
-            container.y - 2.0 * margin,
-            container.z - 2.0 * margin,
-        );
-        eps.points.push(OrderedEP(initial_ep));
+        // Initial extreme point at the back-bottom-left corner (with margin).
+        eps.points
+            .push(OrderedEP(ExtremePoint::new(margin, margin, margin)));
 
         eps
     }
@@ -237,41 +220,19 @@ impl ExtremePointSet {
         orientation: usize,
     ) -> Option<Vector3<f64>> {
         let dims = geom.dimensions_for_orientation(orientation);
-        let width = dims.x + self.spacing;
-        let depth = dims.y + self.spacing;
-        let height = dims.z + self.spacing;
 
-        // Collect all current EPs
+        // Collect all current EPs (popped in min z,y,x order — bottom-left-back first).
         let mut candidates: Vec<ExtremePoint> = Vec::new();
         while let Some(OrderedEP(ep)) = self.points.pop() {
             candidates.push(ep);
         }
 
-        // Find the best fitting EP
-        let mut best_ep_idx: Option<usize> = None;
-        for (idx, ep) in candidates.iter().enumerate() {
-            // The orientation (and therefore dims) is already fixed by the caller's
-            // loop, so the box must fit at this EP with its actual extents. A prior
-            // version also tested `fits(width, height, depth)` — swapping depth/height
-            // — which let a box pass on residuals it did not actually occupy and then
-            // get placed with its real dims, producing out-of-bounds placements.
-            if ep.fits(width, depth, height) {
-                // Check if placement would overlap with existing boxes
-                let test_box = PlacedBox {
-                    id: String::new(),
-                    instance: 0,
-                    position: ep.position,
-                    dimensions: dims,
-                    mass: None,
-                };
-
-                let overlaps = self.placed.iter().any(|placed| test_box.overlaps(placed));
-                if !overlaps {
-                    best_ep_idx = Some(idx);
-                    break;
-                }
-            }
-        }
+        // Choose the first EP where the box fits exactly: inside the container (with
+        // margin) and at least `spacing` from every placed box. The orientation, and
+        // therefore `dims`, is fixed by the caller's loop.
+        let best_ep_idx = candidates
+            .iter()
+            .position(|ep| self.fits_at(ep.position, dims));
 
         // Restore non-used EPs
         let result = if let Some(idx) = best_ep_idx {
@@ -306,66 +267,77 @@ impl ExtremePointSet {
     }
 
     /// Generates new extreme points after placing a box.
+    ///
+    /// Each placed box exposes three new candidate corners — one past each of its +X,
+    /// +Y and +Z faces, anchored at the box's own min coordinates on the other two axes.
+    /// `add_ep_if_valid` drops any that fall outside the container or land strictly
+    /// inside an existing box; whether a future box actually fits is decided later by
+    /// [`Self::fits_at`], so no per-axis free-space estimate is needed here.
     fn generate_new_eps(&mut self, placed: &PlacedBox) {
         let box_max = placed.max_corner();
         let container_max = self.container - Vector3::new(self.margin, self.margin, self.margin);
 
-        // EP1: Top-right-front of the box (x direction)
-        if box_max.x < container_max.x {
-            let res_x = container_max.x - box_max.x;
-            let res_y = self.compute_residual_y(box_max.x, placed.position.y, placed.position.z);
-            let res_z = self.compute_residual_z(box_max.x, placed.position.y, placed.position.z);
+        if box_max.x < container_max.x - 1e-9 {
+            self.add_ep_if_valid(ExtremePoint::new(
+                box_max.x,
+                placed.position.y,
+                placed.position.z,
+            ));
+        }
+        if box_max.y < container_max.y - 1e-9 {
+            self.add_ep_if_valid(ExtremePoint::new(
+                placed.position.x,
+                box_max.y,
+                placed.position.z,
+            ));
+        }
+        if box_max.z < container_max.z - 1e-9 {
+            self.add_ep_if_valid(ExtremePoint::new(
+                placed.position.x,
+                placed.position.y,
+                box_max.z,
+            ));
+        }
+    }
 
-            if res_x > 1e-9 && res_y > 1e-9 && res_z > 1e-9 {
-                let ep = ExtremePoint::new(
-                    box_max.x,
-                    placed.position.y,
-                    placed.position.z,
-                    res_x,
-                    res_y,
-                    res_z,
-                );
-                self.add_ep_if_valid(ep);
+    /// Exact feasibility test for placing a box of `dims` with its min corner at `pos`.
+    ///
+    /// The box must lie within the container (respecting `margin`) and stay at least
+    /// `spacing` away from every placed box. Two AABBs are `spacing` apart when they are
+    /// separated along at least one axis by that gap, which for `spacing == 0` reduces to
+    /// "may touch but not overlap".
+    fn fits_at(&self, pos: Vector3<f64>, dims: Vector3<f64>) -> bool {
+        const EPS: f64 = 1e-9;
+        let max = pos + dims;
+        let m = self.margin;
+
+        // Inside the container (with margin on every wall).
+        if pos.x < m - EPS || pos.y < m - EPS || pos.z < m - EPS {
+            return false;
+        }
+        if max.x > self.container.x - m + EPS
+            || max.y > self.container.y - m + EPS
+            || max.z > self.container.z - m + EPS
+        {
+            return false;
+        }
+
+        // At least `spacing` from every placed box (separated on at least one axis).
+        let s = self.spacing;
+        for b in &self.placed {
+            let bmax = b.max_corner();
+            let separated = pos.x >= bmax.x + s - EPS
+                || max.x <= b.position.x - s + EPS
+                || pos.y >= bmax.y + s - EPS
+                || max.y <= b.position.y - s + EPS
+                || pos.z >= bmax.z + s - EPS
+                || max.z <= b.position.z - s + EPS;
+            if !separated {
+                return false;
             }
         }
 
-        // EP2: Top-right-front of the box (y direction)
-        if box_max.y < container_max.y {
-            let res_x = self.compute_residual_x(placed.position.x, box_max.y, placed.position.z);
-            let res_y = container_max.y - box_max.y;
-            let res_z = self.compute_residual_z(placed.position.x, box_max.y, placed.position.z);
-
-            if res_x > 1e-9 && res_y > 1e-9 && res_z > 1e-9 {
-                let ep = ExtremePoint::new(
-                    placed.position.x,
-                    box_max.y,
-                    placed.position.z,
-                    res_x,
-                    res_y,
-                    res_z,
-                );
-                self.add_ep_if_valid(ep);
-            }
-        }
-
-        // EP3: Top of the box (z direction)
-        if box_max.z < container_max.z {
-            let res_x = self.compute_residual_x(placed.position.x, placed.position.y, box_max.z);
-            let res_y = self.compute_residual_y(placed.position.x, placed.position.y, box_max.z);
-            let res_z = container_max.z - box_max.z;
-
-            if res_x > 1e-9 && res_y > 1e-9 && res_z > 1e-9 {
-                let ep = ExtremePoint::new(
-                    placed.position.x,
-                    placed.position.y,
-                    box_max.z,
-                    res_x,
-                    res_y,
-                    res_z,
-                );
-                self.add_ep_if_valid(ep);
-            }
-        }
+        true
     }
 
     /// Adds an EP if it's valid and not dominated by existing EPs.
@@ -379,87 +351,26 @@ impl ExtremePointSet {
             return;
         }
 
-        // Check if position is inside any placed box
+        // Reject only points STRICTLY inside a placed box. The tolerance signs must
+        // exclude the faces and corners: an EP that lies exactly on a box face/corner
+        // (e.g. the top-right corner of the box just placed) is a *valid* adjacent
+        // placement position and must be kept. Using `> min - eps && < max + eps` here
+        // treated such boundary points as "inside" and discarded them, starving the EP
+        // set so packing stalled far below capacity (4/8 on a perfect-fit instance).
         for placed in &self.placed {
             let max = placed.max_corner();
-            if ep.position.x > placed.position.x - 1e-9
-                && ep.position.x < max.x + 1e-9
-                && ep.position.y > placed.position.y - 1e-9
-                && ep.position.y < max.y + 1e-9
-                && ep.position.z > placed.position.z - 1e-9
-                && ep.position.z < max.z + 1e-9
+            if ep.position.x > placed.position.x + 1e-9
+                && ep.position.x < max.x - 1e-9
+                && ep.position.y > placed.position.y + 1e-9
+                && ep.position.y < max.y - 1e-9
+                && ep.position.z > placed.position.z + 1e-9
+                && ep.position.z < max.z - 1e-9
             {
                 return;
             }
         }
 
         self.points.push(OrderedEP(ep));
-    }
-
-    /// Computes residual space in x direction from a given point.
-    fn compute_residual_x(&self, x: f64, y: f64, z: f64) -> f64 {
-        let container_max_x = self.container.x - self.margin;
-        let mut min_x = container_max_x;
-
-        for placed in &self.placed {
-            let p_max = placed.max_corner();
-            // Check if this box blocks in x direction
-            if placed.position.y < y + 1e-9
-                && p_max.y > y - 1e-9
-                && placed.position.z < z + 1e-9
-                && p_max.z > z - 1e-9
-                && placed.position.x > x - 1e-9
-                && placed.position.x < min_x
-            {
-                min_x = placed.position.x;
-            }
-        }
-
-        (min_x - x).max(0.0)
-    }
-
-    /// Computes residual space in y direction from a given point.
-    fn compute_residual_y(&self, x: f64, y: f64, z: f64) -> f64 {
-        let container_max_y = self.container.y - self.margin;
-        let mut min_y = container_max_y;
-
-        for placed in &self.placed {
-            let p_max = placed.max_corner();
-            // Check if this box blocks in y direction
-            if placed.position.x < x + 1e-9
-                && p_max.x > x - 1e-9
-                && placed.position.z < z + 1e-9
-                && p_max.z > z - 1e-9
-                && placed.position.y > y - 1e-9
-                && placed.position.y < min_y
-            {
-                min_y = placed.position.y;
-            }
-        }
-
-        (min_y - y).max(0.0)
-    }
-
-    /// Computes residual space in z direction from a given point.
-    fn compute_residual_z(&self, x: f64, y: f64, z: f64) -> f64 {
-        let container_max_z = self.container.z - self.margin;
-        let mut min_z = container_max_z;
-
-        for placed in &self.placed {
-            let p_max = placed.max_corner();
-            // Check if this box blocks in z direction
-            if placed.position.x < x + 1e-9
-                && p_max.x > x - 1e-9
-                && placed.position.y < y + 1e-9
-                && p_max.y > y - 1e-9
-                && placed.position.z > z - 1e-9
-                && placed.position.z < min_z
-            {
-                min_z = placed.position.z;
-            }
-        }
-
-        (min_z - z).max(0.0)
     }
 }
 
@@ -533,9 +444,8 @@ mod tests {
 
     #[test]
     fn test_extreme_point_creation() {
-        let ep = ExtremePoint::new(0.0, 0.0, 0.0, 100.0, 100.0, 100.0);
-        assert!(ep.fits(50.0, 50.0, 50.0));
-        assert!(!ep.fits(150.0, 50.0, 50.0));
+        let ep = ExtremePoint::new(10.0, 20.0, 30.0);
+        assert_eq!(ep.pos(), (10.0, 20.0, 30.0));
     }
 
     #[test]
@@ -565,9 +475,43 @@ mod tests {
 
         let (placements, utilization) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
 
-        // Should be able to fit multiple boxes
-        assert!(placements.len() >= 4);
+        // Eight 20-cubes fit comfortably in 100^3; a correct EP set places all of them.
+        assert_eq!(placements.len(), 8);
         assert!(utilization > 0.05);
+    }
+
+    #[test]
+    fn test_ep_packing_perfect_fill() {
+        // Eight 50-cubes tile a 100^3 container exactly (2x2x2). The EP heuristic must
+        // place all 8 for 100% utilization. Before the containment-tolerance fix, EPs
+        // lying on a placed box's face/corner were discarded as "inside", so the EP set
+        // starved and only 4/8 were placed (util 50%). Regression guard for that bug.
+        let geometries = vec![Geometry3D::new("cube", 50.0, 50.0, 50.0).with_quantity(8)];
+        let boundary = Boundary3D::new(100.0, 100.0, 100.0);
+
+        let (placements, utilization) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
+
+        assert_eq!(placements.len(), 8, "EP must place all 8 perfectly-fitting cubes");
+        assert!((utilization - 1.0).abs() < 1e-6, "expected 100% utilization, got {utilization}");
+
+        // And every placement must be in-bounds and pairwise non-overlapping.
+        let boxes: Vec<PlacedBox> = placements
+            .iter()
+            .map(|(id, instance, pos, _)| PlacedBox {
+                id: id.clone(),
+                instance: *instance,
+                position: *pos,
+                dimensions: Vector3::new(50.0, 50.0, 50.0),
+                mass: None,
+            })
+            .collect();
+        for (i, a) in boxes.iter().enumerate() {
+            let m = a.max_corner();
+            assert!(m.x <= 100.0 + 1e-6 && m.y <= 100.0 + 1e-6 && m.z <= 100.0 + 1e-6);
+            for b in &boxes[i + 1..] {
+                assert!(!a.overlaps(b), "perfect-fill placements must not overlap");
+            }
+        }
     }
 
     #[test]

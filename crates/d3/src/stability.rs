@@ -31,7 +31,7 @@ use u_nesting_core::timing::Timer;
 use serde::{Deserialize, Serialize};
 
 /// Stability constraint type for 3D packing.
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum StabilityConstraint {
     /// No stability checking (fastest).

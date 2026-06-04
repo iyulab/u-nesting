@@ -21,18 +21,17 @@ function call(mode, request) {
 
 // Strategies verified to produce valid packings in the current WASM build. The 0.3.4
 // release fixed the runtime panics (sa/gdrr/alns 2D, sa 3D) and 3D orientation/
-// out-of-bounds reporting (ep/ga/brkga). The wasm runtime smoke test
+// out-of-bounds reporting (ep/ga/brkga). 0.3.5 fixed the 3D `ep` under-packing (a
+// faulty fit test starved its extreme-point set, capping it at ~4/8 perfect-fit cubes);
+// EP now matches or beats BLF and is re-enabled. The wasm runtime smoke test
 // (test/wasm_runtime_smoke.mjs) guards every entry here.
 //
-// 3D `ep` is intentionally excluded: it under-packs badly (places ~4/8 perfect-fit
-// cubes vs BLF's 8/8) because its extreme-point generation is incomplete. Tracked in
-// claudedocs/issues/ISSUE-u-nesting-20260604-3d-ep-underpacking.md — re-add once fixed.
 // valid[0] is the default selection. NFP leads for 2D: it is near-instant and packs
 // noticeably better than BLF, so the first run shows the optimizer working rather than
 // a naive baseline with many unplaced parts (users can still pick BLF for the baseline).
 const VALID = {
   '2d': ['nfp', 'blf', 'ga', 'brkga', 'sa', 'gdrr', 'alns'],
-  '3d': ['blf', 'ga', 'brkga', 'sa'],
+  '3d': ['blf', 'ep', 'ga', 'brkga', 'sa'],
 };
 
 // --- DOM refs ---
@@ -58,12 +57,14 @@ function presetSource() { return mode === '3d' ? presets3d : presets2d; }
 
 function controlSpec() {
   if (mode === '3d') {
-    // Gravity/Stability toggles were removed: the WASM 3D solver accepts the flags but
-    // does not enforce them during placement (tracked in claudedocs/issues/
-    // ISSUE-u-nesting-20260604-3d-gravity-stability-unenforced.md). Max mass *is*
-    // enforced (parts carry a mass), so it stays.
+    // Gravity/Stability are enforced as of 0.3.5: the solver drops boxes that float
+    // (gravity) or rest on too little base (stability). The effect is visible with the
+    // metaheuristic strategies (GA/SA/BRKGA), which may place unsupported boxes that the
+    // constraint then removes; BLF/EP pack bottom-up so they are unaffected.
     return [
       { key: 'time_limit_ms', label: 'Time limit (ms)', type: 'range', min: 100, max: 8000, step: 100, value: 2000 },
+      { key: 'gravity', label: 'Gravity', type: 'toggle', value: false },
+      { key: 'stability', label: 'Stability', type: 'toggle', value: false },
       { key: 'max_mass', label: 'Max mass (0 = none)', type: 'number', min: 0, value: 0 },
     ];
   }
@@ -228,10 +229,8 @@ async function run3d(metrics) {
     geometries,
     boundary: {
       ...boundary,
-      // gravity/stability are accepted by the schema but not enforced by the solver (see
-      // controlSpec note); sent as false so the request shape stays valid.
-      gravity: false,
-      stability: false,
+      gravity: controlState.gravity,
+      stability: controlState.stability,
       max_mass: controlState.max_mass > 0 ? controlState.max_mass : undefined,
     },
     config: { strategy: $('strategy').value, time_limit_ms: controlState.time_limit_ms },
