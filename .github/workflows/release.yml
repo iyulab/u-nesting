@@ -30,6 +30,9 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Verify binding versions are in lockstep
+        run: bash scripts/check-version-consistency.sh
+
       - name: Get current version
         id: get_version
         run: |

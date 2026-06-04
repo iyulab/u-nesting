@@ -4,7 +4,9 @@ build-backend = "maturin"
 
 [project]
 name = "u-nesting"
-version = "0.1.0"
+# Version is inherited from the workspace via Cargo.toml (`version.workspace = true`).
+# maturin reads it from cargo metadata; keep it out of here so it can never drift.
+dynamic = ["version"]
 description = "2D/3D spatial optimization engine for nesting and bin packing"
 readme = "README.md"
 license = { text = "MIT" }

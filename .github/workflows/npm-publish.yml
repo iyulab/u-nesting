@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify binding versions are in lockstep
+        run: bash scripts/check-version-consistency.sh
+
       - name: Checkout path dependencies
         shell: bash
         run: |
