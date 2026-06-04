@@ -19,13 +19,20 @@ function call(mode, request) {
   return new Promise((resolve) => { const id = ++reqId; pending.set(id, resolve); worker.postMessage({ id, mode, request }); });
 }
 
-// Strategies verified to work in the current WASM build. The 0.3.4 release fixed the
-// runtime panics (sa/gdrr/alns 2D, sa 3D) and 3D orientation/out-of-bounds reporting
-// (ep/ga/brkga), so all strategies are now enabled. The wasm runtime smoke test
+// Strategies verified to produce valid packings in the current WASM build. The 0.3.4
+// release fixed the runtime panics (sa/gdrr/alns 2D, sa 3D) and 3D orientation/
+// out-of-bounds reporting (ep/ga/brkga). The wasm runtime smoke test
 // (test/wasm_runtime_smoke.mjs) guards every entry here.
+//
+// 3D `ep` is intentionally excluded: it under-packs badly (places ~4/8 perfect-fit
+// cubes vs BLF's 8/8) because its extreme-point generation is incomplete. Tracked in
+// claudedocs/issues/ISSUE-u-nesting-20260604-3d-ep-underpacking.md — re-add once fixed.
+// valid[0] is the default selection. NFP leads for 2D: it is near-instant and packs
+// noticeably better than BLF, so the first run shows the optimizer working rather than
+// a naive baseline with many unplaced parts (users can still pick BLF for the baseline).
 const VALID = {
-  '2d': ['blf', 'nfp', 'ga', 'brkga', 'sa', 'gdrr', 'alns'],
-  '3d': ['blf', 'ep', 'ga', 'brkga', 'sa'],
+  '2d': ['nfp', 'blf', 'ga', 'brkga', 'sa', 'gdrr', 'alns'],
+  '3d': ['blf', 'ga', 'brkga', 'sa'],
 };
 
 // --- DOM refs ---
@@ -51,10 +58,12 @@ function presetSource() { return mode === '3d' ? presets3d : presets2d; }
 
 function controlSpec() {
   if (mode === '3d') {
+    // Gravity/Stability toggles were removed: the WASM 3D solver accepts the flags but
+    // does not enforce them during placement (tracked in claudedocs/issues/
+    // ISSUE-u-nesting-20260604-3d-gravity-stability-unenforced.md). Max mass *is*
+    // enforced (parts carry a mass), so it stays.
     return [
       { key: 'time_limit_ms', label: 'Time limit (ms)', type: 'range', min: 100, max: 8000, step: 100, value: 2000 },
-      { key: 'gravity', label: 'Gravity', type: 'toggle', value: false },
-      { key: 'stability', label: 'Stability', type: 'toggle', value: false },
       { key: 'max_mass', label: 'Max mass (0 = none)', type: 'number', min: 0, value: 0 },
     ];
   }
@@ -219,8 +228,10 @@ async function run3d(metrics) {
     geometries,
     boundary: {
       ...boundary,
-      gravity: controlState.gravity,
-      stability: controlState.stability,
+      // gravity/stability are accepted by the schema but not enforced by the solver (see
+      // controlSpec note); sent as false so the request shape stays valid.
+      gravity: false,
+      stability: false,
       max_mass: controlState.max_mass > 0 ? controlState.max_mass : undefined,
     },
     config: { strategy: $('strategy').value, time_limit_ms: controlState.time_limit_ms },
@@ -235,17 +246,22 @@ async function run3d(metrics) {
 
 // --- Metrics rendering ---
 function row(k, v) { return `<div class="row"><span class="k">${k}</span><span>${v}</span></div>`; }
+// Total requested part instances across all geometries. The API's `unplaced` field
+// lists *distinct geometry ids* that failed (deduplicated), so `unplaced.length`
+// under-reports — e.g. 5 unplaced instances of one part shows as "1". The true
+// per-instance count is (total requested − placed), which the demo can compute here.
+function totalQuantity() { return geometries.reduce((s, g) => s + (g.quantity ?? 1), 0); }
 function showMetrics2d(el, r, issues) {
   el.innerHTML = row('Utilization', `${(r.utilization * 100).toFixed(1)}%`) +
     row('Sheets', r.sheets_used) + row('Placed', r.placements.length) +
-    row('Unplaced', r.unplaced.length) + row('Time', `${r.elapsed_ms} ms`) +
-    (issues.length ? `<div class="warn">⚠ self-check: ${issues.length} (AABB, suspected)</div>` : '');
+    row('Unplaced', totalQuantity() - r.placements.length) + row('Time', `${r.elapsed_ms} ms`) +
+    (issues.length ? `<div class="warn">⚠ self-check: ${issues.length}</div>` : '');
   showUtil(r.utilization);
 }
 function showMetrics3d(el, r, issues) {
   el.innerHTML = row('Utilization', `${(r.utilization * 100).toFixed(1)}%`) +
     row('Bins', r.bins_used) + row('Placed', r.placements.length) +
-    row('Unplaced', r.unplaced.length) + row('Time', `${r.elapsed_ms} ms`) +
+    row('Unplaced', totalQuantity() - r.placements.length) + row('Time', `${r.elapsed_ms} ms`) +
     (issues.length ? `<div class="warn">⚠ self-check: ${issues.length}</div>` : '');
   showUtil(r.utilization);
 }

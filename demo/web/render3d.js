@@ -1,8 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { dimsForOrientation } from './transform.js';
-
-const COLORS = [0x4f8cff, 0xff7a59, 0x33c08d, 0xc084fc, 0xf5b301, 0xef5da8, 0x5ad1e6];
+import { colorFor, seedColors } from './render2d.js';
 
 let scene, camera, renderer, controls, group;
 
@@ -11,7 +10,9 @@ function ensureScene(canvas) {
   scene = new THREE.Scene();
   scene.background = new THREE.Color(0x0e1116);
   camera = new THREE.PerspectiveCamera(50, canvas.clientWidth / canvas.clientHeight, 0.1, 5000);
-  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  // preserveDrawingBuffer keeps the rendered frame readable by canvas.toDataURL — without
+  // it the PNG export captures a cleared (blank) buffer. Negligible cost for this demo.
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
   renderer.setSize(canvas.clientWidth, canvas.clientHeight, false);
   controls = new OrbitControls(camera, renderer.domElement);
   scene.add(new THREE.AmbientLight(0xffffff, 0.6));
@@ -53,6 +54,7 @@ function check3d(boxes, boundary) {
 export function render3d(geometries, response, canvas, boundary) {
   ensureScene(canvas);
   group.clear();
+  seedColors(geometries);
   const dimsById = new Map(geometries.map((g) => [g.id, g.dimensions]));
   const [bw, bd, bh] = boundary.dimensions;
 
@@ -66,7 +68,6 @@ export function render3d(geometries, response, canvas, boundary) {
   group.add(binEdges);
 
   const checkBoxes = [];
-  let k = 0;
   for (const p of response.placements) {
     if (p.bin_index !== 0) continue; // demo: first bin only
     const dims = dimsById.get(p.id);
@@ -74,9 +75,10 @@ export function render3d(geometries, response, canvas, boundary) {
     const [w, d, h] = dimsForOrientation(dims, p.orientation); // [width(x), depth(y), height(z)]
     checkBoxes.push({ x: p.x, y: p.y, z: p.z, w, d, h });
 
+    // Color by part id (matches the legend) so all instances of one part share a color.
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(w, h, d), // THREE(width, height, depth)
-      new THREE.MeshLambertMaterial({ color: COLORS[k % COLORS.length] })
+      new THREE.MeshLambertMaterial({ color: colorFor(p.id) })
     );
     // library (x,y,z) min corner, z=up -> THREE center (x+w/2, z+h/2, y+d/2)
     mesh.position.set(p.x + w / 2, p.z + h / 2, p.y + d / 2);
@@ -87,7 +89,6 @@ export function render3d(geometries, response, canvas, boundary) {
     );
     edge.position.copy(mesh.position);
     group.add(edge);
-    k++;
   }
 
   // camera placement

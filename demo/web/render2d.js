@@ -2,10 +2,19 @@ import { transformPolygon2d } from './transform.js';
 import { checkPlacements2d } from './selfcheck.js';
 
 const PALETTE = ['#4f8cff', '#ff7a59', '#33c08d', '#c084fc', '#f5b301', '#ef5da8', '#5ad1e6', '#a3e635'];
-const colorCache = new Map();
+let colorMap = new Map();
+// Assigns a stable color to each geometry id by its position in the current part list.
+// Rebuilt per render (call from render2d/render3d) so a part's color depends only on the
+// active geometry set — not on which mode/preset was viewed earlier in the session. The
+// previous global cache leaked across mode switches: 3D's ids (big/mid/small) seeded the
+// palette first, shifting 2D's A/B/C to later colors so the same part changed color.
+export function seedColors(geometries) {
+  colorMap = new Map();
+  geometries.forEach((g, i) => colorMap.set(g.id, PALETTE[i % PALETTE.length]));
+}
 export function colorFor(id) {
-  if (!colorCache.has(id)) colorCache.set(id, PALETTE[colorCache.size % PALETTE.length]);
-  return colorCache.get(id);
+  if (!colorMap.has(id)) colorMap.set(id, PALETTE[colorMap.size % PALETTE.length]);
+  return colorMap.get(id);
 }
 
 export function boundaryPolygon(boundary) {
@@ -24,6 +33,7 @@ export function boundaryExtent(boundary) {
 // ctx: CanvasRenderingContext2D, response: SolveResponse, viewport: Viewport2D
 // returns: { hitItems, issues, sheets }
 export function render2d(ctx, geometries, response, viewport, boundary, activeSheet) {
+  seedColors(geometries);
   const canvas = ctx.canvas;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.fillStyle = '#0e1116';
