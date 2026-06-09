@@ -57,6 +57,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - FFI JSON schema regression guards pinning the Rust output to the C# binding
   contract for both 2D and 3D (`schema_guard_2d/3d_matches_csharp_*`).
 
+### ⚠️ BREAKING — 3D wire schema (migration from ≤ 0.3.2)
+3D `solve` responses moved from the 2D `SolveResponse` shape to the dedicated
+`Pack3DResponse` / `Placement3DResponse`. Consumers reading 3D output must rename:
+
+| ≤ 0.3.2 (old) | 0.3.3+ (current) |
+|---------------|------------------|
+| `placement.geometry_id` | `placement.id` |
+| `placement.position: [x, y, z]` | flat `placement.x`, `placement.y`, `placement.z` |
+| `placement.rotation: [rx, ry, rz]` (numeric) | `placement.orientation: "xyz"` (axis-permutation **string**) |
+| `placement.boundary_index` | `placement.bin_index` |
+| `response.boundaries_used` | `response.bins_used` |
+| `response.computation_time_ms` | `response.elapsed_ms` |
+
+The numeric `rotation` → string `orientation` change is semantic: `orientation` is
+an axis-permutation label (see `Geometry3D::orientation_label`), not Euler angles.
+Map it to axis swaps in your renderer rather than treating it as a rotation vector.
+
+## [0.3.2] - 2026-05-12
+
+### ⚠️ BREAKING — 2D wire schema (`align …JSON schema with C# binding`)
+2D `solve` `PlacementResponse` / `SolveResponse` JSON fields were renamed and
+restructured to match the C# `Geometry2D` / nesting-result binding. This is a
+silent runtime break for JSON consumers (the WASM API returns a JSON string, so
+TypeScript/`tsc` does **not** catch it). Migration from 0.3.1:
+
+| 0.3.1 (old) | 0.3.2+ (current) |
+|-------------|------------------|
+| `placement.geometry_id` | `placement.id` |
+| `placement.position: [x, y]` | flat `placement.x`, `placement.y` |
+| `placement.rotation: [r]` (array) | `placement.rotation` (scalar number) |
+| `placement.boundary_index` | `placement.sheet_index` |
+| `response.boundaries_used` | `response.sheets_used` |
+| `response.computation_time_ms` | `response.elapsed_ms` |
+| — | + `placement.flipped` (bool) |
+
+### Fixed
+- C# JSON schema mismatch: Rust 2D output now matches the C# binding contract.
+
+### Added
+- NuGet release workflow + `.targets` for native DLL auto-copy; auto-trigger on
+  `.csproj` version change.
+
+## [0.3.1] - 2026-03-09
+
+### Fixed
+- WASM-compatible `Timer` abstraction to prevent `Instant::now()` panic under
+  `wasm32` (no monotonic clock in the browser target).
+
+### Added
+- npm publish workflow for `@iyulab/u-nesting`.
+
+## [0.3.0] - 2026-03-08
+
+### Added
+- `u-nesting-wasm` crate — 2D nesting, 3D packing, and cutting-path optimization
+  exposed via WebAssembly (JSON string in / JSON string out).
+- Shared `api_types` module: request/response types extracted so the C FFI and
+  WASM bindings share one JSON schema definition.
+- Cutting-path optimization crate (GTSP solver, kerf compensation, lead-in/out,
+  bridge/tab micro-joints, thermal HAZ model, common-edge detection).
+
+### Changed
+- `rayon` made optional across `core`/`d2`/`d3` for WASM compatibility; parallel
+  vs sequential branching now selected via `cfg` attributes.
+
 ## [0.2.0] - 2026-02-09
 
 ### Changed
