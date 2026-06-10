@@ -19,7 +19,8 @@ authors = ["iyulab"]
 license = "MIT"
 repository = "https://github.com/iyulab/U-Nesting"
 description = "Domain-agnostic 2D/3D spatial optimization engine"
-keywords = ["nesting", "bin-packing", "optimization", "geometry", "2d", "3d"]
+# crates.io allows at most 5 keywords — keep this list inheritable.
+keywords = ["nesting", "bin-packing", "geometry", "2d", "3d"]
 categories = ["algorithms", "mathematics", "science"]
 rust-version = "1.82"
 
