@@ -197,3 +197,45 @@ jobs:
         run: wasm-pack build crates/wasm --target web --out-dir /tmp/wasm-pkg --dev
       - name: Run WASM runtime smoke tests
         run: PKG=/tmp/wasm-pkg node --test demo/web/test/wasm_runtime_smoke.mjs
+
+  semver:
+    name: SemVer (cargo-semver-checks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Checkout path dependencies
+        shell: bash
+        run: |
+          mkdir -p ../../algorithms ../../foundation
+          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
+          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
+          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check public API against the latest crates.io release
+        uses: obi1kenobi/cargo-semver-checks-action@v2
+        with:
+          package: u-nesting
+
+  changelog-gate:
+    name: Wire-schema CHANGELOG gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require a CHANGELOG entry when the wire schema changes
+        shell: bash
+        run: |
+          BASE="${{ github.event.pull_request.base.sha || github.event.before }}"
+          if [ -z "$BASE" ] || [ "$BASE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BASE" 2>/dev/null; then
+            BASE="$(git rev-parse HEAD~1 2>/dev/null || true)"
+          fi
+          if [ -z "$BASE" ]; then exit 0; fi
+          CHANGED="$(git diff --name-only "$BASE" HEAD)"
+          printf '%s\n' "$CHANGED"
+          if printf '%s\n' "$CHANGED" | grep -qE '^(crates/core/src/api_types\.rs)$' \
+             && ! printf '%s\n' "$CHANGED" | grep -q '^CHANGELOG\.md$'; then
+            echo "::error::wire schema changed without a CHANGELOG.md entry — document the change (BREAKING note + field migration table when fields change)"
+            exit 1
+          fi
