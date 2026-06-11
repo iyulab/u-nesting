@@ -13,7 +13,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.3.5"
+version = "0.4.0"
 edition = "2021"
 authors = ["iyulab"]
 license = "MIT"
@@ -65,11 +65,11 @@ pyo3 = { version = "0.24", features = ["extension-module"] }
 wasm-bindgen = "0.2"
 
 # Internal crates
-u-nesting-core = { version = "0.3.5", path = "crates/core" }
-u-nesting-d2 = { version = "0.3.5", path = "crates/d2" }
-u-nesting-d3 = { version = "0.3.5", path = "crates/d3" }
-u-nesting-cutting = { version = "0.3.5", path = "crates/cutting" }
-u-nesting-ffi = { version = "0.3.5", path = "crates/ffi" }
+u-nesting-core = { version = "0.4.0", path = "crates/core" }
+u-nesting-d2 = { version = "0.4.0", path = "crates/d2" }
+u-nesting-d3 = { version = "0.4.0", path = "crates/d3" }
+u-nesting-cutting = { version = "0.4.0", path = "crates/cutting" }
+u-nesting-ffi = { version = "0.4.0", path = "crates/ffi" }
 u-nesting = { version = "0.3.1", path = "crates/u-nesting" }
 
 [profile.release]

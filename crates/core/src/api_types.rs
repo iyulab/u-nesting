@@ -22,10 +22,17 @@ pub enum Mode {
 
 /// Request for 2D nesting.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Request2D {
     /// API version.
     #[serde(default)]
     pub version: Option<String>,
+
+    /// Mode discriminator used by the auto-detect `solve` entry point.
+    /// Accepted (and validated) here so a dispatched request round-trips
+    /// under the strict unknown-field policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<Mode>,
 
     /// Geometries to place.
     pub geometries: Vec<Geometry2DRequest>,
@@ -40,10 +47,17 @@ pub struct Request2D {
 
 /// Request for 3D bin packing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Request3D {
     /// API version.
     #[serde(default)]
     pub version: Option<String>,
+
+    /// Mode discriminator used by the auto-detect `solve` entry point.
+    /// Accepted (and validated) here so a dispatched request round-trips
+    /// under the strict unknown-field policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<Mode>,
 
     /// Geometries to place.
     pub geometries: Vec<Geometry3DRequest>,
@@ -58,6 +72,7 @@ pub struct Request3D {
 
 /// 2D geometry request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Geometry2DRequest {
     /// Unique identifier.
     pub id: String,
@@ -84,6 +99,7 @@ pub struct Geometry2DRequest {
 
 /// 2D boundary request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Boundary2DRequest {
     /// Width for rectangular boundary.
     pub width: Option<f64>,
@@ -97,6 +113,7 @@ pub struct Boundary2DRequest {
 
 /// 3D geometry request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Geometry3DRequest {
     /// Unique identifier.
     pub id: String,
@@ -118,6 +135,7 @@ pub struct Geometry3DRequest {
 
 /// 3D boundary request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Boundary3DRequest {
     /// Dimensions [width, depth, height].
     pub dimensions: [f64; 3],
@@ -136,6 +154,7 @@ pub struct Boundary3DRequest {
 
 /// Configuration request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigRequest {
     /// Spacing between geometries.
     pub spacing: Option<f64>,
@@ -167,6 +186,7 @@ pub struct ConfigRequest {
 
 /// Response for solve operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SolveResponse {
     /// API version.
     pub version: String,
@@ -197,6 +217,7 @@ pub struct SolveResponse {
 
 /// Placement response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlacementResponse {
     /// Geometry ID.
     #[serde(rename = "id")]
@@ -261,6 +282,7 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
 /// `orientation` label. Mirrors the C# `PackingResult` binding
 /// (bindings/csharp/UNesting/Models/Geometry3D.cs).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Pack3DResponse {
     /// API version.
     pub version: String,
@@ -294,6 +316,7 @@ pub struct Pack3DResponse {
 /// Mirrors the C# `Placement3D` binding: carries `z` and a string
 /// `orientation` label (e.g. `"xyz"`), and uses `bin_index` (not `sheet_index`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Placement3DResponse {
     /// Geometry ID.
     #[serde(rename = "id")]
@@ -338,6 +361,7 @@ impl Pack3DResponse {
 
 /// Request for cutting path optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CuttingRequest {
     /// Original geometry definitions (same format as nesting request).
     pub geometries: Vec<Geometry2DRequest>,
@@ -352,6 +376,7 @@ pub struct CuttingRequest {
 
 /// Cutting path configuration request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CuttingConfigRequest {
     /// Kerf width (cutting tool width). Set to 0.0 to disable kerf compensation.
     pub kerf_width: Option<f64>,
@@ -386,6 +411,7 @@ pub struct CuttingConfigRequest {
 
 /// Response for cutting path optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CuttingResponse {
     /// API version.
     pub version: String,
@@ -421,6 +447,7 @@ pub struct CuttingResponse {
 
 /// A single step in the cutting sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CutStepResponse {
     /// Contour ID.
     pub contour_id: usize,
@@ -481,5 +508,58 @@ impl CuttingResponse {
             efficiency: 0.0,
             computation_time_ms: 0,
         }
+    }
+}
+
+#[cfg(test)]
+mod dto_strictness_tests {
+    use serde_json::json;
+
+    fn assert_rejects_unknown<T: serde::de::DeserializeOwned>(v: serde_json::Value) {
+        match serde_json::from_value::<T>(v) {
+            Ok(_) => panic!("unknown key must be rejected"),
+            Err(e) => assert!(e.to_string().contains("unknown field"), "{e}"),
+        }
+    }
+
+    #[test]
+    fn request_2d_rejects_unknown_keys() {
+        assert_rejects_unknown::<super::Request2D>(json!({
+            "geometries": [{ "id": "g1", "polygon": [[0.0,0.0],[1.0,0.0],[1.0,1.0]] }],
+            "boundary": { "width": 10.0, "height": 10.0 },
+            "sheets": 2
+        }));
+    }
+
+    #[test]
+    fn request_3d_nested_rejects_unknown_keys() {
+        assert_rejects_unknown::<super::Geometry3DRequest>(json!({
+            "id": "b1", "dimensions": [1.0, 1.0, 1.0], "weight": 5.0
+        }));
+        assert_rejects_unknown::<super::Boundary3DRequest>(json!({
+            "dimensions": [10.0, 10.0, 10.0], "max_weight": 100.0
+        }));
+    }
+
+    #[test]
+    fn config_rejects_unknown_keys() {
+        assert_rejects_unknown::<super::ConfigRequest>(json!({
+            "spacing": 1.0, "rotation_step": 90
+        }));
+        assert_rejects_unknown::<super::CuttingConfigRequest>(json!({
+            "kerf_width": 0.2, "kerf": 0.2
+        }));
+    }
+
+    #[test]
+    fn cutting_request_rejects_unknown_keys() {
+        assert_rejects_unknown::<super::CuttingRequest>(json!({
+            "geometries": [],
+            "solve_result": {
+                "version": "1", "placements": [], "sheets_used": 0,
+                "utilization": 0.0, "elapsed_ms": 0.0, "unplaced": []
+            },
+            "config": {}
+        }));
     }
 }

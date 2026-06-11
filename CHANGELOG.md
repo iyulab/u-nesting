@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-12
+
+### Changed — BREAKING (wire schema)
+
+- All request objects (`solve_2d`/`solve_3d`/`optimize_cutting_path` —
+  including nested geometry, boundary, and config objects) now **reject
+  unknown keys** with an explicit `unknown field` error instead of silently
+  ignoring them (`serde(deny_unknown_fields)`). Typos and unsupported options
+  previously failed silently; remove any extra keys when upgrading.
+- Response wire types apply the same strictness when deserialized (relevant
+  for the `optimize_cutting_path` `solve_result` passthrough).
+
+### Added
+
+- `Request2D`/`Request3D` gain an optional `mode` field (`"2d"`/`"3d"`) —
+  the auto-detect `solve` entry point's discriminator is now a declared part
+  of the schema instead of an incidentally-tolerated extra key. It is omitted
+  from serialization when absent.
+
+### Changed
+
+- Dependency: `u-metaheur` `^0.2` → `^0.3`.
+
 ## [0.3.5] - 2026-06-04
 
 ### Fixed
