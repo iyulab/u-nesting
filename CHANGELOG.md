@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Upgrade PyO3 `0.24` → `0.29` to remediate two advisories flagged by
+  `cargo audit`:
+  - **RUSTSEC-2026-0176** — out-of-bounds read in `nth`/`nth_back` for `PyList`
+    and `PyTuple` iterators (unchecked arithmetic). Fixed in PyO3 0.29.0.
+  - **RUSTSEC-2026-0177** — missing `Sync` bound on `PyCFunction::new_closure`
+    closures (thread-safety). Fixed in PyO3 0.29.0.
+  Python binding return types (`solve_2d`/`solve_3d`) migrated from the
+  prelude-removed `PyObject` to `Bound<'py, PyAny>`; no Python-facing API change.
+
 ## [0.4.0] - 2026-06-12
 
 ### Changed — BREAKING (wire schema)

@@ -59,7 +59,7 @@ approx = "0.5"
 criterion = "0.5"
 
 # Python bindings
-pyo3 = { version = "0.24", features = ["extension-module"] }
+pyo3 = { version = "0.29", features = ["extension-module"] }
 
 # WebAssembly bindings
 wasm-bindgen = "0.2"

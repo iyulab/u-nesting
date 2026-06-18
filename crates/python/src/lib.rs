@@ -211,12 +211,12 @@ fn build_config(input: Option<ConfigInput>) -> Config {
 ///     utilization, unplaced, computation_time_ms, error
 #[pyfunction]
 #[pyo3(signature = (geometries, boundary, config=None))]
-fn solve_2d(
-    py: Python<'_>,
+fn solve_2d<'py>(
+    py: Python<'py>,
     geometries: &Bound<'_, PyAny>,
     boundary: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Bound<'py, PyAny>> {
     // Parse geometries
     let geom_json: String = py
         .import("json")?
@@ -324,7 +324,7 @@ fn solve_2d(
         .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
     let json_module = py.import("json")?;
     let result = json_module.call_method1("loads", (output_json,))?;
-    Ok(result.into())
+    Ok(result)
 }
 
 /// Solve a 3D bin packing problem.
@@ -348,12 +348,12 @@ fn solve_2d(
 ///     utilization, unplaced, computation_time_ms, error
 #[pyfunction]
 #[pyo3(signature = (geometries, boundary, config=None))]
-fn solve_3d(
-    py: Python<'_>,
+fn solve_3d<'py>(
+    py: Python<'py>,
     geometries: &Bound<'_, PyAny>,
     boundary: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
-) -> PyResult<PyObject> {
+) -> PyResult<Bound<'py, PyAny>> {
     // Parse geometries
     let geom_json: String = py
         .import("json")?
@@ -454,7 +454,7 @@ fn solve_3d(
         .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
     let json_module = py.import("json")?;
     let result = json_module.call_method1("loads", (output_json,))?;
-    Ok(result.into())
+    Ok(result)
 }
 
 /// Get the library version.
