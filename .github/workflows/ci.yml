@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -150,8 +154,7 @@ jobs:
           git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
           git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
-      - name: Install cargo-audit
-        run: cargo install cargo-audit
+      - uses: taiki-e/install-action@cargo-audit
       - run: cargo audit
 
   coverage:
