@@ -34,6 +34,8 @@ jobs:
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check --workspace --all-features
 
   fmt:
@@ -69,6 +71,8 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo clippy --workspace --all-features -- -D warnings
 
   test:
@@ -89,6 +93,8 @@ jobs:
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Run tests
         run: cargo test --workspace --all-features
         env:
@@ -108,6 +114,8 @@ jobs:
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo doc --workspace --exclude u-nesting-python --no-deps --all-features
         env:
           RUSTDOCFLAGS: -D warnings
@@ -126,6 +134,8 @@ jobs:
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo bench --workspace --exclude u-nesting-python --no-run
 
   audit:
@@ -162,6 +172,8 @@ jobs:
           components: llvm-tools-preview
       - uses: taiki-e/install-action@cargo-llvm-cov
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
       - uses: codecov/codecov-action@v4
         with:
@@ -184,6 +196,8 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check --workspace --exclude u-nesting-ffi --exclude u-nesting-python --exclude u-nesting-benchmark --target wasm32-unknown-unknown
       # `cargo check` only compiles; it cannot catch runtime panics (e.g. Instant /
       # thread on wasm) or wrong results. Build the actual wasm package and exercise
@@ -212,6 +226,8 @@ jobs:
           git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Check public API against the latest crates.io release
         uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
