@@ -161,34 +161,14 @@ jobs:
           path: dist
           retention-days: 1
 
-  sdist:
-    needs: check-version
-    if: needs.check-version.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Checkout path dependencies
-        shell: bash
-        run: |
-          mkdir -p ../../foundation ../../algorithms
-          git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
-          git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
-          git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
-      - name: Build sdist
-        uses: PyO3/maturin-action@v1
-        with:
-          command: sdist
-          args: --out dist -m crates/python/Cargo.toml
-      - name: Upload sdist
-        uses: actions/upload-artifact@v4
-        with:
-          name: wheels-sdist
-          path: dist
-          retention-days: 1
+  # No sdist: the crate has out-of-tree path dependencies (../../foundation,
+  # ../../algorithms) that maturin cannot bundle into a self-contained source
+  # distribution (`cargo package --list` fails on the sibling workspaces). Wheels
+  # are the published artifact; building from source requires the full umbrella repo.
 
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: [check-version, linux, windows, macos, sdist]
+    needs: [check-version, linux, windows, macos]
     runs-on: ubuntu-latest
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to == 'testpypi'
     environment:
@@ -209,7 +189,7 @@ jobs:
 
   publish-pypi:
     name: Publish to PyPI
-    needs: [check-version, linux, windows, macos, sdist]
+    needs: [check-version, linux, windows, macos]
     runs-on: ubuntu-latest
     if: (needs.check-version.outputs.changed == 'true' && github.event_name == 'push') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish_to == 'pypi')
     environment:

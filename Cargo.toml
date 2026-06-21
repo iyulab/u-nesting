@@ -58,8 +58,11 @@ proptest = "1.5"
 approx = "0.5"
 criterion = "0.5"
 
-# Python bindings
-pyo3 = { version = "0.29", features = ["extension-module"] }
+# Python bindings.
+# abi3-py38 builds against CPython's stable ABI: one wheel works on Python 3.8+
+# (matching pyproject `requires-python >=3.8`) and cross-compiles (e.g. aarch64)
+# without a target-arch interpreter — which the version-specific build could not.
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py38"] }
 
 # WebAssembly bindings
 wasm-bindgen = "0.2"
