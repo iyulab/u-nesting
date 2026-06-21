@@ -125,7 +125,7 @@ Classic genetic algorithm that evolves a population of placement sequences.
 
 **Parameters**:
 - `population_size`: Number of individuals (default: 50)
-- `generations`: Number of generations (default: 100)
+- `max_generations`: Number of generations (default: 100)
 - `mutation_rate`: Probability of mutation (default: 0.1)
 - `elite_count`: Number of elites preserved (default: 2)
 
@@ -142,7 +142,7 @@ Classic genetic algorithm that evolves a population of placement sequences.
 config = {
     "strategy": "ga",
     "population_size": 100,
-    "generations": 200
+    "max_generations": 200
 }
 result = u_nesting.solve_2d(parts, sheet, config=config)
 ```
@@ -182,7 +182,7 @@ Advanced genetic algorithm using random keys for better search characteristics.
 config = {
     "strategy": "brkga",
     "population_size": 100,
-    "generations": 300,
+    "max_generations": 300,
     "elite_ratio": 0.25
 }
 result = u_nesting.solve_2d(parts, sheet, config=config)

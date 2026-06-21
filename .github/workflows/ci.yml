@@ -215,6 +215,21 @@ jobs:
       - name: Run WASM runtime smoke tests
         run: PKG=/tmp/wasm-pkg node --test demo/web/test/wasm_runtime_smoke.mjs
 
+  csharp:
+    name: C# DTO Wire Contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Pure managed serialization/round-trip guards — no native library needed, so
+      # no Rust toolchain or path dependencies. Pins C# request DTO JSON keys to the
+      # canonical Rust `ConfigRequest` wire names (deny_unknown_fields), catching
+      # drift like `generations` vs `max_generations` before it reaches a consumer.
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run C# wire-contract tests
+        run: dotnet test bindings/csharp/UNesting.Tests/UNesting.Tests.csproj -c Release
+
   semver:
     name: SemVer (cargo-semver-checks)
     runs-on: ubuntu-latest

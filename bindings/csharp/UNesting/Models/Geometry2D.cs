@@ -125,11 +125,11 @@ public class Config2D
     public int PopulationSize { get; set; }
 
     /// <summary>
-    /// Number of generations for GA/BRKGA strategies.
+    /// Maximum number of generations for GA/BRKGA strategies.
     /// </summary>
-    [JsonPropertyName("generations")]
+    [JsonPropertyName("max_generations")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public int Generations { get; set; }
+    public int MaxGenerations { get; set; }
 
     /// <summary>
     /// Distribute overflow across multiple sheets. When true, parts that do not fit

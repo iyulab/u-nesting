@@ -50,6 +50,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are reported via an after-loop `unplaced` sweep. `solve_multi_strip` also now
   records `total_requested` (it previously left it `0`).
 
+- **C# config key drift corrected.** The C# `Config2D`/`Config3D` DTOs serialized
+  the GA/BRKGA generation cap as `"generations"`, but the Rust wire contract
+  (`ConfigRequest`, `deny_unknown_fields`) only accepts `"max_generations"` — so
+  setting it from C# caused the FFI to **reject the whole request**. The property
+  is renamed `Generations` → `MaxGenerations` (`[JsonPropertyName("max_generations")]`),
+  and the same key was corrected across the user-guide examples. **Breaking for C#
+  callers** that set `Config2D.Generations`. A new `UNesting.Tests` project plus a
+  CI `csharp` job now pin every emitted C# config key to the canonical Rust wire
+  names so this class of drift fails in CI.
+
 ### Security
 
 - Upgrade PyO3 `0.24` → `0.29` to remediate two advisories flagged by

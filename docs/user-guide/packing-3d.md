@@ -99,7 +99,7 @@ When `stability: true`:
   "time_limit_ms": 30000,
   "support_ratio": 0.7,
   "population_size": 50,
-  "generations": 100
+  "max_generations": 100
 }
 ```
 
@@ -109,7 +109,7 @@ When `stability: true`:
 | `time_limit_ms` | integer | 30000 | Maximum solving time |
 | `support_ratio` | number | 0.75 | Min support area ratio for stability |
 | `population_size` | integer | 50 | GA/BRKGA population |
-| `generations` | integer | 100 | GA/BRKGA generations |
+| `max_generations` | integer | 100 | GA/BRKGA generations |
 
 ## Output Format
 
@@ -253,7 +253,7 @@ def on_progress(progress):
 result = u_nesting.solve_3d_with_progress(
     boxes, container,
     callback=on_progress,
-    config={"strategy": "brkga", "generations": 200}
+    config={"strategy": "brkga", "max_generations": 200}
 )
 ```
 

@@ -127,11 +127,11 @@ public class Config3D
     public int PopulationSize { get; set; }
 
     /// <summary>
-    /// Number of generations for GA/BRKGA strategies.
+    /// Maximum number of generations for GA/BRKGA strategies.
     /// </summary>
-    [JsonPropertyName("generations")]
+    [JsonPropertyName("max_generations")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public int Generations { get; set; }
+    public int MaxGenerations { get; set; }
 }
 
 /// <summary>

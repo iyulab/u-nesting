@@ -49,7 +49,7 @@ For batch processing where quality matters:
 config = {
     "strategy": "brkga",
     "population_size": 100,
-    "generations": 500,
+    "max_generations": 500,
     "time_limit_ms": 60000
 }
 ```
@@ -62,7 +62,7 @@ For most production use cases:
 config = {
     "strategy": "brkga",
     "population_size": 50,
-    "generations": 200,
+    "max_generations": 200,
     "time_limit_ms": 15000
 }
 ```
@@ -80,7 +80,7 @@ config = {
     "population_size": 100,
 
     # Generations: more = better quality, longer time
-    "generations": 300,
+    "max_generations": 300,
 
     # Elite ratio: fraction kept as elites (0.1-0.3)
     "elite_ratio": 0.2,

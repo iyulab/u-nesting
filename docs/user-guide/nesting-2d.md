@@ -85,7 +85,7 @@ For multiple sheets with different sizes:
   "margin": 5.0,
   "time_limit_ms": 30000,
   "population_size": 100,
-  "generations": 200,
+  "max_generations": 200,
   "rotation_step": 90
 }
 ```
@@ -97,7 +97,7 @@ For multiple sheets with different sizes:
 | `margin` | number | 0 | Distance from sheet edges |
 | `time_limit_ms` | integer | 30000 | Maximum solving time |
 | `population_size` | integer | 50 | GA/BRKGA population size |
-| `generations` | integer | 100 | GA/BRKGA generations |
+| `max_generations` | integer | 100 | GA/BRKGA generations |
 | `rotation_step` | number | 90 | Default rotation increment |
 | `multi_sheet` | boolean | false | Spill overflow onto additional sheets (sheet-local coords; `sheet_index` selects the sheet) |
 
@@ -246,7 +246,7 @@ def progress_callback(progress):
 result = u_nesting.solve_2d_with_progress(
     parts, sheet,
     callback=progress_callback,
-    config={"strategy": "brkga", "generations": 500}
+    config={"strategy": "brkga", "max_generations": 500}
 )
 ```
 

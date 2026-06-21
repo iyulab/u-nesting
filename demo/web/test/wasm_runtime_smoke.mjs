@@ -98,3 +98,41 @@ for (const strategy of STRATEGIES_3D) {
     }
   });
 }
+
+// Multi-sheet (config.multi_sheet) runtime guard. 20 of 100x100 in a 300x300 sheet
+// (9 per sheet) must spill across 3 sheets with nothing unplaced, and every placement
+// x must be sheet-LOCAL (∈ [0, 300)) — the contract per-sheet panels render against.
+// `cargo check`/FFI tests cannot catch a wasm-only regression in this path.
+test('solve_2d:multi_sheet distributes overflow with sheet-local coords', () => {
+  const req = JSON.stringify({
+    geometries: [
+      { id: 'part', polygon: [[0, 0], [100, 0], [100, 100], [0, 100]], quantity: 20 },
+    ],
+    boundary: { width: 300, height: 300 },
+    config: { strategy: 'blf', multi_sheet: true },
+  });
+  const res = JSON.parse(solve_2d(req));
+  assert.equal(res.sheets_used, 3, '20 of 100x100 in 300x300 => 3 sheets');
+  assert.equal(res.placements.length, 20, 'all 20 instances placed');
+  assert.equal(res.unplaced.length, 0, 'nothing unplaced');
+  assert.equal(res.total_requested, 20);
+  for (const p of res.placements) {
+    assert.ok(p.x >= 0 && p.x < 300, `x=${p.x} on sheet ${p.sheet_index} must be sheet-local in [0, 300)`);
+    assert.ok(p.sheet_index >= 0 && p.sheet_index < 3, `sheet_index ${p.sheet_index} out of range`);
+  }
+});
+
+// Default (no multi_sheet) keeps the single-sheet path: overflow stays unplaced.
+test('solve_2d:single-sheet default leaves overflow unplaced', () => {
+  const req = JSON.stringify({
+    geometries: [
+      { id: 'part', polygon: [[0, 0], [100, 0], [100, 100], [0, 100]], quantity: 20 },
+    ],
+    boundary: { width: 300, height: 300 },
+    config: { strategy: 'blf' },
+  });
+  const res = JSON.parse(solve_2d(req));
+  assert.ok(res.sheets_used <= 1, 'single-sheet uses at most 1 sheet');
+  assert.equal(res.total_requested, 20);
+  assert.equal(res.unplaced.length, 1, 'overflow surfaces as 1 deduped unplaced id');
+});
