@@ -7,6 +7,7 @@ use crate::types::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
+use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver, Strategy};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
@@ -427,23 +428,42 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         };
     };
 
+    // Read the multi-sheet flag before `build_config` consumes the config.
+    let multi_sheet = request
+        .config
+        .as_ref()
+        .and_then(|c| c.multi_sheet)
+        .unwrap_or(false);
+
     // Build config
     let config = build_config(request.config);
 
-    // Solve
+    // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(config);
-    match nester.solve(&geometries, &boundary) {
-        Ok(result) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: true,
-            error: None,
-            placements: result.placements.into_iter().map(Into::into).collect(),
-            sheets_used: result.boundaries_used,
-            utilization: result.utilization,
-            total_requested: result.total_requested,
-            unplaced: result.unplaced,
-            elapsed_ms: result.computation_time_ms,
-        },
+    let solved = if multi_sheet {
+        nester.solve_multi_strip(&geometries, &boundary)
+    } else {
+        nester.solve(&geometries, &boundary)
+    };
+    match solved {
+        Ok(mut result) => {
+            if multi_sheet {
+                // Localize global strip coordinates to the per-sheet frame.
+                let (b_min, b_max) = boundary.aabb();
+                result.to_boundary_local(b_max[0] - b_min[0]);
+            }
+            SolveResponse {
+                version: API_VERSION.to_string(),
+                success: true,
+                error: None,
+                placements: result.placements.into_iter().map(Into::into).collect(),
+                sheets_used: result.boundaries_used,
+                utilization: result.utilization,
+                total_requested: result.total_requested,
+                unplaced: result.unplaced,
+                elapsed_ms: result.computation_time_ms,
+            }
+        }
         Err(e) => SolveResponse {
             version: API_VERSION.to_string(),
             success: false,
@@ -668,13 +688,30 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         };
     }
 
+    // Read the multi-sheet flag before `build_config` consumes the config.
+    let multi_sheet = request
+        .config
+        .as_ref()
+        .and_then(|c| c.multi_sheet)
+        .unwrap_or(false);
+
     // Build config
     let config = build_config(request.config);
 
-    // Solve
+    // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(config);
-    match nester.solve(&geometries, &boundary) {
-        Ok(result) => {
+    let solved = if multi_sheet {
+        nester.solve_multi_strip(&geometries, &boundary)
+    } else {
+        nester.solve(&geometries, &boundary)
+    };
+    match solved {
+        Ok(mut result) => {
+            if multi_sheet {
+                // Localize global strip coordinates to the per-sheet frame.
+                let (b_min, b_max) = boundary.aabb();
+                result.to_boundary_local(b_max[0] - b_min[0]);
+            }
             // Send completion progress
             let done_progress = ProgressJson {
                 iteration: 0,
@@ -1134,6 +1171,81 @@ mod tests {
     }
 
     #[test]
+    fn test_solve_2d_multi_sheet_distributes_and_localizes() {
+        // Wire-boundary guard for ISSUE-20260621b: with `config.multi_sheet=true`,
+        // 20 of 100x100 in a 300x300 sheet spill across 3 sheets (9+9+2), nothing
+        // is unplaced, and every placement's x is sheet-LOCAL (∈ [0, 300)).
+        let request = r#"{
+            "geometries": [
+                {"id": "part", "polygon": [[0,0], [100,0], [100,100], [0,100]], "quantity": 20}
+            ],
+            "boundary": {"width": 300, "height": 300},
+            "config": {"strategy": "blf", "multi_sheet": true}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_2d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            assert_eq!(json["sheets_used"], 3, "20 of 100x100 in 300x300 => 3 sheets");
+            assert_eq!(json["placements"].as_array().unwrap().len(), 20);
+            assert_eq!(json["unplaced"].as_array().unwrap().len(), 0);
+            assert_eq!(json["total_requested"], 20);
+
+            // Coordinates are sheet-local: every x lies within [0, 300) regardless
+            // of which sheet the part is on (global strip frame would put sheet 2 at
+            // x ≈ 600). sheet_index distinguishes the sheets.
+            for p in json["placements"].as_array().unwrap() {
+                let x = p["x"].as_f64().unwrap();
+                let sheet = p["sheet_index"].as_u64().unwrap();
+                assert!(
+                    (0.0..300.0).contains(&x),
+                    "x={x} on sheet {sheet} must be sheet-local in [0, 300)"
+                );
+                assert!(sheet < 3, "sheet_index {sheet} out of range");
+            }
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_solve_2d_single_sheet_default_no_overflow_distribution() {
+        // Without multi_sheet the default single-sheet path still applies: overflow
+        // stays unplaced (1 deduped id) and sheets_used is at most 1.
+        let request = r#"{
+            "geometries": [
+                {"id": "part", "polygon": [[0,0], [100,0], [100,100], [0,100]], "quantity": 20}
+            ],
+            "boundary": {"width": 300, "height": 300},
+            "config": {"strategy": "blf"}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_2d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            assert!(json["sheets_used"].as_u64().unwrap() <= 1);
+            assert_eq!(json["total_requested"], 20);
+            assert_eq!(json["unplaced"].as_array().unwrap().len(), 1);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
     fn test_solve_3d_basic() {
         let request = r#"{
             "geometries": [
@@ -1391,6 +1503,7 @@ mod tests {
             max_generations: Some(100),
             crossover_rate: Some(0.9),
             mutation_rate: Some(0.1),
+            multi_sheet: None,
         });
 
         let config = build_config(request);
@@ -1433,6 +1546,7 @@ mod tests {
                 max_generations: None,
                 crossover_rate: None,
                 mutation_rate: None,
+                multi_sheet: None,
             });
             let config = build_config(request);
             assert!(

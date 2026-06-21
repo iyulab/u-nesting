@@ -21,12 +21,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Mirrored across the FFI, WASM, and Python bindings; C# binding models updated
   in lockstep. Resolves the instance-count under-reporting reported by consumers.
 
+- **`config.multi_sheet` for 2D nesting** (`solve_2d`). New optional config flag
+  (`Option<bool>`, default `false`). When `true`, parts that do not fit on a
+  single sheet spill onto **additional sheets** instead of becoming `unplaced`:
+  `sheets_used` reports the sheet count and each placement's `sheet_index`
+  selects its sheet. Placement coordinates are **sheet-local** (relative to each
+  sheet's origin), so consumers can render per-sheet panels without recomputing
+  offsets. Previously the multi-sheet solver (`solve_multi_strip`) existed but was
+  reachable only from the benchmark harness — WASM/FFI/Python/C# now expose it via
+  the flag. The field is additive and optional (absent → single-sheet solve).
+  Resolves the schema-vs-capability gap where `sheets_used`/`sheet_index` were
+  declared but never exceeded 1/0.
+
 ### Fixed
 
 - `SolveSummary.total_requested` previously computed `placements.len() +
   unplaced.len()`, which **undercounted** whenever a multi-quantity geometry was
   partially/fully unplaced (because `unplaced` is deduplicated). It now uses the
   authoritative instance-level total recorded at solve time.
+
+- **Multi-sheet overflow no longer silently loses instances.**
+  `Nester2D::solve_multi_strip` reduced a geometry's *remaining* set by unique
+  geometry ID, so once **any** instance of a `quantity > 1` geometry was placed,
+  the rest were dropped from both `placements` **and** `unplaced` (silent loss).
+  It now reduces remaining quantity by the **instance count** placed on each
+  sheet, carrying the remainder forward, and assigns globally-unique
+  `(geometry_id, instance)` pairs across sheets. Genuinely oversized geometries
+  are reported via an after-loop `unplaced` sweep. `solve_multi_strip` also now
+  records `total_requested` (it previously left it `0`).
 
 ### Security
 

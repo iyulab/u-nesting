@@ -13,6 +13,7 @@
 //! - [`available_strategies`] — List available strategies for WASM
 
 use u_nesting_core::api_types::*;
+use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver, Strategy};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
@@ -144,23 +145,43 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         return SolveResponse::error("Invalid boundary: specify width/height or polygon");
     };
 
+    // Read the multi-sheet flag before `build_config` consumes the config.
+    let multi_sheet = request
+        .config
+        .as_ref()
+        .and_then(|c| c.multi_sheet)
+        .unwrap_or(false);
+
     // Build config
     let config = build_config(request.config);
 
-    // Solve
+    // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(config);
-    match nester.solve(&geometries, &boundary) {
-        Ok(result) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: true,
-            error: None,
-            placements: result.placements.into_iter().map(Into::into).collect(),
-            sheets_used: result.boundaries_used,
-            utilization: result.utilization,
-            total_requested: result.total_requested,
-            unplaced: result.unplaced,
-            elapsed_ms: result.computation_time_ms,
-        },
+    let solved = if multi_sheet {
+        nester.solve_multi_strip(&geometries, &boundary)
+    } else {
+        nester.solve(&geometries, &boundary)
+    };
+    match solved {
+        Ok(mut result) => {
+            if multi_sheet {
+                // `solve_multi_strip` emits global strip coordinates; localize to the
+                // per-sheet frame so each placement's x is relative to its own sheet.
+                let (b_min, b_max) = boundary.aabb();
+                result.to_boundary_local(b_max[0] - b_min[0]);
+            }
+            SolveResponse {
+                version: API_VERSION.to_string(),
+                success: true,
+                error: None,
+                placements: result.placements.into_iter().map(Into::into).collect(),
+                sheets_used: result.boundaries_used,
+                utilization: result.utilization,
+                total_requested: result.total_requested,
+                unplaced: result.unplaced,
+                elapsed_ms: result.computation_time_ms,
+            }
+        }
         Err(e) => SolveResponse::error(e.to_string()),
     }
 }

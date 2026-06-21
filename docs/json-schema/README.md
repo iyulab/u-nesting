@@ -118,6 +118,15 @@ Most IDEs support JSON Schema for autocompletion and validation. Add a `$schema`
 `unplaced` lists **deduplicated** geometry IDs, the number of unplaced instances is
 `total_requested - placements.length`, not `unplaced.length`.
 
+### Multi-Sheet Nesting (2D)
+
+Set `config.multi_sheet: true` to distribute overflow across multiple sheets
+instead of leaving it `unplaced`. `sheets_used` then reports the sheet count and
+each placement's `sheet_index` selects its sheet. Placement `x`/`y` are
+**sheet-local** (relative to each sheet's origin), so a placement on `sheet_index: 2`
+is *not* offset by two sheet-widths — group placements by `sheet_index` to render
+one panel per sheet. Default is `false` (single-sheet solve).
+
 ## Strategy Options
 
 ### 2D Strategies

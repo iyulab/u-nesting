@@ -1095,6 +1095,11 @@ impl Nester2D {
         let mut strip_index = 0;
         let max_strips = 100; // Safety limit
 
+        // Global per-geometry placed counter so instance indices stay unique across
+        // strips (each strip re-numbers its own placements from 0).
+        let mut placed_total: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+
         while !remaining_geometries.is_empty() && strip_index < max_strips {
             if self.cancelled.load(Ordering::Relaxed) {
                 break;
@@ -1125,39 +1130,65 @@ impl Nester2D {
                 validate_and_filter_placements(strip_result, &remaining_geometries, boundary);
 
             if strip_result.placements.is_empty() {
-                // No progress - items too large for strip
-                final_result.unplaced.extend(strip_result.unplaced);
+                // No progress: every remaining geometry is individually too large for
+                // an empty strip. Stop; the after-loop sweep records them as unplaced.
                 break;
             }
 
-            // Collect placed geometry IDs
-            let placed_ids: std::collections::HashSet<_> = strip_result
-                .placements
-                .iter()
-                .map(|p| p.geometry_id.clone())
-                .collect();
+            // Count instances of each geometry placed on this strip (instance-level,
+            // not id-level) to drive remaining-quantity reduction and unique numbering.
+            let mut strip_placed: std::collections::HashMap<String, usize> =
+                std::collections::HashMap::new();
 
-            // Adjust placements for this strip and add to final result
+            // Adjust placements for this strip and add to final result.
             for mut placement in strip_result.placements {
-                // Offset x position by strip_index * strip_width
+                let gid = placement.geometry_id.clone();
+                // Globally-unique instance index = already-placed of this id + running
+                // count within this strip (each strip re-numbers its own from 0).
+                let prior = placed_total.get(&gid).copied().unwrap_or(0);
+                let in_strip = strip_placed.get(&gid).copied().unwrap_or(0);
+                placement.instance = prior + in_strip;
+                // Offset x position by strip_index * strip_width (global strip frame).
                 if !placement.position.is_empty() {
                     placement.position[0] += strip_index as f64 * strip_width;
                 }
                 placement.boundary_index = strip_index;
+                *strip_placed.entry(gid).or_insert(0) += 1;
                 final_result.placements.push(placement);
             }
 
-            // Update remaining geometries (those not placed)
-            remaining_geometries.retain(|g| !placed_ids.contains(g.id()));
-
-            // Also handle quantity > 1: reduce quantity for partially placed items
-            // For now, we treat each geometry independently
+            // Reduce each geometry's remaining quantity by the instances placed this
+            // strip. Fully-placed geometries drop out; partially-placed ones carry the
+            // remainder to the next strip (fixes the prior id-level silent loss).
+            for (gid, cnt) in &strip_placed {
+                *placed_total.entry(gid.clone()).or_insert(0) += cnt;
+            }
+            remaining_geometries = remaining_geometries
+                .into_iter()
+                .filter_map(|g| {
+                    let placed_here = strip_placed.get(g.id()).copied().unwrap_or(0);
+                    let new_quantity = g.quantity().saturating_sub(placed_here);
+                    if new_quantity == 0 {
+                        None
+                    } else {
+                        Some(g.with_quantity(new_quantity))
+                    }
+                })
+                .collect();
 
             strip_index += 1;
         }
 
+        // Any geometry still remaining (too large to place, or hit the strip cap) is
+        // unplaced at the instance level — record an id entry each (deduplicated below).
+        for g in &remaining_geometries {
+            final_result.unplaced.push(g.id().clone());
+        }
+
         final_result.boundaries_used = strip_index;
         final_result.deduplicate_unplaced();
+        // Authoritative instance-level request total (Σ quantity), mirroring solve().
+        final_result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
 
         // Calculate per-strip statistics for accurate utilization
         let (b_min, b_max) = boundary.aabb();
@@ -2885,5 +2916,75 @@ mod tests {
             println!("  ✓ All placements within boundary");
             println!("  ✓ No AABB overlaps detected");
         }
+    }
+
+    /// Regression guard for the multi-strip overflow distribution (ISSUE-20260621b).
+    ///
+    /// A single geometry with quantity 20 (100×100) cannot fit in one 300×300 sheet
+    /// (9 per sheet). The prior id-level `retain` dropped a geometry from `remaining`
+    /// as soon as *any* instance was placed, silently losing the rest. The fixed
+    /// instance-level reduction must spread all 20 across sheets: 9 + 9 + 2 = 3 sheets,
+    /// 0 unplaced, and every `(geometry_id, instance)` pair unique across all sheets.
+    #[test]
+    fn test_multi_strip_distributes_all_instances() {
+        let geometries =
+            vec![Geometry2D::rectangle("part", 100.0, 100.0).with_quantity(20)];
+        let boundary = Boundary2D::rectangle(300.0, 300.0);
+        let config = Config::default().with_strategy(Strategy::BottomLeftFill);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve_multi_strip(&geometries, &boundary).unwrap();
+
+        // All 20 instances placed across exactly 3 sheets (9 + 9 + 2), none unplaced.
+        assert_eq!(result.placements.len(), 20, "all 20 instances must be placed");
+        assert_eq!(result.boundaries_used, 3, "20 of 100x100 in 300x300 => 3 sheets");
+        assert!(
+            result.unplaced.is_empty(),
+            "nothing should be unplaced, got {:?}",
+            result.unplaced
+        );
+        // Instance-level request total is recorded (mirrors single-strip solve()).
+        assert_eq!(result.total_requested, 20);
+
+        // Every (geometry_id, instance) pair is globally unique — strips re-number
+        // from 0 internally, so the multi-strip path must reassign global indices.
+        let mut seen = std::collections::HashSet::new();
+        for p in &result.placements {
+            assert!(
+                seen.insert((p.geometry_id.clone(), p.instance)),
+                "duplicate (id, instance) = ({}, {}) across sheets",
+                p.geometry_id,
+                p.instance
+            );
+        }
+        // Sheet indices are contiguous 0..3.
+        let mut sheets: Vec<usize> = result.placements.iter().map(|p| p.boundary_index).collect();
+        sheets.sort_unstable();
+        sheets.dedup();
+        assert_eq!(sheets, vec![0, 1, 2]);
+    }
+
+    /// When an item is genuinely too large for the sheet, the after-loop sweep must
+    /// report it as unplaced (instance-level) rather than silently dropping it.
+    #[test]
+    fn test_multi_strip_oversized_reported_unplaced() {
+        let geometries = vec![
+            Geometry2D::rectangle("ok", 50.0, 50.0).with_quantity(2),
+            Geometry2D::rectangle("toobig", 400.0, 400.0).with_quantity(3),
+        ];
+        let boundary = Boundary2D::rectangle(300.0, 300.0);
+        let config = Config::default().with_strategy(Strategy::BottomLeftFill);
+        let nester = Nester2D::new(config);
+
+        let result = nester.solve_multi_strip(&geometries, &boundary).unwrap();
+
+        assert_eq!(result.total_requested, 5, "2 + 3 instances requested");
+        // The two 50x50 fit; the oversized geometry is reported unplaced (deduped id).
+        assert_eq!(result.placements.len(), 2);
+        assert!(
+            result.unplaced.contains(&"toobig".to_string()),
+            "oversized geometry must surface in unplaced, got {:?}",
+            result.unplaced
+        );
     }
 }

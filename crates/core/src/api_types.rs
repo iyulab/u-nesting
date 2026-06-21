@@ -182,6 +182,15 @@ pub struct ConfigRequest {
 
     /// GA mutation rate.
     pub mutation_rate: Option<f64>,
+
+    /// Distribute overflow across multiple sheets (2D only).
+    ///
+    /// When `true`, parts that do not fit on a single sheet spill onto additional
+    /// sheets instead of becoming unplaced. `sheets_used` then reports the sheet
+    /// count and each placement's `sheet_index` selects its sheet; placement
+    /// coordinates are sheet-local (relative to each sheet's origin). Defaults to
+    /// `false` (single-sheet solve).
+    pub multi_sheet: Option<bool>,
 }
 
 /// Response for solve operations.

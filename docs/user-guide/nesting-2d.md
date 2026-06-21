@@ -99,6 +99,7 @@ For multiple sheets with different sizes:
 | `population_size` | integer | 50 | GA/BRKGA population size |
 | `generations` | integer | 100 | GA/BRKGA generations |
 | `rotation_step` | number | 90 | Default rotation increment |
+| `multi_sheet` | boolean | false | Spill overflow onto additional sheets (sheet-local coords; `sheet_index` selects the sheet) |
 
 ## Output Format
 

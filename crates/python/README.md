@@ -125,12 +125,17 @@ Solve a 2D nesting problem.
   - `time_limit_ms` (int): Timeout in milliseconds
   - `population_size` (int): GA/BRKGA population
   - `max_generations` (int): GA/BRKGA generations
+  - `multi_sheet` (bool): Distribute overflow across multiple sheets (default:
+    `False`). When `True`, parts that do not fit on one sheet spill onto extra
+    sheets instead of becoming unplaced; `boundaries_used` reports the sheet count
+    and each placement's `boundary_index` selects its sheet with sheet-local
+    coordinates.
 
 **Returns:** Dictionary with:
 - `success` (bool): Whether solve succeeded
 - `placements` (list): Placement results (instance-level)
 - `utilization` (float): Area utilization ratio
-- `boundaries_used` (int): Number of sheets used
+- `boundaries_used` (int): Number of sheets used (>1 only when `multi_sheet=True`)
 - `total_requested` (int): Σ of every geometry's quantity (instance-level total).
   Unplaced instance count = `total_requested - len(placements)`
 - `unplaced` (list): **Deduplicated** IDs of items that couldn't be placed (not

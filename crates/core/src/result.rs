@@ -233,6 +233,29 @@ impl<S> Default for SolveResult<S> {
     }
 }
 
+impl SolveResult<f64> {
+    /// Rewrites placement x-coordinates from the global multi-strip frame
+    /// (sheets laid side-by-side: `x ≈ boundary_index * extent`) into the
+    /// per-boundary **local** frame, so each placement's x is relative to the
+    /// origin of its own sheet (`boundary_index` selects the sheet).
+    ///
+    /// `solve_multi_strip` emits global strip coordinates (the strip-packing
+    /// representation its benchmark callers rely on). Binding/wire consumers that
+    /// render per-sheet panels want sheet-local coordinates instead; this is the
+    /// single shared transform they apply at the response boundary.
+    ///
+    /// `extent` is the boundary's x-axis extent (`b_max[0] - b_min[0]`), identical
+    /// to the `strip_width` used during solving. After this call every placement's
+    /// x lies in `[0, extent)` (modulo spacing/margin) within its sheet.
+    pub fn to_boundary_local(&mut self, extent: f64) {
+        for placement in &mut self.placements {
+            if let Some(x) = placement.position.first_mut() {
+                *x -= placement.boundary_index as f64 * extent;
+            }
+        }
+    }
+}
+
 /// Summary statistics for a solve result.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -371,5 +394,26 @@ mod tests {
         assert_eq!(result.unplaced.len(), 2);
         assert!(result.unplaced.contains(&"G1".to_string()));
         assert!(result.unplaced.contains(&"G2".to_string()));
+    }
+
+    #[test]
+    fn test_to_boundary_local_subtracts_per_sheet_offset() {
+        // Three placements at the same sheet-local x=10, on sheets 0/1/2, in a global
+        // strip frame (x = local + sheet * 100). Localizing must recover x=10 on each.
+        let extent = 100.0;
+        let mut result: SolveResult<f64> = SolveResult::new();
+        for sheet in 0..3 {
+            result.placements.push(
+                Placement::new_2d("p".to_string(), sheet, 10.0 + sheet as f64 * extent, 5.0, 0.0)
+                    .with_boundary(sheet),
+            );
+        }
+
+        result.to_boundary_local(extent);
+
+        for p in &result.placements {
+            assert_eq!(p.position[0], 10.0, "x must be sheet-local after transform");
+            assert_eq!(p.position[1], 5.0, "y is untouched");
+        }
     }
 }

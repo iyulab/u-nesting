@@ -130,6 +130,17 @@ public class Config2D
     [JsonPropertyName("generations")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public int Generations { get; set; }
+
+    /// <summary>
+    /// Distribute overflow across multiple sheets. When true, parts that do not fit
+    /// on a single sheet spill onto additional sheets instead of becoming unplaced;
+    /// <see cref="NestingResult.SheetsUsed"/> reports the sheet count and each
+    /// placement's <see cref="Placement2D.SheetIndex"/> selects its sheet (with
+    /// sheet-local coordinates). Defaults to false (single-sheet solve).
+    /// </summary>
+    [JsonPropertyName("multi_sheet")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool MultiSheet { get; set; }
 }
 
 /// <summary>

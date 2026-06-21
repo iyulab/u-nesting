@@ -139,8 +139,30 @@ interface Request2D {
     mutation_rate?: number;            // Mutation rate (default: 0.1)
     time_limit_ms?: number;            // Time limit in ms
     target_utilization?: number;       // Stop early if reached
+    multi_sheet?: boolean;             // Spill overflow onto extra sheets (default: false)
   };
 }
+```
+
+### Multi-Sheet Nesting
+
+By default `solve_2d` packs into a **single** sheet; parts that do not fit become
+`unplaced`. Set `config.multi_sheet: true` to spill overflow onto **additional
+sheets**. Then:
+
+- `sheets_used` reports how many sheets were needed.
+- each placement's `sheet_index` selects its sheet.
+- placement `x`/`y` are **sheet-local** — relative to that sheet's own origin —
+  so you can render one panel per sheet without subtracting any offset.
+
+```javascript
+const res = JSON.parse(solve_2d(JSON.stringify({
+  geometries: [{ id: "part", polygon: [[0,0],[100,0],[100,100],[0,100]], quantity: 20 }],
+  boundary: { width: 300, height: 300 },
+  config: { strategy: "blf", multi_sheet: true }
+})));
+// res.sheets_used === 3, res.placements.length === 20, res.unplaced === []
+// group placements by sheet_index to draw each sheet
 ```
 
 ### Available 2D Strategies
@@ -180,10 +202,10 @@ interface SolveResponse {
     x: number;
     y: number;
     rotation: number;      // degrees
-    sheet_index: number;   // 0-based sheet/bin index
+    sheet_index: number;   // 0-based sheet/bin index (see config.multi_sheet)
     flipped: boolean;      // mirrored
   }[];
-  sheets_used: number;
+  sheets_used: number;     // >1 only when config.multi_sheet is true
   utilization: number;
   total_requested: number; // Σ of every geometry's quantity (instance-level).
                            // unplaced instances = total_requested - placements.length

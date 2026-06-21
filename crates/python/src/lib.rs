@@ -37,6 +37,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver, Strategy};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
@@ -110,6 +111,12 @@ struct ConfigInput {
     crossover_rate: Option<f64>,
     #[serde(default)]
     mutation_rate: Option<f64>,
+    /// Distribute overflow across multiple sheets (2D only). When true, parts that
+    /// do not fit on one sheet spill onto additional sheets; `boundaries_used`
+    /// reports the sheet count and each placement's `boundary_index` selects its
+    /// sheet with sheet-local coordinates. Defaults to false (single-sheet solve).
+    #[serde(default)]
+    multi_sheet: Option<bool>,
 }
 
 /// Placement output.
@@ -289,31 +296,49 @@ fn solve_2d<'py>(
         ));
     };
 
+    // Read the multi-sheet flag before `build_config` consumes the config.
+    let multi_sheet = config_input
+        .as_ref()
+        .and_then(|c| c.multi_sheet)
+        .unwrap_or(false);
+
     let rust_config = build_config(config_input);
 
-    // Solve
+    // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(rust_config);
-    let output = match nester.solve(&rust_geometries, &rust_boundary) {
-        Ok(result) => SolveOutput {
-            success: true,
-            placements: result
-                .placements
-                .into_iter()
-                .map(|p| PlacementOutput {
-                    geometry_id: p.geometry_id,
-                    instance: p.instance,
-                    position: p.position,
-                    rotation: p.rotation,
-                    boundary_index: p.boundary_index,
-                })
-                .collect(),
-            boundaries_used: result.boundaries_used,
-            utilization: result.utilization,
-            total_requested: result.total_requested,
-            unplaced: result.unplaced,
-            computation_time_ms: result.computation_time_ms,
-            error: None,
-        },
+    let solved = if multi_sheet {
+        nester.solve_multi_strip(&rust_geometries, &rust_boundary)
+    } else {
+        nester.solve(&rust_geometries, &rust_boundary)
+    };
+    let output = match solved {
+        Ok(mut result) => {
+            if multi_sheet {
+                // Localize global strip coordinates to the per-sheet frame.
+                let (b_min, b_max) = rust_boundary.aabb();
+                result.to_boundary_local(b_max[0] - b_min[0]);
+            }
+            SolveOutput {
+                success: true,
+                placements: result
+                    .placements
+                    .into_iter()
+                    .map(|p| PlacementOutput {
+                        geometry_id: p.geometry_id,
+                        instance: p.instance,
+                        position: p.position,
+                        rotation: p.rotation,
+                        boundary_index: p.boundary_index,
+                    })
+                    .collect(),
+                boundaries_used: result.boundaries_used,
+                utilization: result.utilization,
+                total_requested: result.total_requested,
+                unplaced: result.unplaced,
+                computation_time_ms: result.computation_time_ms,
+                error: None,
+            }
+        }
         Err(e) => SolveOutput {
             success: false,
             placements: vec![],

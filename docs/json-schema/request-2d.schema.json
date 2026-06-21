@@ -181,6 +181,11 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.05
+        },
+        "multi_sheet": {
+          "type": "boolean",
+          "description": "Distribute overflow across multiple sheets. When true, parts that do not fit on one sheet spill onto additional sheets instead of becoming unplaced; sheets_used reports the sheet count and each placement's sheet_index selects its sheet with sheet-local coordinates.",
+          "default": false
         }
       }
     }
