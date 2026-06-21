@@ -78,6 +78,17 @@ jobs:
           args: --release --out dist -m crates/python/Cargo.toml
           sccache: 'true'
           manylinux: auto
+          # The host "Checkout path dependencies" step clones the sibling crates
+          # OUTSIDE the workspace (../../foundation, ../../algorithms), which the
+          # manylinux Docker container does not mount — so `cargo metadata` fails to
+          # read u-geometry et al. Re-clone them INSIDE the container at the same
+          # relative paths so the path dependencies resolve. Idempotent guard in
+          # case the host tree happens to be visible.
+          before-script-linux: |
+            mkdir -p ../../foundation ../../algorithms
+            [ -d ../../foundation/u-numflow ] || git clone --depth 1 https://github.com/iyulab/u-numflow.git ../../foundation/u-numflow
+            [ -d ../../algorithms/u-metaheur ] || git clone --depth 1 https://github.com/iyulab/u-metaheur.git ../../algorithms/u-metaheur
+            [ -d ../../algorithms/u-geometry ] || git clone --depth 1 https://github.com/iyulab/u-geometry.git ../../algorithms/u-geometry
       - name: Upload wheels
         uses: actions/upload-artifact@v4
         with:
