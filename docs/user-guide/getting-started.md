@@ -126,7 +126,7 @@ container = {
 result = u_nesting.solve_3d(boxes, container)
 
 print(f"Volume utilization: {result['utilization']:.1%}")
-print(f"Bins used: {result['bins_used']}")
+print(f"Bins used: {result['boundaries_used']}")
 ```
 
 ### C#

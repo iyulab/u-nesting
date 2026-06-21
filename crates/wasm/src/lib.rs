@@ -157,6 +157,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             placements: result.placements.into_iter().map(Into::into).collect(),
             sheets_used: result.boundaries_used,
             utilization: result.utilization,
+            total_requested: result.total_requested,
             unplaced: result.unplaced,
             elapsed_ms: result.computation_time_ms,
         },

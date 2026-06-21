@@ -141,6 +141,7 @@ pub fn build_pack3d_response(
         placements,
         bins_used: result.boundaries_used,
         utilization: result.utilization,
+        total_requested: result.total_requested,
         unplaced: result.unplaced.clone(),
         elapsed_ms: result.computation_time_ms,
     }

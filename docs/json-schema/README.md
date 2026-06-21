@@ -93,22 +93,30 @@ Most IDEs support JSON Schema for autocompletion and validation. Add a `$schema`
 
 ```json
 {
+  "version": "1",
   "success": true,
   "placements": [
     {
-      "geometry_id": "part1",
+      "id": "part1",
       "instance": 0,
-      "position": [10.0, 20.0],
-      "rotation": [1.5708],
-      "boundary_index": 0
+      "x": 10.0,
+      "y": 20.0,
+      "rotation": 90.0,
+      "sheet_index": 0,
+      "flipped": false
     }
   ],
-  "boundaries_used": 1,
+  "sheets_used": 1,
   "utilization": 0.85,
+  "total_requested": 1,
   "unplaced": [],
-  "computation_time_ms": 1234
+  "elapsed_ms": 1234
 }
 ```
+
+`total_requested` is the Σ of every geometry's `quantity` (instance-level). Because
+`unplaced` lists **deduplicated** geometry IDs, the number of unplaced instances is
+`total_requested - placements.length`, not `unplaced.length`.
 
 ## Strategy Options
 

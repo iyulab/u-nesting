@@ -129,6 +129,11 @@ struct SolveOutput {
     placements: Vec<PlacementOutput>,
     boundaries_used: usize,
     utilization: f64,
+    /// Total geometry instances requested (Σ quantity). `placements` is
+    /// instance-level while `unplaced` is deduplicated geometry IDs; the
+    /// instance-level unplaced count is `total_requested - len(placements)`.
+    #[serde(default)]
+    total_requested: usize,
     unplaced: Vec<String>,
     computation_time_ms: u64,
     error: Option<String>,
@@ -304,6 +309,7 @@ fn solve_2d<'py>(
                 .collect(),
             boundaries_used: result.boundaries_used,
             utilization: result.utilization,
+            total_requested: result.total_requested,
             unplaced: result.unplaced,
             computation_time_ms: result.computation_time_ms,
             error: None,
@@ -313,6 +319,7 @@ fn solve_2d<'py>(
             placements: vec![],
             boundaries_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: vec![],
             computation_time_ms: 0,
             error: Some(e.to_string()),
@@ -434,6 +441,7 @@ fn solve_3d<'py>(
                 .collect(),
             boundaries_used: result.boundaries_used,
             utilization: result.utilization,
+            total_requested: result.total_requested,
             unplaced: result.unplaced,
             computation_time_ms: result.computation_time_ms,
             error: None,
@@ -443,6 +451,7 @@ fn solve_3d<'py>(
             placements: vec![],
             boundaries_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: vec![],
             computation_time_ms: 0,
             error: Some(e.to_string()),

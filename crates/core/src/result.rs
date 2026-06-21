@@ -74,6 +74,13 @@ pub struct SolveResult<S> {
 
     /// Total material area consumed (sum of strip_width × used_length for each strip).
     pub total_material_used: f64,
+
+    /// Total number of geometry **instances** requested (Σ of every geometry's
+    /// quantity). This is the instance-level denominator: the count of unplaced
+    /// instances is `total_requested - placements.len()`, since `placements` is
+    /// instance-level while `unplaced` is deduplicated to unique geometry IDs.
+    /// Set once at the top-level `solve`/`solve_with_progress` entry point.
+    pub total_requested: usize,
 }
 
 impl<S> SolveResult<S> {
@@ -95,6 +102,7 @@ impl<S> SolveResult<S> {
             strip_stats: Vec::new(),
             total_piece_area: 0.0,
             total_material_used: 0.0,
+            total_requested: 0,
         }
     }
 
@@ -185,6 +193,7 @@ impl<S> SolveResult<S> {
         }
         self.total_piece_area += other.total_piece_area;
         self.total_material_used += other.total_material_used;
+        self.total_requested += other.total_requested;
 
         // Recalculate utilization
         if self.total_material_used > 0.0 {
@@ -245,7 +254,11 @@ pub struct SolveSummary {
 impl<S> From<&SolveResult<S>> for SolveSummary {
     fn from(result: &SolveResult<S>) -> Self {
         Self {
-            total_requested: result.placements.len() + result.unplaced.len(),
+            // `result.unplaced` is deduplicated to unique geometry IDs, so
+            // `placements.len() + unplaced.len()` undercounts whenever a
+            // multi-quantity geometry is partially/fully unplaced. Use the
+            // authoritative instance-level total recorded at solve time.
+            total_requested: result.total_requested,
             total_placed: result.placements.len(),
             utilization_percent: result.utilization * 100.0,
             bins_used: result.boundaries_used,
@@ -308,6 +321,37 @@ mod tests {
         assert_eq!(summary.total_placed, 1);
         assert_eq!(summary.utilization_percent, 75.0);
         assert_eq!(summary.strategy, "GA");
+    }
+
+    #[test]
+    fn test_solve_summary_total_requested_is_instance_level() {
+        // Reproduces the reported defect: one geometry with quantity 5, of which
+        // only 1 instance is placed. `unplaced` is deduplicated to the single
+        // failing geometry ID. The old summary formula
+        // (placements.len() + unplaced.len() = 1 + 1 = 2) undercounts the true
+        // request total. With the authoritative `total_requested`, it is 5.
+        let mut result: SolveResult<f64> = SolveResult::new();
+        result
+            .placements
+            .push(Placement::new_2d("A".to_string(), 0, 0.0, 0.0, 0.0));
+        result.unplaced.push("A".to_string()); // deduplicated single ID
+        result.total_requested = 5;
+
+        let summary = SolveSummary::from(&result);
+        assert_eq!(summary.total_requested, 5);
+        assert_eq!(summary.total_placed, 1);
+        // Instance-level unplaced count, recovered by consumers:
+        assert_eq!(summary.total_requested - summary.total_placed, 4);
+    }
+
+    #[test]
+    fn test_merge_sums_total_requested() {
+        let mut a: SolveResult<f64> = SolveResult::new();
+        a.total_requested = 3;
+        let mut b: SolveResult<f64> = SolveResult::new();
+        b.total_requested = 4;
+        a.merge(b, 0);
+        assert_eq!(a.total_requested, 7);
     }
 
     #[test]

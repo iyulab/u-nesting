@@ -391,6 +391,7 @@ mod solve_result_tests {
             strip_stats: vec![],
             total_piece_area: 0.0,
             total_material_used: 0.0,
+            total_requested: 2,
         };
 
         assert_eq!(result.placements.len(), 2);

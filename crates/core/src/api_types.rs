@@ -207,6 +207,13 @@ pub struct SolveResponse {
     /// Utilization ratio.
     pub utilization: f64,
 
+    /// Total number of geometry **instances** requested (Σ of every geometry's
+    /// quantity). `placements` is instance-level while `unplaced` lists unique
+    /// geometry IDs (deduplicated); use `total_requested - placements.len()` to
+    /// get the instance-level unplaced count. `0` on error responses.
+    #[serde(default)]
+    pub total_requested: usize,
+
     /// IDs of unplaced geometries.
     #[serde(default)]
     pub unplaced: Vec<String>,
@@ -269,6 +276,7 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
             placements: Vec::new(), // Converted separately due to type constraints
             sheets_used: r.boundaries_used,
             utilization: r.utilization,
+            total_requested: r.total_requested,
             unplaced: r.unplaced,
             elapsed_ms: r.computation_time_ms,
         }
@@ -302,6 +310,13 @@ pub struct Pack3DResponse {
 
     /// Volume utilization ratio.
     pub utilization: f64,
+
+    /// Total number of geometry **instances** requested (Σ of every geometry's
+    /// quantity). `placements` is instance-level while `unplaced` lists unique
+    /// geometry IDs (deduplicated); use `total_requested - placements.len()` to
+    /// get the instance-level unplaced count. `0` on error responses.
+    #[serde(default)]
+    pub total_requested: usize,
 
     /// IDs of unplaced geometries.
     #[serde(default)]
@@ -351,6 +366,7 @@ impl Pack3DResponse {
             placements: Vec::new(),
             bins_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         }
@@ -487,6 +503,7 @@ impl SolveResponse {
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         }
@@ -549,6 +566,39 @@ mod dto_strictness_tests {
         assert_rejects_unknown::<super::CuttingConfigRequest>(json!({
             "kerf_width": 0.2, "kerf": 0.2
         }));
+    }
+
+    #[test]
+    fn solve_response_total_requested_defaults_when_absent() {
+        // Payloads produced before `total_requested` existed (and the cutting
+        // passthrough's inline solve_result) must still deserialize — the field
+        // is `#[serde(default)]`, so a missing key yields 0 rather than an error.
+        let r: super::SolveResponse = serde_json::from_value(json!({
+            "version": "1", "success": true, "placements": [],
+            "sheets_used": 0, "utilization": 0.0, "unplaced": [], "elapsed_ms": 0
+        }))
+        .expect("legacy payload without total_requested must deserialize");
+        assert_eq!(r.total_requested, 0);
+    }
+
+    #[test]
+    fn solve_response_serializes_total_requested() {
+        let resp = super::SolveResponse::error("x");
+        let v = serde_json::to_value(&resp).expect("serialize");
+        assert!(
+            v.get("total_requested").is_some(),
+            "total_requested must be present in the wire output"
+        );
+    }
+
+    #[test]
+    fn pack3d_response_total_requested_defaults_when_absent() {
+        let r: super::Pack3DResponse = serde_json::from_value(json!({
+            "version": "1", "success": true, "placements": [],
+            "bins_used": 0, "utilization": 0.0, "unplaced": [], "elapsed_ms": 0
+        }))
+        .expect("legacy 3D payload without total_requested must deserialize");
+        assert_eq!(r.total_requested, 0);
     }
 
     #[test]

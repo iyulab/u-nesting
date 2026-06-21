@@ -1,15 +1,14 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/iyulab/U-Nesting/docs/json-schema/response.schema.json",
-  "title": "U-Nesting Response",
-  "description": "Response schema for all solve operations",
+  "title": "U-Nesting 2D Solve Response",
+  "description": "Wire response schema for solve_2d (SolveResponse). The 3D response (Pack3DResponse) is structurally similar but uses bins_used instead of sheets_used and each placement carries z and an orientation label.",
   "type": "object",
-  "required": ["version", "success", "placements", "boundaries_used", "utilization", "computation_time_ms"],
+  "required": ["version", "success", "placements", "sheets_used", "utilization", "total_requested", "unplaced", "elapsed_ms"],
   "properties": {
     "version": {
       "type": "string",
-      "description": "API version (e.g., '1.0')",
-      "pattern": "^[0-9]+\\.[0-9]+$"
+      "description": "API version"
     },
     "success": {
       "type": "boolean",
@@ -21,14 +20,14 @@
     },
     "placements": {
       "type": "array",
-      "description": "List of placements for successfully placed geometries",
+      "description": "Instance-level placements for successfully placed geometry instances",
       "items": {
         "$ref": "#/$defs/Placement"
       }
     },
-    "boundaries_used": {
+    "sheets_used": {
       "type": "integer",
-      "description": "Number of boundaries/bins used",
+      "description": "Number of sheets/bins used",
       "minimum": 0
     },
     "utilization": {
@@ -37,12 +36,17 @@
       "minimum": 0,
       "maximum": 1
     },
+    "total_requested": {
+      "type": "integer",
+      "description": "Total number of geometry INSTANCES requested (sum of every geometry's quantity). 'placements' is instance-level while 'unplaced' is deduplicated to unique geometry IDs, so the instance-level unplaced count is total_requested - placements.length. 0 on error responses.",
+      "minimum": 0
+    },
     "unplaced": {
       "type": "array",
-      "description": "IDs of geometries that could not be placed",
+      "description": "Deduplicated unique IDs of geometries that could not be fully placed (NOT per-instance)",
       "items": { "type": "string" }
     },
-    "computation_time_ms": {
+    "elapsed_ms": {
       "type": "integer",
       "description": "Total computation time in milliseconds",
       "minimum": 0
@@ -52,9 +56,9 @@
     "Placement": {
       "type": "object",
       "description": "Placement of a single geometry instance",
-      "required": ["geometry_id", "instance", "position", "rotation", "boundary_index"],
+      "required": ["id", "instance", "x", "y", "rotation", "sheet_index", "flipped"],
       "properties": {
-        "geometry_id": {
+        "id": {
           "type": "string",
           "description": "ID of the placed geometry"
         },
@@ -63,24 +67,26 @@
           "description": "Instance index (0-based, for geometries with quantity > 1)",
           "minimum": 0
         },
-        "position": {
-          "type": "array",
-          "description": "Position coordinates [x, y] for 2D or [x, y, z] for 3D",
-          "items": { "type": "number" },
-          "minItems": 2,
-          "maxItems": 3
+        "x": {
+          "type": "number",
+          "description": "X position"
+        },
+        "y": {
+          "type": "number",
+          "description": "Y position"
         },
         "rotation": {
-          "type": "array",
-          "description": "Rotation angles in radians. 2D: [angle], 3D: [rx, ry, rz]",
-          "items": { "type": "number" },
-          "minItems": 1,
-          "maxItems": 3
+          "type": "number",
+          "description": "Rotation angle in degrees"
         },
-        "boundary_index": {
+        "sheet_index": {
           "type": "integer",
-          "description": "Index of the boundary/bin this geometry is placed in",
+          "description": "Index of the sheet/bin this instance is placed on",
           "minimum": 0
+        },
+        "flipped": {
+          "type": "boolean",
+          "description": "Whether the geometry was flipped/mirrored"
         }
       }
     }

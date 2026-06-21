@@ -307,10 +307,11 @@ public static partial int unesting_solve(string request, out IntPtr result);
 
 ```rust
 SolveResult {
-    placements: Vec<Placement>,   // Position + orientation for each geometry
+    placements: Vec<Placement>,   // Position + orientation for each placed instance
     boundaries_used: usize,       // Number of boundaries needed
     utilization: f64,             // Area/volume efficiency (0.0 - 1.0)
-    unplaced: Vec<String>,        // IDs of geometries that couldn't fit
+    unplaced: Vec<String>,        // Deduplicated IDs of geometries that couldn't fit
+    total_requested: usize,       // Σ quantity; unplaced instances = total_requested - placements.len()
     computation_time_ms: u64,
 }
 ```

@@ -185,7 +185,10 @@ interface SolveResponse {
   }[];
   sheets_used: number;
   utilization: number;
-  unplaced: string[];
+  total_requested: number; // Σ of every geometry's quantity (instance-level).
+                           // unplaced instances = total_requested - placements.length
+  unplaced: string[];      // deduplicated geometry ids (NOT per-instance), so
+                           // unplaced.length under-reports the failed-instance count
   elapsed_ms: number;
 }
 ```
@@ -208,7 +211,10 @@ interface Pack3DResponse {
   }[];
   bins_used: number;
   utilization: number;
-  unplaced: string[];
+  total_requested: number; // Σ of every geometry's quantity (instance-level).
+                           // unplaced instances = total_requested - placements.length
+  unplaced: string[];      // deduplicated geometry ids (NOT per-instance), so
+                           // unplaced.length under-reports the failed-instance count
   elapsed_ms: number;
 }
 ```

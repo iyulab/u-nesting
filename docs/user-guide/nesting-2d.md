@@ -117,6 +117,7 @@ For multiple sheets with different sizes:
   ],
   "sheets_used": 2,
   "utilization": 0.82,
+  "total_requested": 6,
   "unplaced": ["large_part"],
   "elapsed_ms": 1500
 }
@@ -125,10 +126,11 @@ For multiple sheets with different sizes:
 | Field | Description |
 |-------|-------------|
 | `success` | Whether solving completed |
-| `placements` | List of part placements |
+| `placements` | List of part placements (instance-level) |
 | `sheets_used` | Number of sheets used |
 | `utilization` | Material utilization (0-1) |
-| `unplaced` | IDs of parts that couldn't be placed |
+| `total_requested` | Σ of every part's quantity (instance-level). Unplaced instances = `total_requested - placements.length` |
+| `unplaced` | **Deduplicated** IDs of parts that couldn't be placed (not per-instance) |
 | `elapsed_ms` | Solving time in milliseconds |
 
 ### Placement Fields

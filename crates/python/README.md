@@ -128,10 +128,13 @@ Solve a 2D nesting problem.
 
 **Returns:** Dictionary with:
 - `success` (bool): Whether solve succeeded
-- `placements` (list): Placement results
+- `placements` (list): Placement results (instance-level)
 - `utilization` (float): Area utilization ratio
 - `boundaries_used` (int): Number of sheets used
-- `unplaced` (list): IDs of items that couldn't be placed
+- `total_requested` (int): Σ of every geometry's quantity (instance-level total).
+  Unplaced instance count = `total_requested - len(placements)`
+- `unplaced` (list): **Deduplicated** IDs of items that couldn't be placed (not
+  per-instance, so `len(unplaced)` under-reports the failed-instance count)
 - `computation_time_ms` (int): Solve time
 
 ### `solve_3d(geometries, boundary, config=None) -> dict`

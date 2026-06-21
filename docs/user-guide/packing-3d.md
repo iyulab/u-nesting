@@ -128,6 +128,7 @@ When `stability: true`:
   ],
   "bins_used": 2,
   "utilization": 0.78,
+  "total_requested": 8,
   "unplaced": [],
   "elapsed_ms": 850
 }
@@ -136,10 +137,11 @@ When `stability: true`:
 | Field | Description |
 |-------|-------------|
 | `success` | Whether solving completed |
-| `placements` | List of box placements |
+| `placements` | List of box placements (instance-level) |
 | `bins_used` | Number of bins/containers used |
 | `utilization` | Volume utilization (0-1) |
-| `unplaced` | IDs of boxes that couldn't be placed |
+| `total_requested` | Σ of every box's quantity (instance-level). Unplaced instances = `total_requested - placements.length` |
+| `unplaced` | **Deduplicated** IDs of boxes that couldn't be placed (not per-instance) |
 | `elapsed_ms` | Solving time in milliseconds |
 
 ### Placement Fields

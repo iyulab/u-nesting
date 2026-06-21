@@ -726,6 +726,9 @@ impl Solver for Packer3D {
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();
+        // Authoritative instance-level request total (Σ quantity), recorded once
+        // at the top-level entry point where `geometries` is the full request.
+        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
 
         // Honor gravity/stability constraints, if requested, on the finished packing.
         if boundary.has_gravity() || boundary.has_stability() {
@@ -764,6 +767,9 @@ impl Solver for Packer3D {
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();
+        // Authoritative instance-level request total (Σ quantity), recorded once
+        // at the top-level entry point where `geometries` is the full request.
+        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
 
         // Honor gravity/stability constraints, if requested, on the finished packing.
         if boundary.has_gravity() || boundary.has_stability() {

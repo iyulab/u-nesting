@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`total_requested` on solve responses** (`solve_2d`/`solve_3d`). Both
+  `SolveResponse` and `Pack3DResponse` now carry `total_requested: usize` — the
+  Σ of every geometry's `quantity` (instance-level request total). `placements`
+  is instance-level while `unplaced` lists **deduplicated** unique geometry IDs,
+  so previously the per-instance unplaced count could not be derived from the
+  response (`unplaced.len()` under-reports when a multi-quantity geometry fails).
+  Consumers can now compute it directly as `total_requested - placements.len()`.
+  The field is additive and `#[serde(default)]` (absent legacy/`optimize_cutting_path`
+  passthrough payloads deserialize to `0`); on error responses it is `0`.
+  Mirrored across the FFI, WASM, and Python bindings; C# binding models updated
+  in lockstep. Resolves the instance-count under-reporting reported by consumers.
+
+### Fixed
+
+- `SolveSummary.total_requested` previously computed `placements.len() +
+  unplaced.len()`, which **undercounted** whenever a multi-quantity geometry was
+  partially/fully unplaced (because `unplaced` is deduplicated). It now uses the
+  authoritative instance-level total recorded at solve time.
+
 ### Security
 
 - Upgrade PyO3 `0.24` → `0.29` to remediate two advisories flagged by

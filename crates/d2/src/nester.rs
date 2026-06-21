@@ -1264,6 +1264,9 @@ impl Solver for Nester2D {
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();
+        // Authoritative instance-level request total (Σ quantity), recorded once
+        // at the top-level entry point where `geometries` is the full request.
+        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
         Ok(result)
     }
 
@@ -1323,6 +1326,9 @@ impl Solver for Nester2D {
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();
+        // Authoritative instance-level request total (Σ quantity), recorded once
+        // at the top-level entry point where `geometries` is the full request.
+        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
         Ok(result)
     }
 

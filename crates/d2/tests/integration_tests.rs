@@ -300,8 +300,17 @@ mod nester_tests {
 
         // Only 1 piece can fit in a 100x100 boundary
         assert_eq!(result.placements.len(), 1);
-        // unplaced contains unique geometry IDs (after deduplication)
-        assert_eq!(result.unplaced.len(), 1); // 1 geometry ID couldn't be fully placed
+        // `unplaced` is deduplicated to unique geometry IDs, so its length is 1
+        // even though 4 of the 5 requested instances failed to place.
+        assert_eq!(result.unplaced.len(), 1);
+        // `total_requested` is instance-level (Σ quantity), so the true number of
+        // unplaced instances is recoverable as total_requested - placements.len().
+        assert_eq!(result.total_requested, 5);
+        assert_eq!(
+            result.total_requested - result.placements.len(),
+            4,
+            "4 of 5 instances should be unplaced"
+        );
     }
 
     #[test]

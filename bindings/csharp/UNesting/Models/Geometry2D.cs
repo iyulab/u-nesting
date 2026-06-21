@@ -236,6 +236,15 @@ public class NestingResult
     public double Utilization { get; set; }
 
     /// <summary>
+    /// Total number of geometry <b>instances</b> requested (sum of every
+    /// geometry's quantity). <see cref="Placements"/> is instance-level while
+    /// <see cref="Unplaced"/> lists deduplicated geometry IDs, so the
+    /// instance-level unplaced count is <c>TotalRequested - Placements.Count</c>.
+    /// </summary>
+    [JsonPropertyName("total_requested")]
+    public int TotalRequested { get; set; }
+
+    /// <summary>
     /// Items that could not be placed.
     /// </summary>
     [JsonPropertyName("unplaced")]

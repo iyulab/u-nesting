@@ -372,6 +372,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
                 placements: Vec::new(),
                 sheets_used: 0,
                 utilization: 0.0,
+                total_requested: 0,
                 unplaced: Vec::new(),
                 elapsed_ms: 0,
             };
@@ -420,6 +421,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         };
@@ -438,6 +440,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             placements: result.placements.into_iter().map(Into::into).collect(),
             sheets_used: result.boundaries_used,
             utilization: result.utilization,
+            total_requested: result.total_requested,
             unplaced: result.unplaced,
             elapsed_ms: result.computation_time_ms,
         },
@@ -448,6 +451,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         },
@@ -556,6 +560,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
                 placements: Vec::new(),
                 sheets_used: 0,
                 utilization: 0.0,
+                total_requested: 0,
                 unplaced: Vec::new(),
                 elapsed_ms: 0,
             };
@@ -583,6 +588,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         };
@@ -630,6 +636,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         };
@@ -655,6 +662,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         };
@@ -688,6 +696,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
                 placements: result.placements.into_iter().map(Into::into).collect(),
                 sheets_used: result.boundaries_used,
                 utilization: result.utilization,
+                total_requested: result.total_requested,
                 unplaced: result.unplaced,
                 elapsed_ms: result.computation_time_ms,
             }
@@ -699,6 +708,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
+            total_requested: 0,
             unplaced: Vec::new(),
             elapsed_ms: 0,
         },
@@ -1084,6 +1094,46 @@ mod tests {
     }
 
     #[test]
+    fn test_solve_2d_total_requested_is_instance_level() {
+        // Wire-boundary guard for ISSUE-20260621: request 5 instances into a
+        // boundary that can hold only a few. `unplaced` is deduplicated to the
+        // single geometry ID, but `total_requested` is the instance-level Σ
+        // quantity, so the per-instance unplaced count is recoverable.
+        let request = r#"{
+            "geometries": [
+                {"id": "big", "polygon": [[0,0], [60,0], [60,60], [0,60]], "quantity": 5}
+            ],
+            "boundary": {"width": 100, "height": 100}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_2d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            assert_eq!(
+                json["total_requested"], 5,
+                "total_requested must equal Σ quantity (instance-level)"
+            );
+            let placed = json["placements"].as_array().unwrap().len();
+            let total_requested = json["total_requested"].as_u64().unwrap() as usize;
+            assert!(placed < total_requested, "not all 5 instances should fit");
+            // `unplaced` is deduplicated to a single geometry ID...
+            assert_eq!(json["unplaced"].as_array().unwrap().len(), 1);
+            // ...but the true unplaced instance count is derivable:
+            assert_eq!(total_requested - placed, 5 - placed);
+            assert!(total_requested - placed >= 1);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
     fn test_solve_3d_basic() {
         let request = r#"{
             "geometries": [
@@ -1105,6 +1155,39 @@ mod tests {
 
             assert!(response.success);
             assert_eq!(response.placements.len(), 2);
+            assert_eq!(response.total_requested, 2);
+
+            unesting_free_string(result_ptr);
+        }
+    }
+
+    #[test]
+    fn test_solve_3d_total_requested_is_instance_level() {
+        // Wire-boundary guard for ISSUE-20260621 (3D): more instances than fit.
+        let request = r#"{
+            "geometries": [
+                {"id": "cube", "dimensions": [40, 40, 40], "quantity": 5}
+            ],
+            "boundary": {"dimensions": [50, 50, 50]}
+        }"#;
+
+        let request_cstr = CString::new(request).unwrap();
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+
+        unsafe {
+            let code = unesting_solve_3d(request_cstr.as_ptr(), &mut result_ptr);
+            assert_eq!(code, UNESTING_OK);
+
+            let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
+            let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
+
+            assert_eq!(
+                json["total_requested"], 5,
+                "total_requested must equal Σ quantity (instance-level)"
+            );
+            let placed = json["placements"].as_array().unwrap().len();
+            let total_requested = json["total_requested"].as_u64().unwrap() as usize;
+            assert!(placed < total_requested, "not all 5 cubes should fit");
 
             unesting_free_string(result_ptr);
         }
