@@ -2927,8 +2927,7 @@ mod tests {
     /// 0 unplaced, and every `(geometry_id, instance)` pair unique across all sheets.
     #[test]
     fn test_multi_strip_distributes_all_instances() {
-        let geometries =
-            vec![Geometry2D::rectangle("part", 100.0, 100.0).with_quantity(20)];
+        let geometries = vec![Geometry2D::rectangle("part", 100.0, 100.0).with_quantity(20)];
         let boundary = Boundary2D::rectangle(300.0, 300.0);
         let config = Config::default().with_strategy(Strategy::BottomLeftFill);
         let nester = Nester2D::new(config);
@@ -2936,8 +2935,15 @@ mod tests {
         let result = nester.solve_multi_strip(&geometries, &boundary).unwrap();
 
         // All 20 instances placed across exactly 3 sheets (9 + 9 + 2), none unplaced.
-        assert_eq!(result.placements.len(), 20, "all 20 instances must be placed");
-        assert_eq!(result.boundaries_used, 3, "20 of 100x100 in 300x300 => 3 sheets");
+        assert_eq!(
+            result.placements.len(),
+            20,
+            "all 20 instances must be placed"
+        );
+        assert_eq!(
+            result.boundaries_used, 3,
+            "20 of 100x100 in 300x300 => 3 sheets"
+        );
         assert!(
             result.unplaced.is_empty(),
             "nothing should be unplaced, got {:?}",

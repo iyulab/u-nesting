@@ -404,8 +404,14 @@ mod tests {
         let mut result: SolveResult<f64> = SolveResult::new();
         for sheet in 0..3 {
             result.placements.push(
-                Placement::new_2d("p".to_string(), sheet, 10.0 + sheet as f64 * extent, 5.0, 0.0)
-                    .with_boundary(sheet),
+                Placement::new_2d(
+                    "p".to_string(),
+                    sheet,
+                    10.0 + sheet as f64 * extent,
+                    5.0,
+                    0.0,
+                )
+                .with_boundary(sheet),
             );
         }
 

@@ -1193,7 +1193,10 @@ mod tests {
             let result_str = CStr::from_ptr(result_ptr).to_str().unwrap();
             let json: serde_json::Value = serde_json::from_str(result_str).unwrap();
 
-            assert_eq!(json["sheets_used"], 3, "20 of 100x100 in 300x300 => 3 sheets");
+            assert_eq!(
+                json["sheets_used"], 3,
+                "20 of 100x100 in 300x300 => 3 sheets"
+            );
             assert_eq!(json["placements"].as_array().unwrap().len(), 20);
             assert_eq!(json["unplaced"].as_array().unwrap().len(), 0);
             assert_eq!(json["total_requested"], 20);
