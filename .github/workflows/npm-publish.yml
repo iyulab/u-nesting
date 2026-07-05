@@ -77,6 +77,7 @@ jobs:
             types: `./${n}.d.ts`,
             default: `./${n}.js`,
           } };
+          p.exports["./package.json"] = "./package.json";
           if (!p.files.includes("node")) p.files.push("node");
           p.sideEffects = [...(p.sideEffects || []), `./node/${n}.cjs`];
           fs.writeFileSync("pkg/package.json", JSON.stringify(p, null, 2) + "\n");
