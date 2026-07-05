@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-05
+
+### Fixed
+
+- npm: expose the `./package.json` subpath in the `exports` map so tools
+  that `require('<pkg>/package.json')` (license scanners, version
+  reporters) keep working alongside the conditional exports introduced in
+  the previous release (`ERR_PACKAGE_PATH_NOT_EXPORTED`).
+
 ## [0.5.1] - 2026-07-05
 
 ### Fixed

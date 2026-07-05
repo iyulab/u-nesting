@@ -10,7 +10,7 @@
 
     <!-- NuGet Package Metadata -->
     <PackageId>UNesting</PackageId>
-    <Version>0.5.1</Version>
+    <Version>0.5.2</Version>
     <Authors>iyulab</Authors>
     <Company>iyulab</Company>
     <Product>UNesting</Product>
