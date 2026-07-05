@@ -11,6 +11,13 @@
 npm install @iyulab/u-nesting
 ```
 
+The package resolves per environment via a conditional `exports` map:
+
+| Environment | Entry |
+|---|---|
+| Bundlers (webpack, Vite, …) | ESM + WebAssembly ESM-integration (`default` condition) |
+| Node.js — `require()`, ESM `import`, CJS TS runners (`tsx`, `ts-node`) | CJS glue loading the wasm from the filesystem (`node` condition) — no loader hooks or flags |
+
 ## Functions
 
 | Function | Description |
@@ -28,9 +35,7 @@ All functions use **JSON string I/O**.
 ### 2D Nesting
 
 ```javascript
-import init, { solve_2d } from '@iyulab/u-nesting';
-
-await init();
+import { solve_2d } from '@iyulab/u-nesting';
 
 const result = JSON.parse(solve_2d(JSON.stringify({
   geometries: [
@@ -64,9 +69,7 @@ console.log(result);
 ### 3D Bin Packing
 
 ```javascript
-import init, { solve_3d } from '@iyulab/u-nesting';
-
-await init();
+import { solve_3d } from '@iyulab/u-nesting';
 
 const result = JSON.parse(solve_3d(JSON.stringify({
   geometries: [
@@ -89,9 +92,7 @@ const result = JSON.parse(solve_3d(JSON.stringify({
 ### Cutting Path Optimization
 
 ```javascript
-import init, { solve_2d, optimize_cutting_path } from '@iyulab/u-nesting';
-
-await init();
+import { solve_2d, optimize_cutting_path } from '@iyulab/u-nesting';
 
 // First solve the nesting problem
 const solveResult = JSON.parse(solve_2d(JSON.stringify({ /* ... */ })));

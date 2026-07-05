@@ -20,7 +20,7 @@ log.workspace = true
 # (performance.now()). Restores time_limit_ms termination on wasm.
 web-time = "1"
 u-metaheur = { version = "0.3", path = "../../../../algorithms/u-metaheur" }
-u-numflow = { version = "0.2", path = "../../../../foundation/u-numflow" }
+u-numflow = { version = "0.3", path = "../../../../foundation/u-numflow" }
 u-geometry = { version = "0.1", path = "../../../../algorithms/u-geometry" }
 
 [dev-dependencies]

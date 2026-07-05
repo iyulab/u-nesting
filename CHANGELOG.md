@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-05
+
+### Fixed
+
+- **npm packaging — Node-compatible entry** (`@iyulab/u-nesting`). The npm
+  package previously shipped only the wasm-bindgen *bundler*-target output,
+  whose static `.wasm` import fails on Node's CJS path (`tsx`/`ts-node` in
+  non-ESM packages) with an opaque `SyntaxError: Invalid or unexpected token`.
+  The package now additionally ships the *nodejs*-target CJS glue under
+  `node/` and routes Node consumers to it via a conditional `exports` map
+  (`node` → CJS with filesystem wasm loading, `default` → bundler ESM).
+  `require()`, native ESM `import`, and CJS TS runners all work without
+  loader hooks. A pre-publish smoke test (CJS `require` + ESM `import`) now
+  guards this path in CI. Wire schema and Rust/C#/Python APIs unchanged;
+  0.5.1 is a lockstep version bump across all bindings (npm re-publish
+  requires a new version, and binding versions are pinned in lockstep).
+
 ## [0.5.0] - 2026-06-21
 
 ### Added

@@ -41,8 +41,10 @@ jobs:
       - name: Install wasm-pack
         run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
 
-      - name: Build WASM package
-        run: wasm-pack build crates/wasm --target bundler --scope iyulab
+      - name: Build WASM package (bundler + nodejs)
+        run: |
+          wasm-pack build crates/wasm --target bundler --scope iyulab --out-dir pkg
+          wasm-pack build crates/wasm --target nodejs --scope iyulab --out-dir pkg-node
 
       - name: Prepare npm package
         run: |
@@ -56,6 +58,38 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Merge nodejs target (node-compatible entry via exports map)
+        run: |
+          cd crates/wasm
+          NAME=$(node -p "require('./pkg/package.json').main.slice(0,-3)")
+          mkdir -p pkg/node
+          cp "pkg-node/${NAME}.js" "pkg/node/${NAME}.cjs"
+          cp "pkg-node/${NAME}_bg.wasm" pkg/node/
+          cp "pkg-node/${NAME}.d.ts" "pkg/node/${NAME}.d.cts"
+          sed -i "s|@ts-self-types=\"./${NAME}.d.ts\"|@ts-self-types=\"./${NAME}.d.cts\"|" "pkg/node/${NAME}.cjs"
+          node <<'EOF'
+          const fs = require("fs");
+          const p = JSON.parse(fs.readFileSync("pkg/package.json", "utf8"));
+          const n = p.main.slice(0, -3);
+          p.exports = { ".": {
+            node: { types: `./node/${n}.d.cts`, default: `./node/${n}.cjs` },
+            types: `./${n}.d.ts`,
+            default: `./${n}.js`,
+          } };
+          if (!p.files.includes("node")) p.files.push("node");
+          p.sideEffects = [...(p.sideEffects || []), `./node/${n}.cjs`];
+          fs.writeFileSync("pkg/package.json", JSON.stringify(p, null, 2) + "\n");
+          EOF
+
+      - name: Node smoke test (CJS require + ESM import)
+        run: |
+          PKG_NAME=$(node -p "require('./crates/wasm/pkg/package.json').name")
+          mkdir -p "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke"
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE/crates/wasm/pkg"
+          node -e "const m = require('$PKG_NAME'); if (!Object.keys(m).length) throw new Error('empty CJS exports')"
+          node --input-type=module -e "import('$PKG_NAME').then(m => { if (!Object.keys(m).length) throw new Error('empty ESM exports') })"
 
       - name: Publish to npm
         run: |
