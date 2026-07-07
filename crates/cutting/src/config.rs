@@ -23,6 +23,19 @@ pub struct CuttingConfig {
     /// Set to 0 to use only the nearest-neighbor solution.
     pub max_2opt_iterations: usize,
 
+    /// Wall-clock budget (in milliseconds) for the 2-opt improvement phase.
+    ///
+    /// The 2-opt neighborhood is `O(n^2)` candidate moves per pass, and each
+    /// pass may repeat up to `max_2opt_iterations` times, so on large inputs
+    /// the iteration cap alone can still run for many seconds — blocking the
+    /// (browser main) thread. When this budget is exceeded the optimizer stops
+    /// and returns the best sequence found so far; cut-path order is a
+    /// heuristic, so early termination never invalidates the result.
+    ///
+    /// Set to `0` for no wall-clock limit (bounded only by
+    /// `max_2opt_iterations`). Default: `5000` (5 seconds).
+    pub time_limit_ms: u64,
+
     /// Machine rapid traverse speed (mm/s or units/s).
     /// Used only for time estimation, not for optimization.
     pub rapid_speed: f64,
@@ -77,6 +90,7 @@ impl Default for CuttingConfig {
             kerf_width: 0.0,
             pierce_weight: 10.0,
             max_2opt_iterations: 1000,
+            time_limit_ms: 5000,
             rapid_speed: 1000.0,
             cut_speed: 100.0,
             exterior_direction: CutDirectionPreference::Auto,
@@ -112,6 +126,12 @@ impl CuttingConfig {
     /// Sets the maximum 2-opt iterations.
     pub fn with_max_2opt_iterations(mut self, iterations: usize) -> Self {
         self.max_2opt_iterations = iterations;
+        self
+    }
+
+    /// Sets the wall-clock budget (ms) for the 2-opt phase. `0` = unlimited.
+    pub fn with_time_limit_ms(mut self, time_limit_ms: u64) -> Self {
+        self.time_limit_ms = time_limit_ms;
         self
     }
 
@@ -156,6 +176,7 @@ mod tests {
         assert_eq!(config.kerf_width, 0.0);
         assert_eq!(config.pierce_weight, 10.0);
         assert_eq!(config.max_2opt_iterations, 1000);
+        assert_eq!(config.time_limit_ms, 5000);
         assert_eq!(config.home_position, (0.0, 0.0));
     }
 

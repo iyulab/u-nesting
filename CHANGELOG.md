@@ -5,7 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-07-07
+
+### Fixed
+
+- **Cutting-path sequencing is now wall-clock bounded** (`optimize_cutting_path`,
+  all bindings). The 2-opt improvement phase had no time limit — only an
+  iteration cap — and each candidate move re-evaluated the whole tour, so
+  legitimate inputs (e.g. hundreds of identical parts filling a sheet) ran for
+  many seconds and blocked the calling thread; in the browser this froze the
+  tab (effectively a DoS on normal use). `CuttingConfig` gains
+  `time_limit_ms` (default `5000`, `0` = unlimited), plumbed through the WASM
+  and C-FFI `cutting_config` JSON (`time_limit_ms?: number`). On timeout the
+  best sequence found so far is returned — cut order is heuristic, so early
+  termination never invalidates the result. Independently, per-move cost
+  evaluation no longer does a linear `contours.iter().find()`, dropping a
+  factor of `n` from every 2-opt pass. Applies to both the legacy
+  (`pierce_candidates <= 1`) and GTSP (`pierce_candidates > 1`) paths.
 
 ## [0.5.2] - 2026-07-05
 

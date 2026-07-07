@@ -1023,6 +1023,9 @@ fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutt
         if let Some(iters) = req.max_2opt_iterations {
             config.max_2opt_iterations = iters;
         }
+        if let Some(time_limit) = req.time_limit_ms {
+            config.time_limit_ms = time_limit;
+        }
         if let Some(speed) = req.rapid_speed {
             config.rapid_speed = speed;
         }
@@ -1937,6 +1940,7 @@ mod tests {
             kerf_width: Some(0.5),
             pierce_weight: Some(20.0),
             max_2opt_iterations: Some(500),
+            time_limit_ms: Some(1234),
             rapid_speed: Some(2000.0),
             cut_speed: Some(50.0),
             exterior_direction: Some("ccw".to_string()),
@@ -1949,6 +1953,7 @@ mod tests {
         assert_eq!(config.kerf_width, 0.5);
         assert_eq!(config.pierce_weight, 20.0);
         assert_eq!(config.max_2opt_iterations, 500);
+        assert_eq!(config.time_limit_ms, 1234);
         assert_eq!(config.rapid_speed, 2000.0);
         assert_eq!(config.cut_speed, 50.0);
         assert_eq!(config.home_position, (10.0, 10.0));

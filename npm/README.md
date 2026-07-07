@@ -106,10 +106,44 @@ const cutting = JSON.parse(optimize_cutting_path(JSON.stringify({
     cut_speed: 100.0,
     rapid_speed: 500.0,
     exterior_direction: "cw",
-    interior_direction: "ccw"
+    interior_direction: "ccw",
+    time_limit_ms: 2000            // Bound the sequencing pass (see below)
   }
 })));
 ```
+
+### `optimize_cutting_path` Request
+
+```typescript
+interface CuttingRequest {
+  geometries: Geometry[];          // Same shape as solve_2d geometries
+  solve_result: SolveResult;       // The parsed result returned by solve_2d
+  cutting_config?: {
+    kerf_width?: number;           // Kerf compensation width (default: 0 = off)
+    pierce_weight?: number;        // Pierce-count weight in cost (default: 10)
+    max_2opt_iterations?: number;  // 2-opt iteration cap (default: 1000)
+    time_limit_ms?: number;        // Wall-clock budget (ms) for the 2-opt phase.
+                                   //   0 = unlimited. Default: 5000.
+    rapid_speed?: number;          // For time estimation only (default: 1000)
+    cut_speed?: number;            // For time estimation only (default: 100)
+    exterior_direction?: string;   // "ccw" | "cw" | "auto" (default: "auto")
+    interior_direction?: string;   // "ccw" | "cw" | "auto" (default: "auto")
+    home_position?: [number, number]; // Head start/end point (default: [0,0])
+    pierce_candidates?: number;    // Candidate pierce points per contour (default: 1)
+    tolerance?: number;            // Geometric comparison tolerance (default: 1e-6)
+  };
+}
+```
+
+> **`time_limit_ms` (anytime bound).** Cutting-path sequencing runs a
+> nearest-neighbor construction followed by 2-opt improvement. The 2-opt
+> neighborhood is `O(n²)` candidate moves per pass, so on large jobs (e.g. many
+> identical parts filling a sheet) the iteration cap alone can run for seconds
+> and block the calling thread — in the browser this freezes the whole tab.
+> `time_limit_ms` caps that phase; when the budget is exceeded the best sequence
+> found so far is returned. Cut order is a heuristic, so early termination never
+> invalidates the result — it only trades some optimality for responsiveness.
+> Set `0` to disable the wall-clock bound (native/batch callers only).
 
 ## Input Schemas
 

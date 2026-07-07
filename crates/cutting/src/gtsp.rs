@@ -19,6 +19,8 @@
 //! - Dewil et al. (2015), "An improvement heuristic framework for the laser
 //!   cutting tool path problem"
 
+use u_nesting_core::timing::Timer;
+
 use crate::config::{CutDirectionPreference, CuttingConfig};
 use crate::contour::{ContourType, CutContour};
 use crate::cost::point_distance;
@@ -261,7 +263,7 @@ pub fn solve_nn(instance: &GtspInstance) -> Vec<usize> {
 pub fn solve_constrained(
     instance: &GtspInstance,
     dag: &crate::hierarchy::CuttingDag,
-    max_2opt_iterations: usize,
+    config: &CuttingConfig,
 ) -> Vec<usize> {
     let n_clusters = instance.clusters.len();
     if n_clusters == 0 {
@@ -271,9 +273,9 @@ pub fn solve_constrained(
     // Step 1: Precedence-aware NN
     let mut solution = nn_constrained(instance, dag);
 
-    // Step 2: Constrained 2-opt
-    if max_2opt_iterations > 0 && solution.len() >= 3 {
-        improve_2opt_constrained(&mut solution, instance, dag, max_2opt_iterations);
+    // Step 2: Constrained 2-opt (wall-clock bounded via config.time_limit_ms)
+    if config.max_2opt_iterations > 0 && solution.len() >= 3 {
+        improve_2opt_constrained(&mut solution, instance, dag, config);
     }
 
     solution
@@ -333,22 +335,33 @@ fn nn_constrained(instance: &GtspInstance, dag: &crate::hierarchy::CuttingDag) -
     solution
 }
 
+/// How many candidate moves to evaluate between wall-clock checks (see the
+/// equivalent constant in `sequence.rs` for rationale).
+const TIME_CHECK_INTERVAL: u32 = 512;
+
 /// Constrained 2-opt improvement for GTSP solutions.
 ///
 /// Tries swapping candidates within clusters and reversing sub-sequences,
 /// accepting only moves that reduce cost and respect precedence.
+///
+/// Bounded by `config.time_limit_ms` (0 = unlimited). Both move neighborhoods
+/// are checked from inside their innermost loop, at a point where `solution`
+/// holds an accepted (best-so-far) state, so timeout returns a valid result.
 fn improve_2opt_constrained(
     solution: &mut [usize],
     instance: &GtspInstance,
     dag: &crate::hierarchy::CuttingDag,
-    max_iterations: usize,
+    config: &CuttingConfig,
 ) {
     let n = solution.len();
+    let timer = Timer::now();
+    let time_limited = config.time_limit_ms > 0;
+    let mut since_check: u32 = 0;
     let mut improved = true;
     let mut iterations = 0;
     let mut current_cost = evaluate_solution(instance, solution);
 
-    while improved && iterations < max_iterations {
+    while improved && iterations < config.max_2opt_iterations {
         improved = false;
         iterations += 1;
 
@@ -362,6 +375,16 @@ fn improve_2opt_constrained(
                 let alt_global = instance.local_to_global(ci, cand.candidate_index);
                 if alt_global == current_global {
                     continue;
+                }
+
+                // Wall-clock guard: `solution` is accepted state before the
+                // tentative swap below.
+                since_check += 1;
+                if time_limited && since_check >= TIME_CHECK_INTERVAL {
+                    since_check = 0;
+                    if timer.elapsed_ms() >= config.time_limit_ms {
+                        return;
+                    }
                 }
 
                 solution[pos] = alt_global;
@@ -379,6 +402,16 @@ fn improve_2opt_constrained(
         // Move 2: Try reversing sub-sequences (cluster-order level)
         for i in 0..n.saturating_sub(1) {
             for j in (i + 2)..n {
+                // Wall-clock guard: `solution` is accepted state before the
+                // tentative reverse below.
+                since_check += 1;
+                if time_limited && since_check >= TIME_CHECK_INTERVAL {
+                    since_check = 0;
+                    if timer.elapsed_ms() >= config.time_limit_ms {
+                        return;
+                    }
+                }
+
                 solution[i + 1..=j].reverse();
 
                 // Check precedence validity
@@ -771,7 +804,7 @@ mod tests {
         let clusters = discretize_contours(&contours, &config);
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
-        let solution = solve_constrained(&instance, &dag, 100);
+        let solution = solve_constrained(&instance, &dag, &config);
         assert_eq!(solution.len(), 2);
 
         // Interior (cluster for contour 1) must come before Exterior (cluster for contour 0)
@@ -800,7 +833,7 @@ mod tests {
         let clusters = discretize_contours(&contours, &config);
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
-        let solution = solve_constrained(&instance, &dag, 100);
+        let solution = solve_constrained(&instance, &dag, &config);
         assert_eq!(solution.len(), 3);
 
         // NN should visit in order: 0 (nearest), 1, 2
@@ -830,7 +863,7 @@ mod tests {
         let clusters = discretize_contours(&contours, &config);
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
-        let solution = solve_constrained(&instance, &dag, 100);
+        let solution = solve_constrained(&instance, &dag, &config);
         let cost = evaluate_solution(&instance, &solution);
 
         // Cost should be reasonable (not worse than worst case)
@@ -849,8 +882,9 @@ mod tests {
         let contours: Vec<CutContour> = Vec::new();
         let dag = CuttingDag::build(&contours);
         let instance = build_gtsp_instance(Vec::new(), (0.0, 0.0));
+        let config = CuttingConfig::default();
 
-        let solution = solve_constrained(&instance, &dag, 100);
+        let solution = solve_constrained(&instance, &dag, &config);
         assert!(solution.is_empty());
     }
 }

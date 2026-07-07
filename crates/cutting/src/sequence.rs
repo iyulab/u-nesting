@@ -16,6 +16,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+use u_nesting_core::timing::Timer;
+
 use crate::common_edge::CommonEdgeResult;
 use crate::config::CuttingConfig;
 use crate::contour::CutContour;
@@ -66,16 +68,22 @@ pub fn optimize_sequence_with_adjacency(
     // Build adjacency map from common edges
     let adjacency = build_adjacency_map(common_edges);
 
-    // Step 1: Nearest Neighbor construction with adjacency bonus
-    let mut order = nearest_neighbor_with_adjacency(contours, dag, config, &adjacency);
+    // Index contours by id once: the 2-opt inner loop evaluates the tour cost
+    // O(n^2) times per pass, and a linear `contours.iter().find()` inside each
+    // evaluation would make that O(n) more expensive (the dominant cost on the
+    // reported freeze). An id -> &contour map makes each lookup O(1).
+    let index = build_contour_index(contours);
 
-    // Step 2: 2-opt improvement
+    // Step 1: Nearest Neighbor construction with adjacency bonus
+    let mut order = nearest_neighbor_with_adjacency(contours, dag, config, &adjacency, &index);
+
+    // Step 2: 2-opt improvement (wall-clock bounded via config.time_limit_ms)
     if config.max_2opt_iterations > 0 {
-        improve_2opt(&mut order, contours, dag, config);
+        improve_2opt(&mut order, dag, config, &index);
     }
 
     // Step 3: Compute pierce selections for the final order
-    let (pierce_selections, total_rapid) = compute_pierce_selections(&order, contours, config);
+    let (pierce_selections, total_rapid) = compute_pierce_selections(&order, &index, config);
 
     SequenceResult {
         order,
@@ -107,6 +115,12 @@ fn build_adjacency_map(
     adjacency
 }
 
+/// Builds an `id -> &contour` lookup so per-move cost evaluation avoids a
+/// linear scan over `contours`.
+fn build_contour_index(contours: &[CutContour]) -> HashMap<usize, &CutContour> {
+    contours.iter().map(|c| (c.id, c)).collect()
+}
+
 /// Nearest Neighbor construction heuristic with adjacency bonus.
 ///
 /// Starts from the home position and greedily selects the closest uncut
@@ -117,6 +131,7 @@ fn nearest_neighbor_with_adjacency(
     dag: &CuttingDag,
     config: &CuttingConfig,
     adjacency: &HashMap<usize, Vec<(usize, f64)>>,
+    index: &HashMap<usize, &CutContour>,
 ) -> Vec<usize> {
     let n = contours.len();
     let mut visited: HashSet<usize> = HashSet::with_capacity(n);
@@ -173,7 +188,7 @@ fn nearest_neighbor_with_adjacency(
             last_id = Some(id);
 
             // Update current position to the pierce point
-            if let Some(contour) = contours.iter().find(|c| c.id == id) {
+            if let Some(contour) = index.get(&id) {
                 let pierce = select_pierce(contour, current_pos, config);
                 current_pos = pierce.end_point;
             }
@@ -183,24 +198,43 @@ fn nearest_neighbor_with_adjacency(
     order
 }
 
+/// How many candidate moves to evaluate between wall-clock checks.
+///
+/// Reading the clock on every move would cross the JS `performance.now()`
+/// boundary `O(n^2)` times per pass on WASM. Amortizing keeps the overrun
+/// tiny (a partial `i`-sweep) while avoiding that overhead.
+const TIME_CHECK_INTERVAL: u32 = 512;
+
 /// Constrained 2-opt improvement.
 ///
 /// Tries to reverse sub-sequences in the order to reduce total rapid distance.
 /// Only accepts reversals that don't violate precedence constraints.
+///
+/// Bounded by `config.time_limit_ms` (0 = unlimited): the check lives inside
+/// the innermost `for j` loop because a single `i`/`j` double-loop pass is
+/// itself the multi-second cost on large inputs — a check only at the outer
+/// `while` level would not fire until after that pass completed. On timeout we
+/// return with `order` in a valid, accepted state (every non-improving or
+/// precedence-violating reversal is undone immediately), i.e. the best
+/// sequence found so far.
 fn improve_2opt(
     order: &mut [usize],
-    contours: &[CutContour],
     dag: &CuttingDag,
     config: &CuttingConfig,
+    index: &HashMap<usize, &CutContour>,
 ) {
     let n = order.len();
     if n < 3 {
         return;
     }
 
+    let timer = Timer::now();
+    let time_limited = config.time_limit_ms > 0;
+    let mut since_check: u32 = 0;
+
     let mut improved = true;
     let mut iterations = 0;
-    let mut current_rapid = compute_pierce_selections(order, contours, config).1;
+    let mut current_rapid = compute_pierce_selections(order, index, config).1;
 
     while improved && iterations < config.max_2opt_iterations {
         improved = false;
@@ -208,12 +242,23 @@ fn improve_2opt(
 
         for i in 0..n - 1 {
             for j in (i + 2)..n {
+                // Wall-clock guard (amortized). `order` is in a clean accepted
+                // state here — before the tentative reverse below — so
+                // returning now yields a valid best-so-far sequence.
+                since_check += 1;
+                if time_limited && since_check >= TIME_CHECK_INTERVAL {
+                    since_check = 0;
+                    if timer.elapsed_ms() >= config.time_limit_ms {
+                        return;
+                    }
+                }
+
                 // Try reversing the segment [i+1..=j]
                 order[i + 1..=j].reverse();
 
                 // Check if the new sequence is valid
                 if dag.is_valid_sequence(order) {
-                    let new_rapid = compute_pierce_selections(order, contours, config).1;
+                    let new_rapid = compute_pierce_selections(order, index, config).1;
 
                     if new_rapid < current_rapid - 1e-10 {
                         current_rapid = new_rapid;
@@ -230,9 +275,12 @@ fn improve_2opt(
 }
 
 /// Computes pierce selections and total rapid distance for a given order.
+///
+/// `index` maps contour id to contour, so this is `O(n)` per call rather than
+/// `O(n^2)` — critical because the 2-opt loop calls it `O(n^2)` times per pass.
 fn compute_pierce_selections(
     order: &[usize],
-    contours: &[CutContour],
+    index: &HashMap<usize, &CutContour>,
     config: &CuttingConfig,
 ) -> (Vec<PierceSelection>, f64) {
     let mut selections = Vec::with_capacity(order.len());
@@ -240,7 +288,7 @@ fn compute_pierce_selections(
     let mut current_pos = config.home_position;
 
     for &contour_id in order {
-        let contour = match contours.iter().find(|c| c.id == contour_id) {
+        let contour = match index.get(&contour_id) {
             Some(c) => c,
             None => continue,
         };
@@ -369,7 +417,8 @@ mod tests {
 
         // Compute rapid distance for reverse order
         let reverse_order: Vec<usize> = (0..5).rev().collect();
-        let (_, reverse_rapid) = compute_pierce_selections(&reverse_order, &contours, &config);
+        let index = build_contour_index(&contours);
+        let (_, reverse_rapid) = compute_pierce_selections(&reverse_order, &index, &config);
 
         assert!(
             result.total_rapid_distance <= reverse_rapid + 1e-6,
@@ -421,6 +470,57 @@ mod tests {
                 "Adjacent contour 2 should follow contour 0"
             );
         }
+    }
+
+    #[test]
+    fn test_2opt_respects_time_limit() {
+        // Regression: cut-path 2-opt must be wall-clock bounded so it cannot
+        // freeze the (browser main) thread on large, legitimate inputs
+        // ("N identical brackets on a sheet"). See
+        // ISSUE-20260707-unesting-optimize-cutting-path-unbounded-runtime.
+        //
+        // 1500 distinct squares keep `improved == true` across passes, so
+        // without a time bound the O(n^4)-per-pass 2-opt runs for many
+        // seconds/minutes. With a 100ms budget it must return promptly with a
+        // valid, complete order.
+        let contours: Vec<CutContour> = (0..1500)
+            .map(|i| {
+                let cx = (i % 40) as f64 * 20.0;
+                let cy = (i / 40) as f64 * 20.0;
+                make_contour(i, cx, cy, ContourType::Exterior)
+            })
+            .collect();
+        let dag = CuttingDag::build(&contours);
+        let config = CuttingConfig::default()
+            .with_max_2opt_iterations(1000)
+            .with_time_limit_ms(100);
+
+        let start = std::time::Instant::now();
+        let result = optimize_sequence(&contours, &dag, &config);
+        let elapsed = start.elapsed();
+
+        // Early termination must still yield a valid, complete sequence.
+        assert_eq!(result.order.len(), 1500);
+        // Generous ceiling: the unbounded path took >5.6s at n=500 and is far
+        // worse at n=1500. 5s never flakes yet catches an unbounded regression.
+        assert!(
+            elapsed.as_secs() < 5,
+            "2-opt must respect time_limit_ms; took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn test_zero_time_limit_is_unlimited() {
+        // time_limit_ms == 0 preserves the anytime/iteration-cap semantics
+        // (unbounded by wall clock) for native batch callers.
+        let contours: Vec<CutContour> = (0..5)
+            .map(|i| make_contour(i, 20.0 * i as f64 + 10.0, 10.0, ContourType::Exterior))
+            .collect();
+        let dag = CuttingDag::build(&contours);
+        let config = CuttingConfig::default().with_time_limit_ms(0);
+
+        let result = optimize_sequence(&contours, &dag, &config);
+        assert_eq!(result.order.len(), 5);
     }
 
     #[test]

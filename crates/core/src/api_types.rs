@@ -412,6 +412,11 @@ pub struct CuttingConfigRequest {
     /// Maximum number of 2-opt improvement iterations.
     pub max_2opt_iterations: Option<usize>,
 
+    /// Wall-clock budget (ms) for the 2-opt improvement phase. `0` = unlimited.
+    /// Prevents the sequencing pass from blocking the caller (e.g. the browser
+    /// main thread) on large inputs. Defaults to 5000 when omitted.
+    pub time_limit_ms: Option<u64>,
+
     /// Machine rapid traverse speed (units/s). For time estimation only.
     pub rapid_speed: Option<f64>,
 

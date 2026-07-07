@@ -201,6 +201,47 @@ fn test_home_position_affects_rapid() {
 }
 
 #[test]
+fn test_optimize_cutting_path_is_time_bounded_end_to_end() {
+    // Regression (ISSUE-20260707): the *entire* optimize_cutting_path entry
+    // point — contour extraction, common-edge detection, NN construction and
+    // the 2-opt phase — must stay responsive on large but legitimate inputs
+    // ("N identical brackets on a sheet"). Before the fix this froze for many
+    // seconds / unboundedly and blocked the (browser main) thread.
+    let geometries = vec![Geometry2D::rectangle("P", 10.0, 10.0).with_quantity(1200)];
+    let boundary = Boundary2D::rectangle(600.0, 600.0);
+
+    // Bound the nesting solve so this measures only the cutting-path cost.
+    let nesting_config = Config {
+        time_limit_ms: 2000,
+        ..Config::default()
+    };
+    let nester = Nester2D::new(nesting_config);
+    let solve_result = nester
+        .solve(&geometries, &boundary)
+        .expect("nesting should succeed");
+    let placed = solve_result.placements.len();
+    assert!(
+        placed >= 800,
+        "expected a sheet-filling layout for the regression, got {placed}"
+    );
+
+    let cutting_config = CuttingConfig::default().with_time_limit_ms(200);
+    let t = std::time::Instant::now();
+    let result =
+        u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config);
+    let elapsed = t.elapsed();
+
+    // Early termination must still yield a valid, complete sequence.
+    assert_eq!(result.sequence.len(), placed);
+    // Generous ceiling: unbounded runtime was >5.6s at 500 parts and worse
+    // here. 5s never flakes yet catches an end-to-end unbounded regression.
+    assert!(
+        elapsed.as_secs() < 5,
+        "optimize_cutting_path must be time-bounded end-to-end; took {elapsed:?}"
+    );
+}
+
+#[test]
 fn test_cut_direction() {
     let geometries = vec![Geometry2D::new("P1")
         .with_polygon(vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)])

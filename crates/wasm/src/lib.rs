@@ -404,6 +404,9 @@ fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutt
         if let Some(iters) = req.max_2opt_iterations {
             config.max_2opt_iterations = iters;
         }
+        if let Some(time_limit) = req.time_limit_ms {
+            config.time_limit_ms = time_limit;
+        }
         if let Some(speed) = req.rapid_speed {
             config.rapid_speed = speed;
         }
