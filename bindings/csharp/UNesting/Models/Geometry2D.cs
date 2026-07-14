@@ -300,9 +300,18 @@ public class NestingResult
     public double[] UsedBoundingBox { get; set; } = new double[2];
 
     /// <summary>
-    /// Utilization against the used bounding box
+    /// Packing-density metric: utilization against the used bounding box
     /// (<c>placed_area / (used_width * used_height)</c>) rather than the full
-    /// boundary — the padding-independent efficiency metric.
+    /// boundary. The denominator shrinks on <b>both</b> axes to the placed
+    /// footprint, so this measures how tightly pieces are packed within their
+    /// own extent, independent of boundary padding.
+    /// <para>
+    /// This is <b>not</b> a fixed-width stock-efficiency metric. For fixed-width
+    /// material (fabric rolls, coil, sheet stock) the boundary width is real
+    /// consumed stock, not padding — collapsing the width axis over-reports
+    /// material savings. Fixed-width consumers should compute
+    /// <c>placed_area / (boundary_width * UsedBoundingBox[1])</c> instead.
+    /// </para>
     /// </summary>
     [JsonPropertyName("used_utilization")]
     public double UsedUtilization { get; set; }

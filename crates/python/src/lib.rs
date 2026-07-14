@@ -159,7 +159,11 @@ struct SolveOutput {
     /// Boundary-padding independent, unlike `utilization`.
     #[serde(default)]
     used_bounding_box: [f64; 2],
-    /// Utilization against the used bounding box (2D only; `0` for 3D).
+    /// Packing-density metric (2D only; `0` for 3D): `piece_area / (used_w × used_h)`
+    /// against the used bounding box. The denominator shrinks on **both** axes, so
+    /// this is **not** a fixed-width stock-efficiency figure — for fixed-width stock
+    /// (fabric/coil/sheet) the unused width is real waste. Fixed-width consumers
+    /// should compute `piece_area / (boundary_width × used_bounding_box[1])`.
     #[serde(default)]
     used_utilization: f64,
     computation_time_ms: u64,

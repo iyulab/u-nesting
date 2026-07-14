@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-07-15
+
+Documentation-only clarification from continued fabric-cutting dogfooding. No
+runtime behaviour changes; fully backward compatible.
+
+### Documentation
+
+- **`used_utilization` semantics clarified across all bindings (Rust, C#,
+  Python).** The field is a *packing-density* metric: its denominator is the
+  tight bounding box of the placed pieces, shrinking on **both** the width and
+  length axes. For **fixed-width stock** (fabric rolls, coil, sheet stock) the
+  boundary width is real consumed material, not padding, so collapsing the width
+  axis over-reports how much material was saved (measured up to +13.4%p on a
+  sleeve layout using 79% of a 1580 mm roll width). The docs now state this
+  explicitly and direct fixed-width consumers to compute
+  `placed_area / (boundary_width × used_bounding_box[1])` instead — the consumed
+  length (`used_bounding_box[1]`) is already exposed and boundary-independent.
+  A dedicated `stock_utilization` field is deferred pending cross-consumer
+  demand (single-consumer use is already covered by the formula above).
+
 ## [0.7.1] - 2026-07-14
 
 Follow-up hardening from the same fabric-cutting dogfooding pass. Behaviour of

@@ -261,8 +261,19 @@ pub struct SolveResponse {
 
     /// Utilization against the used bounding box
     /// (`placed_area / (used_width * used_height)`) rather than the full boundary.
-    /// The padding-independent efficiency metric. `0.0` when nothing placed, on
-    /// error, or in multi-sheet solves (see `used_bounding_box`).
+    /// A **packing-density** metric: the denominator shrinks on **both** axes to
+    /// the placed footprint, so it answers "how tightly are the pieces packed
+    /// within their own extent?" independent of boundary padding.
+    ///
+    /// This is **not** a fixed-width stock-efficiency metric. For fixed-width
+    /// material (fabric rolls, coil, sheet stock) the boundary width is real
+    /// consumed stock, not padding — collapsing the width axis over-reports how
+    /// much material was saved. Fixed-width consumers should compute
+    /// `placed_area / (boundary_width * used_bounding_box[1])` instead
+    /// (`used_bounding_box[1]` is the consumed length and is boundary-independent).
+    ///
+    /// `0.0` when nothing placed, on error, or in multi-sheet solves
+    /// (see `used_bounding_box`).
     #[serde(default)]
     pub used_utilization: f64,
 
