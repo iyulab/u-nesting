@@ -165,6 +165,25 @@ impl Boundary for Boundary2D {
             }
         }
 
+        // Arbitrary boundary polygons (not a rectangle, not an infinite strip
+        // whose exterior carries `f64::MAX` sentinels) must be simple and have
+        // positive area — a degenerate or self-crossing boundary makes
+        // containment filtering meaningless.
+        let is_rectangle = self.width.is_some() && self.height.is_some();
+        if !is_rectangle && !self.infinite_length {
+            let hole_refs: Vec<&[(f64, f64)]> = self.holes.iter().map(|h| h.as_slice()).collect();
+            if geom_polygon::area_with_holes(&self.exterior, &hole_refs).abs() <= 0.0 {
+                return Err(Error::InvalidBoundary(
+                    "Boundary polygon is degenerate (zero area)".into(),
+                ));
+            }
+            if !crate::polygon_ops::is_simple_polygon(&self.exterior) {
+                return Err(Error::InvalidBoundary(
+                    "Boundary polygon is self-intersecting (edges cross)".into(),
+                ));
+            }
+        }
+
         Ok(())
     }
 
@@ -197,12 +216,13 @@ impl Boundary2DExt for Boundary2D {
     }
 
     fn contains_polygon(&self, polygon: &[(f64, f64)]) -> bool {
-        // Check if all vertices are inside the boundary
+        use crate::polygon_ops::segments_intersect;
+
+        // 1. Every vertex must be inside the exterior and outside all holes.
         for &p in polygon {
             if !geom_polygon::contains_point(&self.exterior, p) {
                 return false;
             }
-            // Also check that vertices are not inside any hole
             for hole in &self.holes {
                 if geom_polygon::contains_point(hole, p) {
                     return false;
@@ -210,8 +230,29 @@ impl Boundary2DExt for Boundary2D {
             }
         }
 
-        // For complete correctness, should also check edge intersections
-        // but for performance, vertex containment is often sufficient
+        // 2. No polygon edge may cross a boundary edge (exterior or hole).
+        //    Vertex containment alone misses a piece edge that spans a concave
+        //    notch or slips through a hole while its vertices stay inside — the
+        //    exact "arbitrary boundary" escape this method must reject.
+        let n = polygon.len();
+        if n >= 2 {
+            let boundary_rings = std::iter::once(&self.exterior).chain(self.holes.iter());
+            for i in 0..n {
+                let a1 = polygon[i];
+                let a2 = polygon[(i + 1) % n];
+                for ring in boundary_rings.clone() {
+                    let m = ring.len();
+                    for k in 0..m {
+                        let b1 = ring[k];
+                        let b2 = ring[(k + 1) % m];
+                        if segments_intersect(a1, a2, b1, b2) {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+
         true
     }
 

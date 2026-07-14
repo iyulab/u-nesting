@@ -489,7 +489,12 @@ pub fn run_ga_nesting(
         });
     }
 
-    let ga_result = runner.run();
+    // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
+    // system entropy (non-deterministic).
+    let ga_result = match config.seed {
+        Some(seed) => runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed)),
+        None => runner.run(),
+    };
 
     // Decode the best chromosome to get final placements
     let problem = NestingProblem::new(

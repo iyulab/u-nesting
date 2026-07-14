@@ -74,6 +74,7 @@ pub mod nfp;
 pub mod nfp_cm_solver;
 pub mod nfp_sliding;
 pub mod placement_utils;
+pub(crate) mod polygon_ops;
 pub mod sa_nesting;
 pub mod spatial_index;
 
@@ -175,6 +176,7 @@ pub fn is_placement_within_bounds(
     tolerance: f64,
 ) -> bool {
     use u_nesting_core::geometry::Boundary;
+    use u_nesting_core::Boundary2DExt;
 
     // Extract position (Vec<f64> with [x, y] for 2D)
     let x = placement.position.first().copied().unwrap_or(0.0);
@@ -195,11 +197,33 @@ pub fn is_placement_within_bounds(
     let placed_min_y = y + g_min[1];
     let placed_max_y = y + g_max[1];
 
-    // Check if fully within boundary (with tolerance)
-    placed_min_x >= b_min[0] - tolerance
+    // AABB containment — a necessary condition, and *exact* for a hole-free
+    // axis-aligned rectangular boundary.
+    let aabb_inside = placed_min_x >= b_min[0] - tolerance
         && placed_max_x <= b_max[0] + tolerance
         && placed_min_y >= b_min[1] - tolerance
-        && placed_max_y <= b_max[1] + tolerance
+        && placed_max_y <= b_max[1] + tolerance;
+
+    // Fast reject and the exact-boundary shortcut.
+    //
+    // For a plain rectangle (width & height set, no holes) the AABB check is the
+    // exact answer. Infinite strips must also stay on the AABB path: their
+    // exterior carries `f64::MAX` vertices, so ray-cast polygon containment is
+    // meaningless. Everything else — an arbitrary boundary polygon, or a
+    // rectangle carrying holes — needs true polygon-in-polygon containment,
+    // because the AABB of a triangular/concave/holed boundary spans empty
+    // regions where a piece would sit fully inside the box yet outside the shape.
+    let plain_rectangle =
+        boundary.width().is_some() && boundary.height().is_some() && boundary.holes().is_empty();
+    if boundary.is_infinite() || plain_rectangle {
+        return aabb_inside;
+    }
+    if !aabb_inside {
+        return false;
+    }
+
+    let piece = geometry.transformed_exterior(x, y, rotation);
+    boundary.contains_polygon(&piece)
 }
 
 /// Validates all placements in a SolveResult and removes any that are outside the boundary.
@@ -236,6 +260,13 @@ pub fn validate_and_filter_placements(
     let mut valid_placements = Vec::new();
     let mut total_valid_area = 0.0;
     let mut filtered_count = 0;
+    // Used-footprint accumulator: the AABB union of the placed pieces, which is
+    // boundary-padding independent (unlike `utilization`, which divides by the
+    // full boundary and shrinks arbitrarily as boundary height grows).
+    let mut used_min_x = f64::INFINITY;
+    let mut used_min_y = f64::INFINITY;
+    let mut used_max_x = f64::NEG_INFINITY;
+    let mut used_max_y = f64::NEG_INFINITY;
 
     for placement in result.placements {
         if let Some(geom) = geom_map.get(&placement.geometry_id) {
@@ -245,6 +276,11 @@ pub fn validate_and_filter_placements(
 
             if is_placement_within_bounds(&placement, geom, boundary, TOLERANCE) {
                 total_valid_area += geom.measure();
+                let (pg_min, pg_max) = geom.aabb_at_rotation(rot);
+                used_min_x = used_min_x.min(px + pg_min[0]);
+                used_min_y = used_min_y.min(py + pg_min[1]);
+                used_max_x = used_max_x.max(px + pg_max[0]);
+                used_max_y = used_max_y.max(py + pg_max[1]);
                 valid_placements.push(placement);
             } else {
                 // Calculate actual bounds for debugging
@@ -282,6 +318,16 @@ pub fn validate_and_filter_placements(
     // Update result with valid placements only
     result.placements = valid_placements;
     result.utilization = total_valid_area / boundary.measure();
+
+    // Record the used-footprint metrics (padding-independent). `total_piece_area`
+    // is otherwise only populated on the multi-strip path; set it here so the
+    // single-sheet `used_utilization = piece_area / used_bbox_area` is meaningful.
+    result.total_piece_area = total_valid_area;
+    if result.placements.is_empty() {
+        result.used_bounding_box = [0.0, 0.0];
+    } else {
+        result.used_bounding_box = [used_max_x - used_min_x, used_max_y - used_min_y];
+    }
 
     result
 }

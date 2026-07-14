@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-07-14
+
+Dogfooding hardening pass from a fabric-cutting consumer (open-roll nesting of
+irregular parts). All response additions are backward compatible — existing
+fields keep their meaning and `#[serde(default)]` keeps old payloads valid.
+
+### Added
+
+- **Piece accounting on the solve response.** `SolveResponse`/`Pack3DResponse`
+  gain `all_placed: bool` and `unplaced_count: usize`. `success` keeps its
+  meaning ("solve completed without crashing"); full placement is now signalled
+  by `all_placed` (`placements.len() == total_requested`), so an over-committed
+  run no longer looks successful. `unplaced_count` is the instance-level count,
+  complementing the deduplicated `unplaced` geometry-id list.
+- **Padding-independent utilization.** 2D responses gain
+  `used_bounding_box: [width, height]` (AABB of the placed pieces' actual
+  footprint) and `used_utilization` (`piece_area / (used_w × used_h)`). Unlike
+  `utilization`, these do not shrink as the boundary height grows — for an
+  open-ended roll the larger axis is the material length consumed. Single-sheet
+  solves only; `[0, 0]`/`0` for multi-sheet (per-sheet local frames make one
+  footprint ill-defined) and on error.
+- **Reproducible stochastic runs.** `Config` gains an optional `seed` (`seed?`
+  in the binding config JSON), threaded into GA/BRKGA/SA so a fixed seed yields
+  a deterministic layout. `None` seeds from system entropy.
+- **`Strategy::parse`** — single source of truth for strategy-name parsing
+  (case-insensitive, all aliases) shared by the C-FFI, Python, and WASM
+  bindings.
+
+### Fixed
+
+- **Pieces no longer escape non-rectangular boundaries.** Placement containment
+  used only an AABB test, so pieces could stick out past a triangular/concave
+  boundary's edges and still be reported as placed. Containment now does real
+  polygon-in-polygon testing (point-in-polygon + edge-intersection) for polygon
+  boundaries, while plain rectangles and infinite strips keep the exact fast
+  AABB path. Escaped pieces are rejected and correctly counted as unplaced.
+- **Unknown strategy names are now an error** instead of a silent fall-back to
+  `BottomLeftFill`, which hid consumer typos. (The FFI parser had also been
+  missing `brkga`/`gdrr`/`alns`/`exact`, silently downgrading them to BLF.)
+- **Invalid input geometry is rejected.** `Geometry2D::validate()` now rejects
+  zero-area/collinear polygons (relative-epsilon signed-area test) and
+  self-intersecting rings, and `allow_flip = true` errors until mirroring is
+  implemented (was silently ignored). Arbitrary polygon boundaries get the same
+  degeneracy/self-intersection checks.
+- **Input validation can no longer be bypassed.** Per-geometry `validate()` was
+  scattered across the per-strategy entry points, so the progress/callback path
+  skipped it. Validation is hoisted to the top of `solve`,
+  `solve_with_progress`, and `solve_multi_strip`.
+- **Progress path respects the BLF quality floor.** The `solve_with_progress`
+  GA branch bypassed the `not_worse_than_blf` guard that the plain `solve` path
+  uses, so a callback-driven run could return a worse layout than BLF.
+- **An internal panic no longer aborts the host process.** `panic = "abort"`
+  is removed from the release profile so unwinding reaches the `catch_unwind`
+  at the C-FFI entry points, which convert a panic into an error response
+  instead of `SIGABRT`-ing the C#/Python/WASM host.
+
 ## [0.6.0] - 2026-07-07
 
 ### Fixed

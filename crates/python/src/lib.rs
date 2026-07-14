@@ -111,6 +111,9 @@ struct ConfigInput {
     crossover_rate: Option<f64>,
     #[serde(default)]
     mutation_rate: Option<f64>,
+    /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA).
+    #[serde(default)]
+    seed: Option<u64>,
     /// Distribute overflow across multiple sheets (2D only). When true, parts that
     /// do not fit on one sheet spill onto additional sheets; `boundaries_used`
     /// reports the sheet count and each placement's `boundary_index` selects its
@@ -142,44 +145,89 @@ struct SolveOutput {
     #[serde(default)]
     total_requested: usize,
     unplaced: Vec<String>,
+    /// Instance-level count of unplaced instances (`total_requested - len(placements)`).
+    /// Satisfies `len(placements) + unplaced_count == total_requested`. Unlike the
+    /// deduplicated `unplaced` ID list, this never undercounts a multi-quantity geometry.
+    #[serde(default)]
+    unplaced_count: usize,
+    /// Whether every requested instance was placed. Prefer this over `success`
+    /// (which only reports that the solve completed without error) to detect
+    /// partial packing.
+    #[serde(default)]
+    all_placed: bool,
+    /// Used-footprint bounding box `[width, height]` (2D only; `[0, 0]` for 3D).
+    /// Boundary-padding independent, unlike `utilization`.
+    #[serde(default)]
+    used_bounding_box: [f64; 2],
+    /// Utilization against the used bounding box (2D only; `0` for 3D).
+    #[serde(default)]
+    used_utilization: f64,
     computation_time_ms: u64,
     error: Option<String>,
+}
+
+impl SolveOutput {
+    /// Fills the derived accounting/metric fields from a solved result, applying
+    /// the same instance-level invariant as the FFI/WASM `From` impl.
+    fn accounting(result: &u_nesting_core::SolveResult<f64>) -> (usize, bool, [f64; 2], f64) {
+        let unplaced_count = result
+            .total_requested
+            .saturating_sub(result.placements.len());
+        let [uw, uh] = result.used_bounding_box;
+        let used_area = uw * uh;
+        let used_utilization = if used_area > 0.0 {
+            result.total_piece_area / used_area
+        } else {
+            0.0
+        };
+        (
+            unplaced_count,
+            unplaced_count == 0,
+            result.used_bounding_box,
+            used_utilization,
+        )
+    }
 }
 
 fn default_quantity() -> usize {
     1
 }
 
-fn parse_strategy(s: &str) -> Strategy {
-    match s.to_lowercase().as_str() {
-        "blf" | "bottomleftfill" => Strategy::BottomLeftFill,
-        "nfp" | "nfpguided" => Strategy::NfpGuided,
-        "ga" | "genetic" | "geneticalgorithm" => Strategy::GeneticAlgorithm,
-        "brkga" => Strategy::Brkga,
-        "sa" | "simulatedannealing" => Strategy::SimulatedAnnealing,
-        "ep" | "extremepoint" => Strategy::ExtremePoint,
-        _ => Strategy::BottomLeftFill,
-    }
-}
-
-fn build_config(input: Option<ConfigInput>) -> Config {
+/// Builds a solver [`Config`] from Python input, validating each field.
+///
+/// Returns `Err(message)` on invalid input (negative/non-finite spacing or
+/// margin, unknown strategy name) so the caller raises `ValueError` instead of
+/// silently applying a default. Strategy names are parsed by the canonical
+/// [`Strategy::parse`], the single source of truth shared across all bindings.
+fn build_config(input: Option<ConfigInput>) -> Result<Config, String> {
     let mut config = Config::default();
 
     if let Some(c) = input {
         if let Some(strategy) = c.strategy {
-            config.strategy = parse_strategy(&strategy);
+            config.strategy = Strategy::parse(&strategy)
+                .ok_or_else(|| format!("unknown strategy: '{strategy}'"))?;
         }
         if let Some(spacing) = c.spacing {
+            if !spacing.is_finite() || spacing < 0.0 {
+                return Err(format!(
+                    "spacing must be a non-negative, finite number (got {spacing})"
+                ));
+            }
             config.spacing = spacing;
         }
         if let Some(margin) = c.margin {
+            if !margin.is_finite() || margin < 0.0 {
+                return Err(format!(
+                    "margin must be a non-negative, finite number (got {margin})"
+                ));
+            }
             config.margin = margin;
         }
         if let Some(time_limit) = c.time_limit_ms {
             config.time_limit_ms = time_limit;
         }
         if let Some(target) = c.target_utilization {
-            config.target_utilization = Some(target);
+            config.target_utilization = Some(target.clamp(0.0, 1.0));
         }
         if let Some(pop) = c.population_size {
             config.population_size = pop;
@@ -193,9 +241,12 @@ fn build_config(input: Option<ConfigInput>) -> Config {
         if let Some(mutation) = c.mutation_rate {
             config.mutation_rate = mutation;
         }
+        if let Some(seed) = c.seed {
+            config.seed = Some(seed);
+        }
     }
 
-    config
+    Ok(config)
 }
 
 /// Solve a 2D nesting problem.
@@ -302,7 +353,8 @@ fn solve_2d<'py>(
         .and_then(|c| c.multi_sheet)
         .unwrap_or(false);
 
-    let rust_config = build_config(config_input);
+    let rust_config = build_config(config_input)
+        .map_err(|e| PyValueError::new_err(format!("Invalid config: {e}")))?;
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(rust_config);
@@ -318,6 +370,8 @@ fn solve_2d<'py>(
                 let (b_min, b_max) = rust_boundary.aabb();
                 result.to_boundary_local(b_max[0] - b_min[0]);
             }
+            let (unplaced_count, all_placed, used_bounding_box, used_utilization) =
+                SolveOutput::accounting(&result);
             SolveOutput {
                 success: true,
                 placements: result
@@ -335,6 +389,10 @@ fn solve_2d<'py>(
                 utilization: result.utilization,
                 total_requested: result.total_requested,
                 unplaced: result.unplaced,
+                unplaced_count,
+                all_placed,
+                used_bounding_box,
+                used_utilization,
                 computation_time_ms: result.computation_time_ms,
                 error: None,
             }
@@ -346,6 +404,10 @@ fn solve_2d<'py>(
             utilization: 0.0,
             total_requested: 0,
             unplaced: vec![],
+            unplaced_count: 0,
+            all_placed: false,
+            used_bounding_box: [0.0, 0.0],
+            used_utilization: 0.0,
             computation_time_ms: 0,
             error: Some(e.to_string()),
         },
@@ -446,31 +508,40 @@ fn solve_3d<'py>(
         .with_gravity(boundary_input.gravity)
         .with_stability(boundary_input.stability);
 
-    let rust_config = build_config(config_input);
+    let rust_config = build_config(config_input)
+        .map_err(|e| PyValueError::new_err(format!("Invalid config: {e}")))?;
 
     // Solve
     let packer = Packer3D::new(rust_config);
     let output = match packer.solve(&rust_geometries, &rust_boundary) {
-        Ok(result) => SolveOutput {
-            success: true,
-            placements: result
-                .placements
-                .into_iter()
-                .map(|p| PlacementOutput {
-                    geometry_id: p.geometry_id,
-                    instance: p.instance,
-                    position: p.position,
-                    rotation: p.rotation,
-                    boundary_index: p.boundary_index,
-                })
-                .collect(),
-            boundaries_used: result.boundaries_used,
-            utilization: result.utilization,
-            total_requested: result.total_requested,
-            unplaced: result.unplaced,
-            computation_time_ms: result.computation_time_ms,
-            error: None,
-        },
+        Ok(result) => {
+            let (unplaced_count, all_placed, used_bounding_box, used_utilization) =
+                SolveOutput::accounting(&result);
+            SolveOutput {
+                success: true,
+                placements: result
+                    .placements
+                    .into_iter()
+                    .map(|p| PlacementOutput {
+                        geometry_id: p.geometry_id,
+                        instance: p.instance,
+                        position: p.position,
+                        rotation: p.rotation,
+                        boundary_index: p.boundary_index,
+                    })
+                    .collect(),
+                boundaries_used: result.boundaries_used,
+                utilization: result.utilization,
+                total_requested: result.total_requested,
+                unplaced: result.unplaced,
+                unplaced_count,
+                all_placed,
+                used_bounding_box,
+                used_utilization,
+                computation_time_ms: result.computation_time_ms,
+                error: None,
+            }
+        }
         Err(e) => SolveOutput {
             success: false,
             placements: vec![],
@@ -478,6 +549,10 @@ fn solve_3d<'py>(
             utilization: 0.0,
             total_requested: 0,
             unplaced: vec![],
+            unplaced_count: 0,
+            all_placed: false,
+            used_bounding_box: [0.0, 0.0],
+            used_utilization: 0.0,
             computation_time_ms: 0,
             error: Some(e.to_string()),
         },

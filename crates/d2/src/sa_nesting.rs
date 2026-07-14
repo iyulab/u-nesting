@@ -339,7 +339,15 @@ pub fn run_sa_nesting(
         });
     }
 
-    let sa_result = runner.run();
+    // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
+    // system entropy (non-deterministic).
+    let sa_result = match config.seed {
+        Some(seed) => {
+            use rand::SeedableRng;
+            runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed))
+        }
+        None => runner.run(),
+    };
 
     // Decode the best solution to get final placements
     let problem = SaNestingProblem::new(

@@ -88,6 +88,21 @@ pub fn available_strategies() -> String {
 /// Strategies that are NOT available in WASM builds.
 const WASM_BLOCKED_STRATEGIES: &[&str] = &["milp", "milpexact", "hybrid", "hybridexact"];
 
+/// Assembles a success `SolveResponse` from a solved 2D result, deriving every
+/// accounting/metric field through the shared `From` impl (single source of
+/// truth) and then filling in the placements it leaves empty.
+fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveResponse {
+    let placements = result
+        .placements
+        .iter()
+        .cloned()
+        .map(PlacementResponse::from)
+        .collect();
+    let mut resp: SolveResponse = result.into();
+    resp.placements = placements;
+    resp
+}
+
 fn solve_2d_internal(json_str: &str) -> SolveResponse {
     let request: Request2D = match serde_json::from_str(json_str) {
         Ok(r) => r,
@@ -153,7 +168,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         .unwrap_or(false);
 
     // Build config
-    let config = build_config(request.config);
+    let config = match build_config(request.config) {
+        Ok(c) => c,
+        Err(e) => return SolveResponse::error(e),
+    };
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(config);
@@ -170,17 +188,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
                 let (b_min, b_max) = boundary.aabb();
                 result.to_boundary_local(b_max[0] - b_min[0]);
             }
-            SolveResponse {
-                version: API_VERSION.to_string(),
-                success: true,
-                error: None,
-                placements: result.placements.into_iter().map(Into::into).collect(),
-                sheets_used: result.boundaries_used,
-                utilization: result.utilization,
-                total_requested: result.total_requested,
-                unplaced: result.unplaced,
-                elapsed_ms: result.computation_time_ms,
-            }
+            build_solve_response(result)
         }
         Err(e) => SolveResponse::error(e.to_string()),
     }
@@ -237,7 +245,10 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         .with_stability(request.boundary.stability);
 
     // Build config
-    let config = build_config(request.config);
+    let config = match build_config(request.config) {
+        Ok(c) => c,
+        Err(e) => return Pack3DResponse::error(e),
+    };
 
     // Solve
     let packer = Packer3D::new(config);
@@ -341,21 +352,37 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     }
 }
 
-fn build_config(request: Option<ConfigRequest>) -> Config {
+/// Builds a solver [`Config`] from the request, validating each field.
+///
+/// Returns `Err(message)` on invalid input (negative/non-finite spacing or
+/// margin, unknown strategy name) so the caller rejects the request instead of
+/// silently applying a default. Strategy names are parsed by the canonical
+/// [`Strategy::parse`], shared across all bindings.
+fn build_config(request: Option<ConfigRequest>) -> Result<Config, String> {
     let mut config = Config::default();
 
     if let Some(req) = request {
         if let Some(spacing) = req.spacing {
+            if !spacing.is_finite() || spacing < 0.0 {
+                return Err(format!(
+                    "spacing must be a non-negative, finite number (got {spacing})"
+                ));
+            }
             config.spacing = spacing;
         }
         if let Some(margin) = req.margin {
+            if !margin.is_finite() || margin < 0.0 {
+                return Err(format!(
+                    "margin must be a non-negative, finite number (got {margin})"
+                ));
+            }
             config.margin = margin;
         }
         if let Some(time_limit) = req.time_limit_ms {
             config.time_limit_ms = time_limit;
         }
         if let Some(target) = req.target_utilization {
-            config.target_utilization = Some(target);
+            config.target_utilization = Some(target.clamp(0.0, 1.0));
         }
         if let Some(pop) = req.population_size {
             config.population_size = pop;
@@ -369,26 +396,16 @@ fn build_config(request: Option<ConfigRequest>) -> Config {
         if let Some(mutation) = req.mutation_rate {
             config.mutation_rate = mutation;
         }
+        if let Some(seed) = req.seed {
+            config.seed = Some(seed);
+        }
         if let Some(strategy) = req.strategy {
-            config.strategy = parse_strategy(&strategy);
+            config.strategy = Strategy::parse(&strategy)
+                .ok_or_else(|| format!("unknown strategy: '{strategy}'"))?;
         }
     }
 
-    config
-}
-
-fn parse_strategy(s: &str) -> Strategy {
-    match s.to_lowercase().as_str() {
-        "blf" | "bottomleftfill" => Strategy::BottomLeftFill,
-        "nfp" | "nfpguided" => Strategy::NfpGuided,
-        "ga" | "genetic" | "geneticalgorithm" => Strategy::GeneticAlgorithm,
-        "brkga" => Strategy::Brkga,
-        "sa" | "simulatedannealing" => Strategy::SimulatedAnnealing,
-        "ep" | "extremepoint" => Strategy::ExtremePoint,
-        "gdrr" => Strategy::Gdrr,
-        "alns" => Strategy::Alns,
-        _ => Strategy::BottomLeftFill,
-    }
+    Ok(config)
 }
 
 fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutting::CuttingConfig {

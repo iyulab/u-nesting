@@ -183,6 +183,9 @@ pub struct ConfigRequest {
     /// GA mutation rate.
     pub mutation_rate: Option<f64>,
 
+    /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA).
+    pub seed: Option<u64>,
+
     /// Distribute overflow across multiple sheets (2D only).
     ///
     /// When `true`, parts that do not fit on a single sheet spill onto additional
@@ -223,9 +226,45 @@ pub struct SolveResponse {
     #[serde(default)]
     pub total_requested: usize,
 
-    /// IDs of unplaced geometries.
+    /// IDs of unplaced geometries (deduplicated). Tells *which* geometries have
+    /// at least one unplaced instance; see `unplaced_count` for *how many*.
     #[serde(default)]
     pub unplaced: Vec<String>,
+
+    /// Instance-level count of geometry instances that could not be placed
+    /// (`total_requested - placements.len()`). Satisfies the invariant
+    /// `placements.len() + unplaced_count == total_requested`. Unlike `unplaced`
+    /// (deduplicated IDs), this never undercounts a multi-quantity geometry.
+    /// `0` on error responses.
+    #[serde(default)]
+    pub unplaced_count: usize,
+
+    /// Whether every requested instance was placed
+    /// (`placements.len() == total_requested`). Prefer this over `success` to
+    /// detect partial packing: `success` only means the solve completed without
+    /// error, **not** that all pieces fit. `false` on error responses.
+    #[serde(default)]
+    pub all_placed: bool,
+
+    /// Axis-aligned bounding box `[width, height]` of the placed pieces' actual
+    /// footprint. Boundary-padding independent, unlike `utilization` (which
+    /// divides by the full boundary and shrinks as boundary height grows). For an
+    /// open-ended roll the larger axis is the material length consumed.
+    ///
+    /// Populated for **single-sheet** solves (the common open-roll / fabric case),
+    /// where all placements share one boundary-local frame. In **multi-sheet**
+    /// solves the placements are re-localized per sheet, so a single footprint is
+    /// ill-defined and this stays `[0.0, 0.0]`. Also `[0.0, 0.0]` when nothing was
+    /// placed or on error.
+    #[serde(default)]
+    pub used_bounding_box: [f64; 2],
+
+    /// Utilization against the used bounding box
+    /// (`placed_area / (used_width * used_height)`) rather than the full boundary.
+    /// The padding-independent efficiency metric. `0.0` when nothing placed, on
+    /// error, or in multi-sheet solves (see `used_bounding_box`).
+    #[serde(default)]
+    pub used_utilization: f64,
 
     /// Computation time in milliseconds.
     pub elapsed_ms: u64,
@@ -278,6 +317,18 @@ impl From<crate::Placement<f64>> for PlacementResponse {
 
 impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
     fn from(r: crate::SolveResult<S>) -> Self {
+        // Instance-level accounting: `placements` is instance-level, `total_requested`
+        // is Σ quantity. `unplaced_count` is derived from these (not from the
+        // deduplicated `unplaced` ID list, which undercounts multi-quantity geoms).
+        let placed = r.placements.len();
+        let unplaced_count = r.total_requested.saturating_sub(placed);
+        let [uw, uh] = r.used_bounding_box;
+        let used_area = uw * uh;
+        let used_utilization = if used_area > 0.0 {
+            r.total_piece_area / used_area
+        } else {
+            0.0
+        };
         Self {
             version: API_VERSION.to_string(),
             success: true,
@@ -287,6 +338,10 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
             utilization: r.utilization,
             total_requested: r.total_requested,
             unplaced: r.unplaced,
+            unplaced_count,
+            all_placed: unplaced_count == 0,
+            used_bounding_box: r.used_bounding_box,
+            used_utilization,
             elapsed_ms: r.computation_time_ms,
         }
     }
@@ -327,9 +382,21 @@ pub struct Pack3DResponse {
     #[serde(default)]
     pub total_requested: usize,
 
-    /// IDs of unplaced geometries.
+    /// IDs of unplaced geometries (deduplicated). See `unplaced_count` for the
+    /// instance-level count.
     #[serde(default)]
     pub unplaced: Vec<String>,
+
+    /// Instance-level count of geometry instances that could not be placed
+    /// (`total_requested - placements.len()`). Satisfies the invariant
+    /// `placements.len() + unplaced_count == total_requested`. `0` on error.
+    #[serde(default)]
+    pub unplaced_count: usize,
+
+    /// Whether every requested instance was placed. Prefer this over `success`
+    /// to detect partial packing. `false` on error responses.
+    #[serde(default)]
+    pub all_placed: bool,
 
     /// Computation time in milliseconds.
     pub elapsed_ms: u64,
@@ -377,6 +444,8 @@ impl Pack3DResponse {
             utilization: 0.0,
             total_requested: 0,
             unplaced: Vec::new(),
+            unplaced_count: 0,
+            all_placed: false,
             elapsed_ms: 0,
         }
     }
@@ -519,6 +588,10 @@ impl SolveResponse {
             utilization: 0.0,
             total_requested: 0,
             unplaced: Vec::new(),
+            unplaced_count: 0,
+            all_placed: false,
+            used_bounding_box: [0.0, 0.0],
+            used_utilization: 0.0,
             elapsed_ms: 0,
         }
     }
@@ -613,6 +686,52 @@ mod dto_strictness_tests {
         }))
         .expect("legacy 3D payload without total_requested must deserialize");
         assert_eq!(r.total_requested, 0);
+    }
+
+    #[test]
+    fn solve_response_accounting_invariant_holds() {
+        // A result with 6 placed instances out of 20 requested (14 unplaced),
+        // with `unplaced` deduplicated to a single geometry ID — the exact
+        // silent-loss shape the reporter observed.
+        let mut r: crate::SolveResult<f64> = crate::SolveResult::new();
+        for i in 0..6 {
+            r.placements
+                .push(crate::Placement::new_2d("p".to_string(), i, 0.0, 0.0, 0.0));
+        }
+        r.unplaced.push("p".to_string()); // deduplicated single ID
+        r.total_requested = 20;
+        r.total_piece_area = 60.0;
+        r.used_bounding_box = [10.0, 12.0];
+
+        // The `From` impl derives accounting from the result's placement count
+        // (6), then leaves `placements` for the binding to fill. The invariant
+        // `placed + unplaced_count == total` therefore holds against the source
+        // placement count, not `resp.placements` (empty at this layer).
+        let placed = 6;
+        let resp = super::SolveResponse::from(r);
+        assert_eq!(resp.unplaced_count, 14, "instance-level unplaced count");
+        assert_eq!(
+            placed + resp.unplaced_count,
+            resp.total_requested,
+            "invariant placed + unplaced_count == total_requested"
+        );
+        assert!(!resp.all_placed, "not all placed");
+        assert_eq!(resp.used_bounding_box, [10.0, 12.0]);
+        // used_utilization = piece_area / (used_w * used_h) = 60 / 120 = 0.5
+        assert!((resp.used_utilization - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn solve_response_all_placed_when_complete() {
+        let mut r: crate::SolveResult<f64> = crate::SolveResult::new();
+        for i in 0..3 {
+            r.placements
+                .push(crate::Placement::new_2d("p".to_string(), i, 0.0, 0.0, 0.0));
+        }
+        r.total_requested = 3;
+        let resp = super::SolveResponse::from(r);
+        assert!(resp.all_placed);
+        assert_eq!(resp.unplaced_count, 0);
     }
 
     #[test]

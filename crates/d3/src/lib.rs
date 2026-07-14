@@ -134,6 +134,10 @@ pub fn build_pack3d_response(
         })
         .collect();
 
+    let unplaced_count = result
+        .total_requested
+        .saturating_sub(result.placements.len());
+
     Pack3DResponse {
         version: API_VERSION.to_string(),
         success: true,
@@ -143,6 +147,8 @@ pub fn build_pack3d_response(
         utilization: result.utilization,
         total_requested: result.total_requested,
         unplaced: result.unplaced.clone(),
+        unplaced_count,
+        all_placed: unplaced_count == 0,
         elapsed_ms: result.computation_time_ms,
     }
 }

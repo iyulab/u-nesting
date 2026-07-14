@@ -1,7 +1,7 @@
 //! Integration tests for u-nesting-d2.
 
 use u_nesting_d2::{
-    Boundary, Boundary2D, Config, Geometry, Geometry2D, Geometry2DExt, Nester2D, Solver,
+    Boundary, Boundary2D, Config, Geometry, Geometry2D, Geometry2DExt, Nester2D, Solver, Strategy,
     Transform2D, AABB2D,
 };
 
@@ -326,6 +326,288 @@ mod nester_tests {
             (result.utilization - 0.25).abs() < 0.01,
             "Utilization = {}",
             result.utilization
+        );
+    }
+}
+
+/// Regression tests for the metaheuristic-quality fixes (ISSUE-u-nesting
+/// -20260714-metaheuristic-quality): seed reproducibility and the guarantee
+/// that GA/BRKGA/SA never return a solution worse than the BLF baseline.
+mod metaheuristic_quality_tests {
+    use super::*;
+
+    fn instance() -> (Vec<Geometry2D>, Boundary2D) {
+        let geometries = vec![Geometry2D::rectangle("p", 300.0, 200.0).with_quantity(10)];
+        let boundary = Boundary2D::rectangle(1000.0, 5000.0);
+        (geometries, boundary)
+    }
+
+    #[test]
+    fn ga_is_reproducible_with_seed() {
+        let (geometries, boundary) = instance();
+        let config = Config::default()
+            .with_strategy(Strategy::GeneticAlgorithm)
+            .with_time_limit(1500)
+            .with_seed(42);
+
+        let a = Nester2D::new(config.clone())
+            .solve(&geometries, &boundary)
+            .unwrap();
+        let b = Nester2D::new(config).solve(&geometries, &boundary).unwrap();
+
+        // Same seed must yield an identical placement set.
+        assert_eq!(a.placements.len(), b.placements.len());
+        for (pa, pb) in a.placements.iter().zip(b.placements.iter()) {
+            assert_eq!(pa.geometry_id, pb.geometry_id);
+            assert_eq!(pa.position, pb.position);
+            assert_eq!(pa.rotation, pb.rotation);
+        }
+    }
+
+    /// The stochastic strategies must never pack worse than plain BLF; the
+    /// `not_worse_than_blf` guard falls back to the greedy solution otherwise.
+    #[test]
+    fn metaheuristics_are_never_worse_than_blf() {
+        let (geometries, boundary) = instance();
+
+        let blf = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill))
+            .solve(&geometries, &boundary)
+            .unwrap();
+
+        for strategy in [
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+            Strategy::SimulatedAnnealing,
+        ] {
+            let config = Config::default()
+                .with_strategy(strategy)
+                .with_time_limit(1500)
+                .with_seed(7);
+            let result = Nester2D::new(config).solve(&geometries, &boundary).unwrap();
+
+            // Never place fewer pieces than the greedy baseline.
+            assert!(
+                result.placements.len() >= blf.placements.len(),
+                "{strategy:?} placed {} < BLF {}",
+                result.placements.len(),
+                blf.placements.len()
+            );
+        }
+    }
+
+    /// The callback-driven entry point (`solve_with_progress`, used by the FFI
+    /// `solve_2d_with_callback` and the WASM/demo path) must apply the same BLF
+    /// floor as `solve`. Without the guard on that dispatch site, a GA run worse
+    /// than BLF would slip through only when a progress callback is supplied.
+    #[test]
+    fn progress_ga_is_never_worse_than_blf() {
+        let (geometries, boundary) = instance();
+
+        let blf = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill))
+            .solve(&geometries, &boundary)
+            .unwrap();
+
+        let config = Config::default()
+            .with_strategy(Strategy::GeneticAlgorithm)
+            .with_time_limit(1500);
+        let result = Nester2D::new(config)
+            .solve_with_progress(&geometries, &boundary, Box::new(|_| {}))
+            .unwrap();
+
+        assert!(
+            result.placements.len() >= blf.placements.len(),
+            "progress GA placed {} < BLF {}",
+            result.placements.len(),
+            blf.placements.len()
+        );
+    }
+}
+
+/// Bucket B: containment (boundary escape), input validation, accounting, and
+/// the used-footprint metric.
+mod bucket_b_tests {
+    use super::*;
+    use u_nesting_d2::{is_placement_within_bounds, Placement};
+
+    fn triangle_boundary() -> Boundary2D {
+        // Right triangle: interior is x >= 0, y >= 0, x + y <= 1000.
+        Boundary2D::new(vec![(0.0, 0.0), (1000.0, 0.0), (0.0, 1000.0)])
+    }
+
+    #[test]
+    fn piece_outside_triangle_hypotenuse_is_rejected() {
+        // A 150×150 square whose lower-left sits at (500, 500): its far corner
+        // reaches (650, 650), where x + y = 1300 > 1000 — well outside the
+        // hypotenuse. Its AABB is inside the boundary AABB, so only real
+        // polygon-in-polygon containment can reject it (the escape the reporter hit).
+        let boundary = triangle_boundary();
+        let sq = Geometry2D::new("s").with_polygon(vec![
+            (0.0, 0.0),
+            (150.0, 0.0),
+            (150.0, 150.0),
+            (0.0, 150.0),
+        ]);
+        let outside = Placement::new_2d("s".to_string(), 0, 500.0, 500.0, 0.0);
+        assert!(
+            !is_placement_within_bounds(&outside, &sq, &boundary, 1e-6),
+            "piece past the hypotenuse must be rejected"
+        );
+
+        // A square snug in the corner (far corner at (160,160), x+y=320 < 1000).
+        let inside = Placement::new_2d("s".to_string(), 0, 10.0, 10.0, 0.0);
+        assert!(
+            is_placement_within_bounds(&inside, &sq, &boundary, 1e-6),
+            "piece fully inside the triangle must be accepted"
+        );
+    }
+
+    #[test]
+    fn full_solve_on_triangle_never_returns_an_escaped_piece() {
+        // End-to-end reproduction of the reporter's escape bug: solve() into a
+        // non-rectangular (triangular) boundary must NOT return any placement that
+        // sticks out past the hypotenuse, and the pieces that could not fit must be
+        // accounted as unplaced (not silently dropped). This exercises the composed
+        // pipeline — BLF/strategy places → validate_and_filter invokes the polygon
+        // containment path → escaped pieces removed → counted in the accounting —
+        // which the predicate-level tests above do not cover.
+        let boundary = triangle_boundary(); // legs 1000, area 500_000
+                                            // 20 × (200×200) squares: 800_000 of raw area into 500_000 of triangle,
+                                            // and the triangle's tapering top cannot host full squares — some MUST be
+                                            // rejected, so the run genuinely tests the reject-and-account path.
+        let geometry = Geometry2D::new("sq")
+            .with_polygon(vec![(0.0, 0.0), (200.0, 0.0), (200.0, 200.0), (0.0, 200.0)])
+            .with_quantity(20);
+        let geometries = vec![geometry.clone()];
+
+        let nester = Nester2D::default_config();
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        // Every returned placement must be genuinely inside the triangle — the
+        // escape the reporter saw would surface here as a containment failure.
+        for placement in &result.placements {
+            assert!(
+                is_placement_within_bounds(placement, &geometry, &boundary, 1e-6),
+                "solve returned a placement outside the triangular boundary: {placement:?}"
+            );
+        }
+
+        // The over-committed instance must leave real unplaced pieces, and the
+        // accounting must reflect them (total_requested − placed > 0).
+        let unplaced = result
+            .total_requested
+            .saturating_sub(result.placements.len());
+        assert_eq!(result.total_requested, 20, "all 20 instances requested");
+        assert!(
+            unplaced > 0,
+            "an over-committed triangle must leave pieces unplaced, got {} placed / {} requested",
+            result.placements.len(),
+            result.total_requested
+        );
+    }
+
+    #[test]
+    fn rectangular_boundary_still_uses_exact_aabb_path() {
+        // Regression guard: the fast/exact AABB path for plain rectangles must
+        // keep accepting flush placements (the polygon path would over-reject).
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let sq = Geometry2D::new("s").with_polygon(vec![
+            (0.0, 0.0),
+            (100.0, 0.0),
+            (100.0, 100.0),
+            (0.0, 100.0),
+        ]);
+        let flush = Placement::new_2d("s".to_string(), 0, 0.0, 0.0, 0.0);
+        assert!(is_placement_within_bounds(&flush, &sq, &boundary, 1e-6));
+    }
+
+    #[test]
+    fn bowtie_polygon_is_rejected() {
+        let boundary = Boundary2D::rectangle(1000.0, 1000.0);
+        // Self-intersecting bow-tie.
+        let bowtie = Geometry2D::new("b").with_polygon(vec![
+            (0.0, 0.0),
+            (100.0, 100.0),
+            (100.0, 0.0),
+            (0.0, 100.0),
+        ]);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill));
+        assert!(
+            nester.solve(&[bowtie], &boundary).is_err(),
+            "self-intersecting polygon must be rejected"
+        );
+    }
+
+    #[test]
+    fn collinear_zero_area_polygon_is_rejected() {
+        let boundary = Boundary2D::rectangle(1000.0, 1000.0);
+        let collinear =
+            Geometry2D::new("c").with_polygon(vec![(0.0, 0.0), (100.0, 0.0), (200.0, 0.0)]);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill));
+        assert!(
+            nester.solve(&[collinear], &boundary).is_err(),
+            "degenerate (zero-area) polygon must be rejected"
+        );
+    }
+
+    #[test]
+    fn allow_flip_is_rejected_until_implemented() {
+        let boundary = Boundary2D::rectangle(1000.0, 1000.0);
+        let piece = Geometry2D::rectangle("r", 100.0, 50.0).with_flip(true);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill));
+        assert!(
+            nester.solve(&[piece], &boundary).is_err(),
+            "allow_flip must error while mirroring is unimplemented"
+        );
+    }
+
+    #[test]
+    fn small_valid_piece_survives_degeneracy_check() {
+        // A legitimately small piece (0.5×0.5, area 0.25) must NOT be rejected
+        // by the zero-area guard.
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let tiny =
+            Geometry2D::new("t").with_polygon(vec![(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5)]);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill));
+        assert!(nester.solve(&[tiny], &boundary).is_ok());
+    }
+
+    #[test]
+    fn used_bounding_box_is_padding_independent() {
+        // Identical pieces on a fixed-width, very tall roll: the used footprint
+        // (and used_utilization) must not collapse as boundary height grows,
+        // unlike `utilization`.
+        let geometries = vec![Geometry2D::rectangle("p", 100.0, 100.0).with_quantity(4)];
+        let boundary = Boundary2D::rectangle(400.0, 100_000.0);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill));
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        let [uw, uh] = result.used_bounding_box;
+        assert!(uw > 0.0 && uh > 0.0, "used bbox populated");
+        // Used footprint height must be far below the 100k boundary height.
+        assert!(
+            uh < 10_000.0,
+            "used length reflects pieces, not boundary padding"
+        );
+        // Whole-boundary utilization is tiny; used-bbox area is a tight envelope.
+        assert!(result.utilization < 0.01, "boundary utilization is diluted");
+        assert!(uw * uh < 400.0 * 10_000.0, "used bbox is a tight envelope");
+    }
+
+    #[test]
+    fn accounting_invariant_holds_on_overflow() {
+        // Five 300×300 pieces into a 300×300 sheet: only one fits.
+        let geometries = vec![Geometry2D::rectangle("p", 300.0, 300.0).with_quantity(5)];
+        let boundary = Boundary2D::rectangle(300.0, 300.0);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill));
+        let result = nester.solve(&geometries, &boundary).unwrap();
+
+        assert_eq!(result.total_requested, 5);
+        let unplaced_count = result.total_requested - result.placements.len();
+        assert!(unplaced_count > 0, "some pieces must be unplaced");
+        assert_eq!(
+            result.placements.len() + unplaced_count,
+            result.total_requested,
+            "placed + unplaced_count == total_requested"
         );
     }
 }

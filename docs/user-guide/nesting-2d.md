@@ -37,6 +37,11 @@ Each geometry requires:
 | `allow_flip` | boolean | No | Allow mirror reflection |
 | `holes` | number[][][] | No | Interior holes (CW orientation) |
 
+### Wire Contract: Polylines and Units
+
+- **Polylines only** — every contour is a flat array of vertices. Curves (arcs, béziers) are **not** accepted on the wire; flatten them to vertices with a tolerance on the consumer side before submitting (see [Simplify Polygons](#1-simplify-polygons)).
+- **Units are consumer-defined** — all coordinates are unitless. Pick a unit (e.g. mm), and use the *same* unit across every field of a request (`polygon`, `holes`, `boundary`, `spacing`, `margin`). U-Nesting does no unit conversion.
+
 ### Polygon Orientation
 
 - **Outer contour**: Counter-clockwise (CCW)

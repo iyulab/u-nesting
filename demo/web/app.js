@@ -76,7 +76,6 @@ function controlSpec() {
     { key: 'target_utilization', label: 'Target util (0 = off)', type: 'range', min: 0, max: 1, step: 0.05, value: 0 },
     { key: 'time_limit_ms', label: 'Time limit (ms)', type: 'range', min: 100, max: 8000, step: 100, value: 2000 },
     { key: 'rotations', label: 'Rotations', type: 'checks', options: [0, 90, 180, 270], value: [0, 90] },
-    { key: 'allow_flip', label: 'Allow flip', type: 'toggle', value: false },
   ];
   if (mode === 'cutting') {
     base.push(
@@ -174,7 +173,6 @@ function build2dRequest() {
     geometries: geometries.map((g) => ({
       ...g,
       rotations: controlState.rotations,
-      allow_flip: controlState.allow_flip,
     })),
     boundary,
     config: {

@@ -43,8 +43,8 @@ U-Nesting is a **pure computation engine** with no domain-specific logic. Indust
 
 - 🚀 **High Performance** - Written in Rust with parallel computation via Rayon
 - 🎯 **Domain Agnostic** - Abstract models adaptable to any spatial optimization
-- 📐 **2D Support** - Polygon nesting with NFP, holes, and curves
-- 📦 **3D Support** - Box and mesh packing with physical constraints
+- 📐 **2D Support** - Polygon nesting with NFP and holes (curves are supplied as polylines — flatten with a tolerance before submitting)
+- 📦 **3D Support** - Box packing with physical constraints (gravity, stability, mass limits)
 - 🔌 **C FFI Support** - Use from C#, Python, or any language with C bindings
 - 📦 **Zero Domain Dependencies** - Pure mathematical optimization
 
@@ -152,8 +152,8 @@ println!("Utilization: {:.1}%", result.utilization * 100.0);
 
 | Concept | Description | 2D | 3D |
 |---------|-------------|----|----|
-| **Geometry** | Shape to be placed | Polygon | Box, Mesh |
-| **Boundary** | Containing region | Rectangle, Polygon | Box, Cylinder |
+| **Geometry** | Shape to be placed | Polygon | Box |
+| **Boundary** | Containing region | Rectangle, Polygon | Box |
 | **Placement** | Position + orientation | x, y, θ | x, y, z, rotation |
 | **Spacing** | Gap between geometries | Float | Float |
 | **Margin** | Offset from boundary edge | Float | Float |
@@ -177,7 +177,7 @@ u-nesting/
 │   └── io.rs       # Import/Export
 │
 ├── d3/             # 3D Module
-│   ├── geometry.rs # Box, Mesh, AABB
+│   ├── geometry.rs # Box (Geometry3D)
 │   ├── boundary.rs # 3D boundary definitions
 │   ├── nfr.rs      # No Fit Region
 │   ├── packer.rs   # Placement algorithms
@@ -344,7 +344,7 @@ SolveResult {
 ├─────────────────────┬────────────────────────┤
 │     2D Module       │       3D Module        │
 ├─────────────────────┼────────────────────────┤
-│  Polygon, NFP       │  Box, Mesh, NFR        │
+│  Polygon, NFP       │  Box, NFR              │
 │  BLF, GA Nester     │  EP, LAFF, GA Packer   │
 └─────────────────────┴────────────────────────┘
           ▲                    ▲

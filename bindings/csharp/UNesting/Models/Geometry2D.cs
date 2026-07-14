@@ -132,6 +132,15 @@ public class Config2D
     public int MaxGenerations { get; set; }
 
     /// <summary>
+    /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA). When
+    /// null the solver seeds from entropy. Reproducibility holds only when the
+    /// generation cap (not the wall-clock time limit) terminates the run.
+    /// </summary>
+    [JsonPropertyName("seed")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ulong? Seed { get; set; }
+
+    /// <summary>
     /// Distribute overflow across multiple sheets. When true, parts that do not fit
     /// on a single sheet spill onto additional sheets instead of becoming unplaced;
     /// <see cref="NestingResult.SheetsUsed"/> reports the sheet count and each
@@ -256,10 +265,47 @@ public class NestingResult
     public int TotalRequested { get; set; }
 
     /// <summary>
-    /// Items that could not be placed.
+    /// Geometry IDs (deduplicated) with at least one unplaced instance. Tells
+    /// <i>which</i> geometries failed; see <see cref="UnplacedCount"/> for <i>how many</i>.
     /// </summary>
     [JsonPropertyName("unplaced")]
     public List<string> Unplaced { get; set; } = new();
+
+    /// <summary>
+    /// Instance-level count of geometry instances that could not be placed
+    /// (<c>TotalRequested - Placements.Count</c>). Satisfies the invariant
+    /// <c>Placements.Count + UnplacedCount == TotalRequested</c>; unlike
+    /// <see cref="Unplaced"/> it never undercounts a multi-quantity geometry.
+    /// </summary>
+    [JsonPropertyName("unplaced_count")]
+    public int UnplacedCount { get; set; }
+
+    /// <summary>
+    /// Whether every requested instance was placed
+    /// (<c>Placements.Count == TotalRequested</c>). Prefer this over
+    /// <see cref="Success"/> to detect partial packing: <see cref="Success"/>
+    /// only means the solve completed without error, not that all pieces fit.
+    /// </summary>
+    [JsonPropertyName("all_placed")]
+    public bool AllPlaced { get; set; }
+
+    /// <summary>
+    /// Axis-aligned bounding box <c>[width, height]</c> of the placed pieces'
+    /// actual footprint. Boundary-padding independent, unlike
+    /// <see cref="Utilization"/> (which divides by the full boundary and shrinks
+    /// as boundary height grows). For an open-ended roll the larger axis is the
+    /// material length consumed.
+    /// </summary>
+    [JsonPropertyName("used_bounding_box")]
+    public double[] UsedBoundingBox { get; set; } = new double[2];
+
+    /// <summary>
+    /// Utilization against the used bounding box
+    /// (<c>placed_area / (used_width * used_height)</c>) rather than the full
+    /// boundary — the padding-independent efficiency metric.
+    /// </summary>
+    [JsonPropertyName("used_utilization")]
+    public double UsedUtilization { get; set; }
 
     /// <summary>
     /// Solving time in milliseconds.

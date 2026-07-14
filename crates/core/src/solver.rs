@@ -34,6 +34,30 @@ pub enum Strategy {
     HybridExact,
 }
 
+impl Strategy {
+    /// Parses a strategy name (case-insensitive, whitespace-trimmed).
+    ///
+    /// Returns `None` for unrecognized names so callers surface an explicit
+    /// error instead of silently falling back to a default strategy (which
+    /// hides typos from consumers). This is the single source of truth for
+    /// strategy-name parsing across all bindings (C FFI, Python, WASM).
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_lowercase().as_str() {
+            "blf" | "bottomleftfill" => Some(Self::BottomLeftFill),
+            "nfp" | "nfpguided" => Some(Self::NfpGuided),
+            "ga" | "genetic" | "geneticalgorithm" => Some(Self::GeneticAlgorithm),
+            "brkga" => Some(Self::Brkga),
+            "sa" | "simulatedannealing" => Some(Self::SimulatedAnnealing),
+            "ep" | "extremepoint" => Some(Self::ExtremePoint),
+            "gdrr" => Some(Self::Gdrr),
+            "alns" => Some(Self::Alns),
+            "milpexact" | "exact" => Some(Self::MilpExact),
+            "hybridexact" | "hybrid" => Some(Self::HybridExact),
+            _ => None,
+        }
+    }
+}
+
 /// Common configuration for solvers.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -71,6 +95,10 @@ pub struct Config {
 
     /// Elite count for GA.
     pub elite_count: usize,
+
+    /// Optional RNG seed for reproducible runs of the stochastic strategies
+    /// (GA, BRKGA, SA). `None` seeds from system entropy (non-deterministic).
+    pub seed: Option<u64>,
 }
 
 impl Default for Config {
@@ -87,6 +115,7 @@ impl Default for Config {
             crossover_rate: 0.85,
             mutation_rate: 0.05,
             elite_count: 5,
+            seed: None,
         }
     }
 }
@@ -124,6 +153,12 @@ impl Config {
     /// Sets the target utilization.
     pub fn with_target_utilization(mut self, util: f64) -> Self {
         self.target_utilization = Some(util.clamp(0.0, 1.0));
+        self
+    }
+
+    /// Sets the RNG seed for reproducible stochastic runs (GA, BRKGA, SA).
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.seed = Some(seed);
         self
     }
 }

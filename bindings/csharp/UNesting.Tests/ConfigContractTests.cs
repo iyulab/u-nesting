@@ -29,6 +29,7 @@ public class ConfigContractTests
         "max_generations",
         "crossover_rate",
         "mutation_rate",
+        "seed",
         "multi_sheet",
     };
 
@@ -113,7 +114,11 @@ public class ConfigContractTests
           "sheets_used": 3,
           "utilization": 0.71,
           "total_requested": 20,
-          "unplaced": [],
+          "unplaced": ["part"],
+          "unplaced_count": 18,
+          "all_placed": false,
+          "used_bounding_box": [120.0, 340.0],
+          "used_utilization": 0.83,
           "elapsed_ms": 5
         }
         """;
@@ -126,6 +131,13 @@ public class ConfigContractTests
         Assert.Equal(20, result.TotalRequested);
         Assert.Equal(2, result.Placements.Count);
         Assert.Equal(2, result.Placements[1].SheetIndex);
-        Assert.Empty(result.Unplaced);
+        // Bucket B accounting: instance-level unplaced count + all_placed flag,
+        // and the padding-independent used-footprint metrics.
+        Assert.Equal(18, result.UnplacedCount);
+        Assert.False(result.AllPlaced);
+        Assert.Equal(new[] { "part" }, result.Unplaced);
+        Assert.Equal(120.0, result.UsedBoundingBox[0]);
+        Assert.Equal(340.0, result.UsedBoundingBox[1]);
+        Assert.Equal(0.83, result.UsedUtilization);
     }
 }

@@ -303,7 +303,39 @@ impl Geometry for Geometry2D {
             )));
         }
 
-        // Check for self-intersection could be added here
+        // Mirroring is unimplemented (the placement pipeline never applies a
+        // reflection), so silently accepting `allow_flip` would misreport what
+        // was solved. Reject it explicitly rather than ignore it.
+        if self.allow_flip {
+            return Err(Error::InvalidGeometry(format!(
+                "Polygon '{}': allow_flip is not supported (mirroring is unimplemented); \
+                 set allow_flip to false",
+                self.id
+            )));
+        }
+
+        // Reject degenerate (zero-area / collinear) polygons: they make NFP and
+        // collision tests meaningless. Threshold scales with extent so a small
+        // but legitimate piece survives while a truly collinear ring is caught.
+        let (min, max) = self.aabb_vec();
+        let scale = (max[0] - min[0]).max(max[1] - min[1]).max(1.0);
+        let area_eps = 1e-9 * scale * scale;
+        if geom_polygon::signed_area(&self.exterior).abs() < area_eps {
+            return Err(Error::InvalidGeometry(format!(
+                "Polygon '{}' is degenerate (zero area / collinear vertices)",
+                self.id
+            )));
+        }
+
+        // Reject self-intersecting exteriors (e.g. a bow-tie): a non-simple
+        // outline breaks point-in-polygon and NFP, which can produce overlapping
+        // placements downstream.
+        if !crate::polygon_ops::is_simple_polygon(&self.exterior) {
+            return Err(Error::InvalidGeometry(format!(
+                "Polygon '{}' is self-intersecting (edges cross)",
+                self.id
+            )));
+        }
 
         Ok(())
     }
@@ -393,6 +425,26 @@ impl Geometry2D {
     pub fn dimensions_at_rotation(&self, rotation: f64) -> (f64, f64) {
         let (min, max) = self.aabb_at_rotation(rotation);
         (max[0] - min[0], max[1] - min[1])
+    }
+
+    /// Returns the exterior ring rotated by `rotation` (radians, CCW about the
+    /// origin) and translated to placement position `(x, y)`.
+    ///
+    /// This is the piece's actual footprint on the sheet — the same transform
+    /// used by [`Self::aabb_at_rotation`], made concrete per vertex so callers
+    /// can perform exact polygon-in-polygon containment against a non-rectangular
+    /// boundary (AABB containment is only exact for axis-aligned rectangles).
+    pub fn transformed_exterior(&self, x: f64, y: f64, rotation: f64) -> Vec<(f64, f64)> {
+        let cos_r = rotation.cos();
+        let sin_r = rotation.sin();
+        self.exterior
+            .iter()
+            .map(|&(vx, vy)| {
+                let rx = vx * cos_r - vy * sin_r;
+                let ry = vx * sin_r + vy * cos_r;
+                (x + rx, y + ry)
+            })
+            .collect()
     }
 }
 

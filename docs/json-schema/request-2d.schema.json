@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/iyulab/U-Nesting/docs/json-schema/request-2d.schema.json",
   "title": "U-Nesting 2D Request",
-  "description": "Request schema for 2D polygon nesting problems",
+  "description": "Request schema for 2D polygon nesting problems. Wire contract: all geometry is supplied as pre-flattened polylines (vertex arrays) — curves (arcs/beziers) must be flattened to vertices with a tolerance by the consumer before submission. All coordinates are unitless; the consumer chooses the unit (e.g. mm) and every field in a request must use that same unit consistently.",
   "type": "object",
   "required": ["geometries", "boundary"],
   "properties": {
@@ -43,7 +43,7 @@
         },
         "polygon": {
           "type": "array",
-          "description": "Exterior vertices as [[x, y], ...]",
+          "description": "Exterior vertices as [[x, y], ...] (closed polyline; flatten curves to vertices with a tolerance before submitting)",
           "minItems": 3,
           "items": {
             "type": "array",

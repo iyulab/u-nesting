@@ -34,6 +34,42 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
 
+/// Returns `(placed_count, used_bounding_box_area)` for a solve result.
+///
+/// Used to compare two solutions on the same instance: a solution is better
+/// when it places more pieces, or (tie) packs them into a smaller bounding box.
+/// The bounding box is over the placed pieces' AABBs, so — unlike `utilization`,
+/// which divides by the full boundary area — it reflects the actual used region.
+fn solution_quality(result: &SolveResult<f64>, geometries: &[Geometry2D]) -> (usize, f64) {
+    use std::collections::HashMap;
+    let geom_map: HashMap<_, _> = geometries.iter().map(|g| (g.id().clone(), g)).collect();
+
+    let mut min_x = f64::INFINITY;
+    let mut min_y = f64::INFINITY;
+    let mut max_x = f64::NEG_INFINITY;
+    let mut max_y = f64::NEG_INFINITY;
+
+    for p in &result.placements {
+        if let Some(geom) = geom_map.get(&p.geometry_id) {
+            let x = p.position.first().copied().unwrap_or(0.0);
+            let y = p.position.get(1).copied().unwrap_or(0.0);
+            let rot = p.rotation.first().copied().unwrap_or(0.0);
+            let (g_min, g_max) = geom.aabb_at_rotation(rot);
+            min_x = min_x.min(x + g_min[0]);
+            min_y = min_y.min(y + g_min[1]);
+            max_x = max_x.max(x + g_max[0]);
+            max_y = max_y.max(y + g_max[1]);
+        }
+    }
+
+    let area = if result.placements.is_empty() {
+        f64::INFINITY
+    } else {
+        (max_x - min_x) * (max_y - min_y)
+    };
+    (result.placements.len(), area)
+}
+
 /// 2D nesting solver.
 pub struct Nester2D {
     config: Config,
@@ -443,6 +479,35 @@ impl Nester2D {
         shrink_ifp(ifp, spacing)
     }
 
+    /// Returns whichever of `meta` (a metaheuristic result) and a fresh
+    /// Bottom-Left-Fill solve packs better.
+    ///
+    /// The stochastic strategies (GA/BRKGA/SA) can converge to a solution worse
+    /// than the deterministic greedy baseline. Guarding against this guarantees
+    /// they never return a solution inferior to BLF: a metaheuristic that fails
+    /// to beat the greedy floor simply returns the greedy solution. BLF is
+    /// effectively free relative to a metaheuristic run.
+    fn not_worse_than_blf(
+        &self,
+        meta: SolveResult<f64>,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+    ) -> SolveResult<f64> {
+        let blf = match self.bottom_left_fill(geometries, boundary) {
+            Ok(b) => b,
+            Err(_) => return meta,
+        };
+        let (meta_placed, meta_area) = solution_quality(&meta, geometries);
+        let (blf_placed, blf_area) = solution_quality(&blf, geometries);
+        // BLF wins if it places strictly more pieces, or ties on count while
+        // packing them into a smaller bounding box.
+        if blf_placed > meta_placed || (blf_placed == meta_placed && blf_area < meta_area) {
+            blf
+        } else {
+            meta
+        }
+    }
+
     /// Genetic Algorithm based nesting optimization.
     ///
     /// Uses GA to optimize placement order and rotations, with NFP-guided
@@ -480,7 +545,7 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(result)
+        Ok(self.not_worse_than_blf(result, geometries, boundary))
     }
 
     /// BRKGA (Biased Random-Key Genetic Algorithm) based nesting optimization.
@@ -501,7 +566,10 @@ impl Nester2D {
         };
 
         let brkga_config = BrkgaConfig::default()
-            .with_population_size(30) // Smaller population for speed
+            // Honor the caller's population_size (was hardcoded to 30, silently
+            // ignoring config). Capped at 30 as a performance ceiling, matching
+            // the GA path — each decode is an O(N²) NFP evaluation.
+            .with_population_size(self.config.population_size.min(30))
             .with_max_generations(50) // Fewer generations
             .with_elite_fraction(0.2)
             .with_mutant_fraction(0.15)
@@ -516,7 +584,7 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(result)
+        Ok(self.not_worse_than_blf(result, geometries, boundary))
     }
 
     /// Simulated Annealing based nesting optimization.
@@ -558,7 +626,7 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(result)
+        Ok(self.not_worse_than_blf(result, geometries, boundary))
     }
 
     /// Goal-Driven Ruin and Recreate (GDRR) optimization.
@@ -1078,6 +1146,20 @@ impl Nester2D {
     ///
     /// When items don't fit in a single strip, automatically creates additional strips.
     /// Each placement's `boundary_index` indicates which strip it belongs to.
+    /// Validates every input geometry once, at the solve entry point.
+    ///
+    /// Hoisting validation here (rather than relying on per-strategy calls)
+    /// guarantees no dispatch path — including the progress/callback path and
+    /// every metaheuristic — can bypass input rejection of degenerate,
+    /// self-intersecting, or `allow_flip` geometries.
+    fn validate_geometries(&self, geometries: &[Geometry2D]) -> Result<()> {
+        use u_nesting_core::geometry::Geometry;
+        for geom in geometries {
+            geom.validate()?;
+        }
+        Ok(())
+    }
+
     /// Positions are adjusted so that strip N items have x offset of N * strip_width.
     pub fn solve_multi_strip(
         &self,
@@ -1085,6 +1167,7 @@ impl Nester2D {
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
         boundary.validate()?;
+        self.validate_geometries(geometries)?;
         self.cancelled.store(false, Ordering::Relaxed);
 
         let (b_min, b_max) = boundary.aabb();
@@ -1264,6 +1347,7 @@ impl Solver for Nester2D {
         boundary: &Self::Boundary,
     ) -> Result<SolveResult<f64>> {
         boundary.validate()?;
+        self.validate_geometries(geometries)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
@@ -1308,6 +1392,7 @@ impl Solver for Nester2D {
         callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
         boundary.validate()?;
+        self.validate_geometries(geometries)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
@@ -1333,14 +1418,19 @@ impl Solver for Nester2D {
                     ));
                 }
 
-                run_ga_nesting_with_progress(
+                let ga_result = run_ga_nesting_with_progress(
                     geometries,
                     boundary,
                     &self.config,
                     ga_config,
                     self.cancelled.clone(),
                     callback,
-                )
+                );
+                // Same BLF floor as the non-progress path: never return a
+                // layout worse than deterministic bottom-left-fill. The
+                // callback-driven entry points (FFI `solve_2d_with_callback`,
+                // WASM/demo) route through here, so the guard must apply here too.
+                self.not_worse_than_blf(ga_result, geometries, boundary)
             }
             // For other strategies, use basic progress reporting
             _ => {

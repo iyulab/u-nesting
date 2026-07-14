@@ -20,6 +20,27 @@ pub const UNESTING_ERR_SOLVE_FAILED: i32 = -3;
 pub const UNESTING_ERR_CANCELLED: i32 = -4;
 pub const UNESTING_ERR_UNKNOWN: i32 = -99;
 
+/// Runs `f`, guarding against panics at the FFI boundary.
+///
+/// An internal panic is caught and converted into an error response via
+/// `on_panic` instead of unwinding across the `extern "C"` boundary (undefined
+/// behavior) or aborting the host process. This relies on the release profile
+/// **not** setting `panic = "abort"` (see the workspace `Cargo.toml`); under
+/// `abort` the panic never reaches this handler.
+fn guard_panic<T>(f: impl FnOnce() -> T, on_panic: impl FnOnce(String) -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(value) => value,
+        Err(payload) => {
+            let msg = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            on_panic(format!("internal panic: {msg}"))
+        }
+    }
+}
+
 /// Solves a 2D nesting problem from JSON input.
 ///
 /// # Safety
@@ -40,7 +61,7 @@ pub unsafe extern "C" fn unesting_solve_2d(
         Err(_) => return UNESTING_ERR_INVALID_JSON,
     };
 
-    let response = solve_2d_internal(json_str);
+    let response = guard_panic(|| solve_2d_internal(json_str), SolveResponse::error);
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
@@ -79,7 +100,7 @@ pub unsafe extern "C" fn unesting_solve_3d(
         Err(_) => return UNESTING_ERR_INVALID_JSON,
     };
 
-    let response = solve_3d_internal(json_str);
+    let response = guard_panic(|| solve_3d_internal(json_str), Pack3DResponse::error);
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
@@ -130,11 +151,11 @@ pub unsafe extern "C" fn unesting_solve(
     // so serialize within each arm rather than over a unified value.
     let (response_json, success) = match mode {
         "3d" => {
-            let r = solve_3d_internal(json_str);
+            let r = guard_panic(|| solve_3d_internal(json_str), Pack3DResponse::error);
             (serde_json::to_string(&r), r.success)
         }
         _ => {
-            let r = solve_2d_internal(json_str);
+            let r = guard_panic(|| solve_2d_internal(json_str), SolveResponse::error);
             (serde_json::to_string(&r), r.success)
         }
     };
@@ -215,7 +236,10 @@ pub unsafe extern "C" fn unesting_solve_2d_with_progress(
     };
 
     let callback_wrapper = CallbackWrapper::new(callback, user_data);
-    let response = solve_2d_with_callback(json_str, &callback_wrapper);
+    let response = guard_panic(
+        || solve_2d_with_callback(json_str, &callback_wrapper),
+        SolveResponse::error,
+    );
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
@@ -271,7 +295,10 @@ pub unsafe extern "C" fn unesting_solve_3d_with_progress(
     };
 
     let callback_wrapper = CallbackWrapper::new(callback, user_data);
-    let response = solve_3d_with_callback(json_str, &callback_wrapper);
+    let response = guard_panic(
+        || solve_3d_with_callback(json_str, &callback_wrapper),
+        Pack3DResponse::error,
+    );
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
@@ -331,11 +358,17 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
     // so serialize within each arm rather than over a unified value.
     let (response_json, success) = match mode {
         "3d" => {
-            let r = solve_3d_with_callback(json_str, &callback_wrapper);
+            let r = guard_panic(
+                || solve_3d_with_callback(json_str, &callback_wrapper),
+                Pack3DResponse::error,
+            );
             (serde_json::to_string(&r), r.success)
         }
         _ => {
-            let r = solve_2d_with_callback(json_str, &callback_wrapper);
+            let r = guard_panic(
+                || solve_2d_with_callback(json_str, &callback_wrapper),
+                SolveResponse::error,
+            );
             (serde_json::to_string(&r), r.success)
         }
     };
@@ -362,21 +395,30 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
 
 // Internal implementation functions
 
+/// Assembles a success `SolveResponse` from a solved 2D result.
+///
+/// Derives every accounting/metric field (`unplaced_count`, `all_placed`,
+/// `used_bounding_box`, `used_utilization`) through the shared `From` impl —
+/// the single source of truth — then fills in the placements the `From` impl
+/// leaves empty. Every 2D solve entry point routes its success case here so the
+/// wire contract cannot drift between them.
+fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveResponse {
+    let placements = result
+        .placements
+        .iter()
+        .cloned()
+        .map(PlacementResponse::from)
+        .collect();
+    let mut resp: SolveResponse = result.into();
+    resp.placements = placements;
+    resp
+}
+
 fn solve_2d_internal(json_str: &str) -> SolveResponse {
     let request: Request2D = match serde_json::from_str(json_str) {
         Ok(r) => r,
         Err(e) => {
-            return SolveResponse {
-                version: API_VERSION.to_string(),
-                success: false,
-                error: Some(format!("Invalid JSON: {}", e)),
-                placements: Vec::new(),
-                sheets_used: 0,
-                utilization: 0.0,
-                total_requested: 0,
-                unplaced: Vec::new(),
-                elapsed_ms: 0,
-            };
+            return SolveResponse::error(format!("Invalid JSON: {}", e));
         }
     };
 
@@ -415,17 +457,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
         Boundary2D::new(vertices)
     } else {
-        return SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some("Invalid boundary: specify width/height or polygon".into()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        };
+        return SolveResponse::error("Invalid boundary: specify width/height or polygon");
     };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -436,7 +468,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         .unwrap_or(false);
 
     // Build config
-    let config = build_config(request.config);
+    let config = match build_config(request.config) {
+        Ok(c) => c,
+        Err(e) => return SolveResponse::error(e),
+    };
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(config);
@@ -452,29 +487,9 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
                 let (b_min, b_max) = boundary.aabb();
                 result.to_boundary_local(b_max[0] - b_min[0]);
             }
-            SolveResponse {
-                version: API_VERSION.to_string(),
-                success: true,
-                error: None,
-                placements: result.placements.into_iter().map(Into::into).collect(),
-                sheets_used: result.boundaries_used,
-                utilization: result.utilization,
-                total_requested: result.total_requested,
-                unplaced: result.unplaced,
-                elapsed_ms: result.computation_time_ms,
-            }
+            build_solve_response(result)
         }
-        Err(e) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some(e.to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        },
+        Err(e) => SolveResponse::error(e.to_string()),
     }
 }
 
@@ -516,7 +531,10 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         .with_stability(request.boundary.stability);
 
     // Build config
-    let config = build_config(request.config);
+    let config = match build_config(request.config) {
+        Ok(c) => c,
+        Err(e) => return Pack3DResponse::error(e),
+    };
 
     // Solve
     let packer = Packer3D::new(config);
@@ -526,21 +544,38 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     }
 }
 
-fn build_config(request: Option<ConfigRequest>) -> Config {
+/// Builds a solver [`Config`] from the request, validating each field.
+///
+/// Returns `Err(message)` on invalid input (negative/non-finite spacing or
+/// margin, unknown strategy name) so the caller emits an error response instead
+/// of silently applying a default. `target_utilization` is clamped to `[0, 1]`.
+fn build_config(request: Option<ConfigRequest>) -> Result<Config, String> {
     let mut config = Config::default();
 
     if let Some(req) = request {
         if let Some(spacing) = req.spacing {
+            if !spacing.is_finite() || spacing < 0.0 {
+                return Err(format!(
+                    "spacing must be a non-negative, finite number (got {spacing})"
+                ));
+            }
             config.spacing = spacing;
         }
         if let Some(margin) = req.margin {
+            if !margin.is_finite() || margin < 0.0 {
+                return Err(format!(
+                    "margin must be a non-negative, finite number (got {margin})"
+                ));
+            }
             config.margin = margin;
         }
         if let Some(time_limit) = req.time_limit_ms {
             config.time_limit_ms = time_limit;
         }
         if let Some(target) = req.target_utilization {
-            config.target_utilization = Some(target);
+            // Clamp rather than reject: an out-of-range target is a soft stop
+            // condition, not a hard input error.
+            config.target_utilization = Some(target.clamp(0.0, 1.0));
         }
         if let Some(pop) = req.population_size {
             config.population_size = pop;
@@ -554,36 +589,23 @@ fn build_config(request: Option<ConfigRequest>) -> Config {
         if let Some(mutation) = req.mutation_rate {
             config.mutation_rate = mutation;
         }
+        if let Some(seed) = req.seed {
+            config.seed = Some(seed);
+        }
         if let Some(strategy) = req.strategy {
-            config.strategy = match strategy.to_lowercase().as_str() {
-                "blf" | "bottomleftfill" => Strategy::BottomLeftFill,
-                "nfp" | "nfpguided" => Strategy::NfpGuided,
-                "ga" | "genetic" | "geneticalgorithm" => Strategy::GeneticAlgorithm,
-                "sa" | "simulatedannealing" => Strategy::SimulatedAnnealing,
-                "ep" | "extremepoint" => Strategy::ExtremePoint,
-                _ => Strategy::BottomLeftFill,
-            };
+            config.strategy = Strategy::parse(&strategy)
+                .ok_or_else(|| format!("unknown strategy: '{strategy}'"))?;
         }
     }
 
-    config
+    Ok(config)
 }
 
 fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveResponse {
     let request: Request2D = match serde_json::from_str(json_str) {
         Ok(r) => r,
         Err(e) => {
-            return SolveResponse {
-                version: API_VERSION.to_string(),
-                success: false,
-                error: Some(format!("Invalid JSON: {}", e)),
-                placements: Vec::new(),
-                sheets_used: 0,
-                utilization: 0.0,
-                total_requested: 0,
-                unplaced: Vec::new(),
-                elapsed_ms: 0,
-            };
+            return SolveResponse::error(format!("Invalid JSON: {}", e));
         }
     };
 
@@ -601,17 +623,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         running: true,
     };
     if !callback.invoke(&initial_progress) {
-        return SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some("Cancelled by user".to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        };
+        return SolveResponse::error("Cancelled by user");
     }
 
     // Convert geometries
@@ -649,17 +661,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
         Boundary2D::new(vertices)
     } else {
-        return SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some("Invalid boundary: specify width/height or polygon".into()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        };
+        return SolveResponse::error("Invalid boundary: specify width/height or polygon");
     };
 
     // Send progress before solving
@@ -675,17 +677,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         running: true,
     };
     if !callback.invoke(&solving_progress) {
-        return SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some("Cancelled by user".to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        };
+        return SolveResponse::error("Cancelled by user");
     }
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -696,7 +688,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         .unwrap_or(false);
 
     // Build config
-    let config = build_config(request.config);
+    let config = match build_config(request.config) {
+        Ok(c) => c,
+        Err(e) => return SolveResponse::error(e),
+    };
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
     let nester = Nester2D::new(config);
@@ -726,29 +721,9 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             };
             callback.invoke(&done_progress);
 
-            SolveResponse {
-                version: API_VERSION.to_string(),
-                success: true,
-                error: None,
-                placements: result.placements.into_iter().map(Into::into).collect(),
-                sheets_used: result.boundaries_used,
-                utilization: result.utilization,
-                total_requested: result.total_requested,
-                unplaced: result.unplaced,
-                elapsed_ms: result.computation_time_ms,
-            }
+            build_solve_response(result)
         }
-        Err(e) => SolveResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some(e.to_string()),
-            placements: Vec::new(),
-            sheets_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: Vec::new(),
-            elapsed_ms: 0,
-        },
+        Err(e) => SolveResponse::error(e.to_string()),
     }
 }
 
@@ -823,7 +798,10 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
     }
 
     // Build config
-    let config = build_config(request.config);
+    let config = match build_config(request.config) {
+        Ok(c) => c,
+        Err(e) => return Pack3DResponse::error(e),
+    };
 
     // Solve
     let packer = Packer3D::new(config);
@@ -873,7 +851,10 @@ pub unsafe extern "C" fn unesting_optimize_cutting_path(
         Err(_) => return UNESTING_ERR_INVALID_JSON,
     };
 
-    let response = optimize_cutting_path_internal(json_str);
+    let response = guard_panic(
+        || optimize_cutting_path_internal(json_str),
+        CuttingResponse::error,
+    );
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
@@ -1492,7 +1473,7 @@ mod tests {
 
     #[test]
     fn test_build_config_default() {
-        let config = build_config(None);
+        let config = build_config(None).expect("default config is valid");
         assert_eq!(config.spacing, 0.0);
         assert_eq!(config.margin, 0.0);
     }
@@ -1501,6 +1482,7 @@ mod tests {
     fn test_build_config_with_values() {
         let request = Some(ConfigRequest {
             strategy: Some("nfp".to_string()),
+            seed: None,
             spacing: Some(2.5),
             margin: Some(1.0),
             time_limit_ms: Some(5000),
@@ -1512,7 +1494,7 @@ mod tests {
             multi_sheet: None,
         });
 
-        let config = build_config(request);
+        let config = build_config(request).expect("valid config must parse");
         assert_eq!(config.spacing, 2.5);
         assert_eq!(config.margin, 1.0);
         assert_eq!(config.time_limit_ms, 5000);
@@ -1534,16 +1516,20 @@ mod tests {
             ("ga", Strategy::GeneticAlgorithm),
             ("genetic", Strategy::GeneticAlgorithm),
             ("geneticalgorithm", Strategy::GeneticAlgorithm),
+            ("brkga", Strategy::Brkga),
             ("sa", Strategy::SimulatedAnnealing),
             ("simulatedannealing", Strategy::SimulatedAnnealing),
             ("ep", Strategy::ExtremePoint),
             ("extremepoint", Strategy::ExtremePoint),
-            ("unknown", Strategy::BottomLeftFill), // Default fallback
+            ("gdrr", Strategy::Gdrr),
+            ("alns", Strategy::Alns),
+            ("exact", Strategy::MilpExact),
         ];
 
         for (name, expected) in strategies {
             let request = Some(ConfigRequest {
                 strategy: Some(name.to_string()),
+                seed: None,
                 spacing: None,
                 margin: None,
                 time_limit_ms: None,
@@ -1554,7 +1540,8 @@ mod tests {
                 mutation_rate: None,
                 multi_sheet: None,
             });
-            let config = build_config(request);
+            let config =
+                build_config(request).expect("known strategy names must parse successfully");
             assert!(
                 std::mem::discriminant(&config.strategy) == std::mem::discriminant(&expected),
                 "Strategy '{}' should map to {:?}",
@@ -1562,6 +1549,26 @@ mod tests {
                 expected
             );
         }
+
+        // Unknown strategy names must be rejected with an error, not silently
+        // mapped to a default strategy (which would hide consumer typos).
+        let bad = Some(ConfigRequest {
+            strategy: Some("nonsense".to_string()),
+            seed: None,
+            spacing: None,
+            margin: None,
+            time_limit_ms: None,
+            target_utilization: None,
+            population_size: None,
+            max_generations: None,
+            crossover_rate: None,
+            mutation_rate: None,
+            multi_sheet: None,
+        });
+        assert!(
+            build_config(bad).is_err(),
+            "unknown strategy name must return an error"
+        );
     }
 
     #[test]

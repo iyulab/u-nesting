@@ -311,7 +311,15 @@ pub fn run_brkga_nesting(
 
     let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone());
 
-    let brkga_result = runner.run();
+    // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
+    // system entropy (non-deterministic).
+    let brkga_result = match config.seed {
+        Some(seed) => {
+            use rand::SeedableRng;
+            runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed))
+        }
+        None => runner.run(),
+    };
 
     // Decode the best chromosome to get final placements
     let problem = BrkgaNestingProblem::new(

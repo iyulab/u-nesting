@@ -81,6 +81,14 @@ pub struct SolveResult<S> {
     /// instance-level while `unplaced` is deduplicated to unique geometry IDs.
     /// Set once at the top-level `solve`/`solve_with_progress` entry point.
     pub total_requested: usize,
+
+    /// Axis-aligned bounding box `[width, height]` of the placed pieces' actual
+    /// footprint (2D). Unlike `utilization` (piece area over the *full* boundary,
+    /// which shrinks arbitrarily as boundary height grows), the used bounding box
+    /// is boundary-padding independent — for an open-ended roll the larger axis is
+    /// the material length actually consumed. `[0.0, 0.0]` when nothing is placed.
+    /// Populated at the 2D validation/filter step; unused by 3D packing.
+    pub used_bounding_box: [f64; 2],
 }
 
 impl<S> SolveResult<S> {
@@ -103,6 +111,7 @@ impl<S> SolveResult<S> {
             total_piece_area: 0.0,
             total_material_used: 0.0,
             total_requested: 0,
+            used_bounding_box: [0.0, 0.0],
         }
     }
 
@@ -194,6 +203,12 @@ impl<S> SolveResult<S> {
         self.total_piece_area += other.total_piece_area;
         self.total_material_used += other.total_material_used;
         self.total_requested += other.total_requested;
+        // Used footprints live in per-sheet local frames, so a union box is
+        // ill-defined across sheets; report the element-wise max extent seen.
+        self.used_bounding_box = [
+            self.used_bounding_box[0].max(other.used_bounding_box[0]),
+            self.used_bounding_box[1].max(other.used_bounding_box[1]),
+        ];
 
         // Recalculate utilization
         if self.total_material_used > 0.0 {

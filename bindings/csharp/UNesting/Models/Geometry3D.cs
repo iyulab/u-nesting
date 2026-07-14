@@ -247,10 +247,26 @@ public class PackingResult
     public int TotalRequested { get; set; }
 
     /// <summary>
-    /// Items that could not be placed.
+    /// Geometry IDs (deduplicated) with at least one unplaced instance. See
+    /// <see cref="UnplacedCount"/> for the instance-level count.
     /// </summary>
     [JsonPropertyName("unplaced")]
     public List<string> Unplaced { get; set; } = new();
+
+    /// <summary>
+    /// Instance-level count of geometry instances that could not be placed
+    /// (<c>TotalRequested - Placements.Count</c>). Satisfies the invariant
+    /// <c>Placements.Count + UnplacedCount == TotalRequested</c>.
+    /// </summary>
+    [JsonPropertyName("unplaced_count")]
+    public int UnplacedCount { get; set; }
+
+    /// <summary>
+    /// Whether every requested instance was placed. Prefer this over
+    /// <see cref="Success"/> to detect partial packing.
+    /// </summary>
+    [JsonPropertyName("all_placed")]
+    public bool AllPlaced { get; set; }
 
     /// <summary>
     /// Solving time in milliseconds.
