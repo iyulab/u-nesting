@@ -1045,6 +1045,50 @@ fn parse_direction(s: &str) -> u_nesting_cutting::config::CutDirectionPreference
 mod tests {
     use super::*;
 
+    // `guard_panic` is the abort-prevention backbone: every FFI entry point wraps
+    // its solver call in it so an internal panic becomes a `success: false`
+    // response instead of a `SIGABRT` that takes the consuming C/Python/WASM host
+    // down with it. The 0.7.0 hardening wired it in but could only verify the
+    // *wiring* by construction (no reliable panic trigger existed). These tests
+    // exercise the mechanism directly — a panicking closure must be caught and
+    // converted — so the guarantee is proven end-to-end, not just assumed. They
+    // also stand as a regression fence against reintroducing `panic = "abort"`,
+    // under which `catch_unwind` never returns and both tests would abort.
+
+    #[test]
+    fn guard_panic_converts_str_panic_to_error_value() {
+        let response = guard_panic(
+            || -> SolveResponse {
+                panic!("boom");
+            },
+            SolveResponse::error,
+        );
+        assert!(!response.success, "a caught panic must report failure");
+        let msg = response.error.expect("panic must surface an error message");
+        assert!(
+            msg.contains("internal panic") && msg.contains("boom"),
+            "error should carry the panic payload, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn guard_panic_converts_string_panic_to_error_value() {
+        // A `String` payload takes a different `downcast` branch than `&str`.
+        let response = guard_panic(
+            || -> SolveResponse { panic!("{}", String::from("dynamic message")) },
+            SolveResponse::error,
+        );
+        assert!(!response.success);
+        assert!(response.error.unwrap().contains("dynamic message"));
+    }
+
+    #[test]
+    fn guard_panic_passes_through_the_ok_value() {
+        // The happy path must not be disturbed by the guard.
+        let response = guard_panic(|| SolveResponse::error("ok-sentinel"), SolveResponse::error);
+        assert_eq!(response.error.as_deref(), Some("ok-sentinel"));
+    }
+
     #[test]
     fn test_version() {
         let version_ptr = unesting_version();
