@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-07-14
+
+Follow-up hardening from the same fabric-cutting dogfooding pass. Behaviour of
+the greedy strategies is unchanged; the fixes make the metaheuristic quality
+floor and reproducibility actually hold. Fully backward compatible.
+
+### Fixed
+
+- **Metaheuristic quality floor now compares strip length, not bounding-box
+  area.** `not_worse_than_blf` guaranteed only that GA/BRKGA/SA place at least as
+  many pieces as BLF, comparing ties by bounding-box *area*. On an open-ended
+  roll (fixed width, variable length) a taller, narrower layout has a smaller
+  area yet consumes a *longer* strip, so a rotation-driven GA result that packed
+  the same pieces into a longer roll than plain BLF slipped through the floor
+  (e.g. 8 L-shapes: BLF 306, GA up to 812). The floor now compares the extent
+  along the boundary's open (longer) axis — the material length consumers
+  measure — so the stochastic strategies are provably never worse than BLF, and
+  enlarging the allowed `rotations` set never worsens the result.
+- **Seed reproducibility on the progress/callback path.** `solve_with_progress`
+  (used by the FFI `solve_2d_with_callback` and the WASM/demo path) ran the GA
+  from system entropy, so a seeded solve was non-deterministic whenever a
+  progress callback was supplied. The seed is now threaded through the progress
+  runner, matching the plain `solve` path.
+- **Progress GA no longer runs the full default budget.** The callback path used
+  the default 500 generations × 100 population instead of the capped 50 × 30 of
+  the non-progress path, making a progress-driven solve far slower and prone to
+  overrunning a modest time budget. Both paths now use the same caps.
+
+### Added
+
+- Robustness fuzz harness (`crates/d2/tests/fuzz_robustness.rs`): `solve` never
+  panics on arbitrary/pathological polygons, and BLF/NFP layouts are verified
+  overlap-free (convex and concave) with an independent `i_overlay` oracle.
+- End-to-end tests that `guard_panic` converts an internal panic into a
+  `success: false` response (previously verified only by construction).
+
 ## [0.7.0] - 2026-07-14
 
 Dogfooding hardening pass from a fabric-cutting consumer (open-roll nesting of
