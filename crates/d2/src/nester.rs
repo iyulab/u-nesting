@@ -521,7 +521,18 @@ impl Nester2D {
         // BLF wins if it places strictly more pieces, or ties on count while
         // consuming a strictly shorter strip length.
         if blf_placed > meta_placed || (blf_placed == meta_placed && blf_len < meta_len - 1e-6) {
-            blf
+            // The greedy layout is better, so its placements are returned — but the
+            // metaheuristic *did* run. Preserve its search diagnostics (strategy
+            // label, generation/fitness history) so a caller inspecting the result
+            // still sees which strategy executed and how it converged, rather than a
+            // bare BLF. Only the placements are floored, not the provenance.
+            let mut floored = blf;
+            floored.strategy = meta.strategy;
+            floored.generations = meta.generations;
+            floored.best_fitness = meta.best_fitness;
+            floored.fitness_history = meta.fitness_history;
+            floored.target_reached = meta.target_reached;
+            floored
         } else {
             meta
         }

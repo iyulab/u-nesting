@@ -519,6 +519,37 @@ mod metaheuristic_quality_tests {
         }
     }
 
+    /// When the BLF floor overrides a metaheuristic's placements, the result must
+    /// still carry the search's provenance (strategy label, generations, fitness)
+    /// — the metaheuristic ran, only its layout was floored. On the concave
+    /// L-instance BLF strictly beats the stochastic strategies, so this always
+    /// exercises the floored branch (the bug: floored results returned a bare BLF
+    /// with `generations = None`, failing any `strategy == Brkga` inspection).
+    #[test]
+    fn floored_result_keeps_metaheuristic_provenance() {
+        let (geoms, boundary) = l_instance(vec![0.0, 90.0, 180.0, 270.0]);
+        for (strat, label) in [
+            (Strategy::GeneticAlgorithm, "GeneticAlgorithm"),
+            (Strategy::Brkga, "BRKGA"),
+        ] {
+            let config = Config::default()
+                .with_strategy(strat)
+                .with_spacing(2.0)
+                .with_seed(42)
+                .with_time_limit(800);
+            let r = Nester2D::new(config).solve(&geoms, &boundary).unwrap();
+            assert_eq!(
+                r.strategy.as_deref(),
+                Some(label),
+                "{strat:?}: floored result lost its strategy label"
+            );
+            assert!(
+                r.generations.is_some(),
+                "{strat:?}: floored result lost generation diagnostics"
+            );
+        }
+    }
+
     /// The callback-driven path must be as reproducible as the plain path: with
     /// a seed set, two `solve_with_progress` runs must yield an identical layout.
     /// Before the fix the progress GA runner fell back to system entropy, so a
