@@ -421,6 +421,133 @@ mod metaheuristic_quality_tests {
             blf.placements.len()
         );
     }
+
+    // ---- rotation handling (issue #3 재현 B) -------------------------------
+    //
+    // An L-shaped (concave) piece on a tall open-roll strip. This is the shape
+    // and geometry where the GA decoder previously *worsened* the layout as the
+    // rotation set grew (used length 306 -> 752 -> 812) and where the old
+    // bounding-box-area floor let that regression through: a taller, narrower
+    // column has a smaller area yet a longer strip. The floor now compares strip
+    // length, so the regression is caught.
+
+    fn l_instance(rotations: Vec<f64>) -> (Vec<Geometry2D>, Boundary2D) {
+        let l = Geometry2D::new("L")
+            .with_polygon(vec![
+                (0.0, 0.0),
+                (100.0, 0.0),
+                (100.0, 40.0),
+                (40.0, 40.0),
+                (40.0, 100.0),
+                (0.0, 100.0),
+            ])
+            .with_quantity(8)
+            .with_rotations_deg(rotations);
+        (vec![l], Boundary2D::rectangle(300.0, 5000.0))
+    }
+
+    /// Strip length = extent along the boundary's open (Y) axis for the tall
+    /// roll used here — the material consumed, which is what the layout minimizes.
+    fn strip_length(result: &u_nesting_d2::SolveResult<f64>, geoms: &[Geometry2D]) -> f64 {
+        let (mut min_y, mut max_y) = (f64::INFINITY, f64::NEG_INFINITY);
+        for p in &result.placements {
+            let g = geoms.iter().find(|g| g.id() == &p.geometry_id).unwrap();
+            let rot = p.rotation.first().copied().unwrap_or(0.0);
+            let (g_min, g_max) = g.aabb_at_rotation(rot);
+            min_y = min_y.min(p.position[1] + g_min[1]);
+            max_y = max_y.max(p.position[1] + g_max[1]);
+        }
+        if result.placements.is_empty() {
+            0.0
+        } else {
+            max_y - min_y
+        }
+    }
+
+    fn solve(strategy: Strategy, rotations: Vec<f64>) -> (Vec<Geometry2D>, f64) {
+        let (geoms, boundary) = l_instance(rotations);
+        // A short budget is enough: `not_worse_than_blf` always computes BLF and
+        // floors the stochastic result to it, so the outcome is deterministic in
+        // the strip-length metric regardless of how far GA/BRKGA converge.
+        let config = Config::default()
+            .with_strategy(strategy)
+            .with_spacing(2.0)
+            .with_seed(42)
+            .with_time_limit(800);
+        let r = Nester2D::new(config).solve(&geoms, &boundary).unwrap();
+        let len = strip_length(&r, &geoms);
+        (geoms, len)
+    }
+
+    /// The stochastic strategies must never consume a longer strip than plain
+    /// BLF. This is the corrected floor's real guarantee — the old area-based
+    /// floor missed the tall-narrow regression entirely.
+    #[test]
+    fn metaheuristics_never_exceed_blf_strip_length() {
+        let rots = vec![0.0, 90.0, 180.0, 270.0];
+        let (geoms, blf_len) = solve(Strategy::BottomLeftFill, rots.clone());
+        for strat in [
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+            Strategy::SimulatedAnnealing,
+        ] {
+            let (_, len) = solve(strat, rots.clone());
+            assert!(
+                len <= blf_len + 1e-3,
+                "{strat:?} strip length {len} > BLF {blf_len} on {} L-pieces",
+                geoms[0].quantity()
+            );
+        }
+    }
+
+    /// Enlarging the allowed rotation set must never *worsen* the result
+    /// (issue #3 expectation 2). Holds because BLF searches a superset of
+    /// rotations (monotonic) and the floor caps the stochastic strategies at BLF.
+    #[test]
+    fn larger_rotation_set_never_worsens_strip_length() {
+        for strat in [
+            Strategy::BottomLeftFill,
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+        ] {
+            let (_, small) = solve(strat, vec![0.0]);
+            let (_, big) = solve(strat, vec![0.0, 90.0, 180.0, 270.0]);
+            assert!(
+                big <= small + 1e-3,
+                "{strat:?}: larger rotation set worsened strip length {big} > {small}"
+            );
+        }
+    }
+
+    /// The callback-driven path must be as reproducible as the plain path: with
+    /// a seed set, two `solve_with_progress` runs must yield an identical layout.
+    /// Before the fix the progress GA runner fell back to system entropy, so a
+    /// seeded solve was non-deterministic whenever a progress callback was given
+    /// (FFI `solve_2d_with_callback`, WASM/demo). Generation-bound termination
+    /// (max_generations reached before the time limit on this small instance)
+    /// makes the seed fully determine the result.
+    #[test]
+    fn progress_ga_is_reproducible_with_seed() {
+        let (geometries, boundary) = instance();
+        let config = Config::default()
+            .with_strategy(Strategy::GeneticAlgorithm)
+            .with_time_limit(1500)
+            .with_seed(42);
+
+        let a = Nester2D::new(config.clone())
+            .solve_with_progress(&geometries, &boundary, Box::new(|_| {}))
+            .unwrap();
+        let b = Nester2D::new(config)
+            .solve_with_progress(&geometries, &boundary, Box::new(|_| {}))
+            .unwrap();
+
+        assert_eq!(a.placements.len(), b.placements.len());
+        for (pa, pb) in a.placements.iter().zip(b.placements.iter()) {
+            assert_eq!(pa.geometry_id, pb.geometry_id);
+            assert_eq!(pa.position, pb.position);
+            assert_eq!(pa.rotation, pb.rotation);
+        }
+    }
 }
 
 /// Bucket B: containment (boundary escape), input validation, accounting, and

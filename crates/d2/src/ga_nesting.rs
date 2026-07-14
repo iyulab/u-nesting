@@ -567,9 +567,13 @@ pub fn run_ga_nesting_with_progress(
         });
     }
 
-    // Run GA with progress callback adapter
+    // Run GA with progress callback adapter. Thread `config.seed` through so the
+    // callback-driven path is as reproducible as the plain `run_ga_nesting` path
+    // — without this the progress runner fell back to system entropy and a seeded
+    // solve was non-deterministic whenever a progress callback was supplied
+    // (FFI `solve_2d_with_callback`, the WASM/demo path).
     let max_generations = ga_config.max_generations;
-    let ga_result = runner.run_with_progress(move |ga_progress: GaProgress<f64>| {
+    let progress_adapter = move |ga_progress: GaProgress<f64>| {
         let info = ProgressInfo::new()
             .with_iteration(ga_progress.generation, max_generations)
             .with_fitness(ga_progress.best_fitness)
@@ -585,7 +589,14 @@ pub fn run_ga_nesting_with_progress(
         };
 
         progress_callback(info);
-    });
+    };
+    let ga_result = match config.seed {
+        Some(seed) => runner.run_with_rng_and_progress(
+            &mut rand::rngs::StdRng::seed_from_u64(seed),
+            Some(progress_adapter),
+        ),
+        None => runner.run_with_progress(progress_adapter),
+    };
 
     // Decode the best chromosome to get final placements
     let problem = NestingProblem::new(

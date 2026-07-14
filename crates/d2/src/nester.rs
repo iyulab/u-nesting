@@ -37,10 +37,21 @@ use u_nesting_core::timing::Timer;
 /// Returns `(placed_count, used_bounding_box_area)` for a solve result.
 ///
 /// Used to compare two solutions on the same instance: a solution is better
-/// when it places more pieces, or (tie) packs them into a smaller bounding box.
-/// The bounding box is over the placed pieces' AABBs, so — unlike `utilization`,
-/// which divides by the full boundary area — it reflects the actual used region.
-fn solution_quality(result: &SolveResult<f64>, geometries: &[Geometry2D]) -> (usize, f64) {
+/// when it places more pieces, or (tie) consumes less material *length*.
+///
+/// The second term is the extent along the boundary's **open (longer) axis** —
+/// the material length consumed on an open-ended roll (see `used_bounding_box`
+/// in `api_types`, which fixes the same convention). Comparing bounding-box
+/// *area* instead is wrong for strip nesting: a tall, narrow column has a small
+/// area yet a *longer* strip than a short, wide layout, so an area-based guard
+/// would accept a metaheuristic result that packs the same pieces into a longer
+/// roll than plain BLF — exactly the rotation-driven regression this floor
+/// exists to prevent. Length is the objective consumers measure.
+fn solution_quality(
+    result: &SolveResult<f64>,
+    geometries: &[Geometry2D],
+    boundary: &Boundary2D,
+) -> (usize, f64) {
     use std::collections::HashMap;
     let geom_map: HashMap<_, _> = geometries.iter().map(|g| (g.id().clone(), g)).collect();
 
@@ -62,12 +73,20 @@ fn solution_quality(result: &SolveResult<f64>, geometries: &[Geometry2D]) -> (us
         }
     }
 
-    let area = if result.placements.is_empty() {
-        f64::INFINITY
+    if result.placements.is_empty() {
+        return (0, f64::INFINITY);
+    }
+
+    // Material length = extent along the boundary's longer (open-roll) axis.
+    let (b_min, b_max) = boundary.aabb();
+    let bound_w = b_max[0] - b_min[0];
+    let bound_h = b_max[1] - b_min[1];
+    let strip_length = if bound_h >= bound_w {
+        max_y - min_y
     } else {
-        (max_x - min_x) * (max_y - min_y)
+        max_x - min_x
     };
-    (result.placements.len(), area)
+    (result.placements.len(), strip_length)
 }
 
 /// 2D nesting solver.
@@ -497,11 +516,11 @@ impl Nester2D {
             Ok(b) => b,
             Err(_) => return meta,
         };
-        let (meta_placed, meta_area) = solution_quality(&meta, geometries);
-        let (blf_placed, blf_area) = solution_quality(&blf, geometries);
+        let (meta_placed, meta_len) = solution_quality(&meta, geometries, boundary);
+        let (blf_placed, blf_len) = solution_quality(&blf, geometries, boundary);
         // BLF wins if it places strictly more pieces, or ties on count while
-        // packing them into a smaller bounding box.
-        if blf_placed > meta_placed || (blf_placed == meta_placed && blf_area < meta_area) {
+        // consuming a strictly shorter strip length.
+        if blf_placed > meta_placed || (blf_placed == meta_placed && blf_len < meta_len - 1e-6) {
             blf
         } else {
             meta
@@ -1405,9 +1424,14 @@ impl Solver for Nester2D {
                 self.nfp_guided_blf_with_progress(geometries, boundary, &callback)?
             }
             Strategy::GeneticAlgorithm => {
+                // Cap population/generations to match the non-progress
+                // `genetic_algorithm` path. Without this the callback path ran the
+                // full default 500 generations × 100 population (vs 50 × 30),
+                // making a progress-driven solve dramatically slower for no quality
+                // gain and letting it overrun a modest time budget.
                 let mut ga_config = GaConfig::default()
-                    .with_population_size(self.config.population_size)
-                    .with_max_generations(self.config.max_generations)
+                    .with_population_size(self.config.population_size.min(30))
+                    .with_max_generations(self.config.max_generations.min(50))
                     .with_crossover_rate(self.config.crossover_rate)
                     .with_mutation_rate(self.config.mutation_rate);
 
