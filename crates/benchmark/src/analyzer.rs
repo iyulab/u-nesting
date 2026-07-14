@@ -259,7 +259,7 @@ impl Analyzer {
                 .or_default()
                 .push(run);
         }
-        for (_, instance_runs) in by_instance.iter() {
+        for instance_runs in by_instance.values() {
             if let Some(best) = instance_runs.iter().max_by(|a, b| {
                 a.utilization
                     .partial_cmp(&b.utilization)
@@ -416,7 +416,7 @@ impl Analyzer {
         let mut improvement_sums = vec![vec![0.0f64; n]; n];
         let mut improvement_counts = vec![vec![0usize; n]; n];
 
-        for (_, instance_runs) in by_instance.iter() {
+        for instance_runs in by_instance.values() {
             for (i, si) in strategies.iter().enumerate() {
                 for (j, sj) in strategies.iter().enumerate() {
                     if i == j {
