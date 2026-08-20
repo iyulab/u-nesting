@@ -33,7 +33,7 @@
 use crate::boundary::Boundary2D;
 use crate::geometry::Geometry2D;
 #[cfg(feature = "milp")]
-use crate::nfp::{compute_nfp, Nfp};
+use crate::nfp::{compute_nfp_mirrored, Nfp};
 #[cfg(feature = "milp")]
 use u_nesting_core::exact::{ExactConfig, ExactResult};
 use u_nesting_core::geometry::{Boundary, Geometry};
@@ -62,6 +62,8 @@ struct CandidatePosition {
     rotation: f64,
     /// Rotation index.
     rotation_idx: usize,
+    /// Whether this candidate is mirrored (`allow_flip` support).
+    mirror: bool,
 }
 
 /// Piece info with candidate positions.
@@ -185,13 +187,16 @@ pub fn run_nfp_cm_nesting(
                 let piece = &pieces[*piece_idx];
                 let candidate = &piece.candidates[*candidate_idx];
 
-                result.placements.push(Placement::new_2d(
-                    piece.id.clone(),
-                    piece.instance_num,
-                    candidate.x,
-                    candidate.y,
-                    candidate.rotation,
-                ));
+                result.placements.push(
+                    Placement::new_2d(
+                        piece.id.clone(),
+                        piece.instance_num,
+                        candidate.x,
+                        candidate.y,
+                        candidate.rotation,
+                    )
+                    .with_mirrored(candidate.mirror),
+                );
             }
 
             result.boundaries_used = if result.placements.is_empty() { 0 } else { 1 };
@@ -245,6 +250,20 @@ fn build_piece_info(
             heights.push(g_max[1] - g_min[1]);
         }
 
+        // Mirror candidates (`allow_flip` support): mirroring preserves a
+        // polygon's AABB width/height (see `nester.rs`'s `mirror_candidates`
+        // doc comment for the same fact applied to the BLF strategy), so the
+        // same position grid applies to both — only the tag differs. Doubles
+        // the candidate (and later conflict-pair) count when enabled, which
+        // matters more here than for the metaheuristic strategies: this
+        // solver's own doc comment already caps it at small instances
+        // (≤15-20 pieces) due to grid discretization + MILP complexity.
+        let mirror_candidates: &[bool] = if geom.allow_flip() {
+            &[false, true]
+        } else {
+            &[false]
+        };
+
         for instance in 0..geom.quantity() {
             let mut candidates = Vec::new();
 
@@ -268,12 +287,15 @@ fn build_piece_info(
                 while x <= max_x {
                     let mut y = min_y;
                     while y <= max_y {
-                        candidates.push(CandidatePosition {
-                            x,
-                            y,
-                            rotation: angle,
-                            rotation_idx: rot_idx,
-                        });
+                        for &mirror in mirror_candidates {
+                            candidates.push(CandidatePosition {
+                                x,
+                                y,
+                                rotation: angle,
+                                rotation_idx: rot_idx,
+                                mirror,
+                            });
+                        }
                         y += grid_step;
                     }
                     x += grid_step;
@@ -307,6 +329,12 @@ fn build_piece_info(
 /// Conflict between two (piece, candidate) pairs.
 type Conflict = ((usize, usize), (usize, usize));
 
+/// NFP cache key: (geometry_a, geometry_b, rotation_idx_a, rotation_idx_b,
+/// mirror_a, mirror_b) — mirror flags included since a mirrored and an
+/// unmirrored NFP for the same (geometries, rotations) pair are different
+/// polygons (`allow_flip` support).
+type NfpCacheKey = (usize, usize, usize, usize, bool, bool);
+
 /// Compute conflicts between candidates using NFPs.
 fn compute_conflicts(
     pieces: &[PieceInfo],
@@ -318,8 +346,8 @@ fn compute_conflicts(
 ) -> Vec<Conflict> {
     let mut conflicts = Vec::new();
 
-    // NFP cache
-    let mut nfp_cache: HashMap<(usize, usize, usize, usize), Option<Nfp>> = HashMap::new();
+    // NFP cache — see `NfpCacheKey` doc comment.
+    let mut nfp_cache: HashMap<NfpCacheKey, Option<Nfp>> = HashMap::new();
 
     for i in 0..pieces.len() {
         for j in (i + 1)..pieces.len() {
@@ -345,10 +373,19 @@ fn compute_conflicts(
                         pieces[j].geometry_idx,
                         cand_i.rotation_idx,
                         cand_j.rotation_idx,
+                        cand_i.mirror,
+                        cand_j.mirror,
                     );
 
                     let nfp_opt = nfp_cache.entry(cache_key).or_insert_with(|| {
-                        compute_nfp(geom_i, geom_j, cand_j.rotation - cand_i.rotation).ok()
+                        compute_nfp_mirrored(
+                            geom_i,
+                            geom_j,
+                            cand_j.rotation - cand_i.rotation,
+                            cand_i.mirror,
+                            cand_j.mirror,
+                        )
+                        .ok()
                     });
 
                     let overlaps = if let Some(nfp) = nfp_opt {
@@ -664,5 +701,108 @@ mod tests {
 
         // Should find a solution
         assert!(!result.placements.is_empty());
+    }
+
+    #[test]
+    fn test_build_piece_info_mirror_candidates_only_when_allowed() {
+        let boundary = Boundary2D::rectangle(50.0, 50.0);
+        let config = Config::default();
+        let rotation_angles = vec![0.0];
+        let cancelled = Arc::new(AtomicBool::new(false));
+
+        let plain = vec![Geometry2D::rectangle("R1", 10.0, 10.0).with_quantity(1)];
+        let pieces = build_piece_info(
+            &plain,
+            &boundary,
+            &config,
+            &rotation_angles,
+            10.0,
+            &cancelled,
+        );
+        assert!(
+            pieces[0].candidates.iter().all(|c| !c.mirror),
+            "no candidate should be tagged mirrored without allow_flip"
+        );
+
+        let flippable = vec![Geometry2D::rectangle("R1", 10.0, 10.0)
+            .with_flip(true)
+            .with_quantity(1)];
+        let pieces = build_piece_info(
+            &flippable,
+            &boundary,
+            &config,
+            &rotation_angles,
+            10.0,
+            &cancelled,
+        );
+        assert!(
+            pieces[0].candidates.iter().any(|c| c.mirror),
+            "allow_flip must produce at least one mirrored candidate"
+        );
+        assert!(
+            pieces[0].candidates.iter().any(|c| !c.mirror),
+            "allow_flip must still keep the unmirrored candidates too"
+        );
+    }
+
+    /// Chiral L-shape — see `nfp.rs`'s `chiral_l` fixture for why this
+    /// specific shape (asymmetric width/height/notch, no reflection symmetry).
+    fn chiral_l(id: &str) -> Geometry2D {
+        Geometry2D::l_shape(id, 30.0, 20.0, 20.0, 10.0)
+    }
+
+    fn polygons_overlap(a: &[(f64, f64)], b: &[(f64, f64)]) -> bool {
+        for i in 0..a.len() {
+            let (a1, a2) = (a[i], a[(i + 1) % a.len()]);
+            for j in 0..b.len() {
+                let (b1, b2) = (b[j], b[(j + 1) % b.len()]);
+                if crate::polygon_ops::segments_intersect(a1, a2, b1, b2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// `allow_flip`/mirroring, NFP-CM (MILP) strategy — the last of the 7
+    /// placement strategies. `run_nfp_cm_nesting` calls no `.validate()`, so
+    /// this is a genuine end-to-end run (not a lower-level bypass).
+    #[test]
+    #[cfg(feature = "milp")]
+    fn test_nfp_cm_mirror_no_overlap() {
+        use crate::nfp::PlacedGeometry;
+
+        let geometries = vec![chiral_l("L").with_flip(true).with_quantity(2)];
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let config = Config::default().with_spacing(1.0);
+        let exact_config = ExactConfig::default()
+            .with_time_limit_ms(15000)
+            .with_rotation_steps(1)
+            .with_grid_step(5.0);
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let result = run_nfp_cm_nesting(&geometries, &boundary, &config, &exact_config, cancelled);
+
+        assert_eq!(
+            result.placements.len(),
+            2,
+            "both instances should fit in this boundary"
+        );
+
+        let polys: Vec<Vec<(f64, f64)>> = result
+            .placements
+            .iter()
+            .map(|p| {
+                PlacedGeometry::new(geometries[0].clone(), (p.x(), p.y()), p.angle())
+                    .with_mirrored(p.mirrored)
+                    .translated_exterior()
+            })
+            .collect();
+        assert!(
+            !polygons_overlap(&polys[0], &polys[1]),
+            "placements must not overlap regardless of mirror state (mirrored: {}, {})",
+            result.placements[0].mirrored,
+            result.placements[1].mirrored
+        );
     }
 }
