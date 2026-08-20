@@ -19,7 +19,8 @@ use crate::boundary::Boundary2D;
 use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
-    compute_ifp, compute_nfp, find_bottom_left_placement, verify_no_overlap, Nfp, PlacedGeometry,
+    compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
+    verify_no_overlap_mirrored, Nfp, PlacedGeometry,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -46,6 +47,8 @@ pub struct PlacedItem {
     pub y: f64,
     /// Rotation angle in radians.
     pub rotation: f64,
+    /// Whether the item was placed mirrored (`allow_flip` support).
+    pub mirrored: bool,
     /// Placement score (lower = better, based on position).
     pub score: f64,
 }
@@ -230,76 +233,99 @@ impl GdrrNestingProblem {
         let info = &self.instances[instance_idx];
         let geom = &self.geometries[info.geometry_idx];
         let angles = &self.rotation_angles[info.geometry_idx];
+        // Mirror candidates (`allow_flip` support) — same pattern as
+        // `nester.rs`'s `mirror_candidates` helper.
+        let mirror_candidates: &[bool] = if geom.allow_flip() {
+            &[false, true]
+        } else {
+            &[false]
+        };
 
         let mut best_placement: Option<PlacedItem> = None;
         let mut best_y = f64::MAX;
 
         for &rotation in angles {
-            // Compute IFP
-            let ifp = match compute_ifp(boundary_polygon, geom, rotation) {
-                Ok(ifp) => ifp,
-                Err(_) => continue,
-            };
+            for &mirror in mirror_candidates {
+                // Compute IFP
+                let ifp = match compute_ifp_with_margin_and_mirror(
+                    boundary_polygon,
+                    geom,
+                    rotation,
+                    0.0,
+                    mirror,
+                ) {
+                    Ok(ifp) => ifp,
+                    Err(_) => continue,
+                };
 
-            if ifp.is_empty() {
-                continue;
-            }
-
-            // Compute NFPs with placed geometries
-            let spacing = self.config.spacing;
-            let mut nfps: Vec<Nfp> = Vec::new();
-
-            for pg in placed_geometries {
-                // Create temporary geometry with translated exterior
-                let placed_exterior = pg.translated_exterior();
-                let placed_geom = Geometry2D::new(format!("_placed_{}", pg.geometry.id()))
-                    .with_polygon(placed_exterior);
-
-                if let Ok(nfp) = compute_nfp(&placed_geom, geom, rotation) {
-                    let expanded = expand_nfp(&nfp, spacing);
-                    nfps.push(expanded);
+                if ifp.is_empty() {
+                    continue;
                 }
-            }
 
-            // Shrink IFP by spacing
-            let ifp_shrunk = shrink_ifp(&ifp, spacing);
+                // Compute NFPs with placed geometries
+                let spacing = self.config.spacing;
+                let mut nfps: Vec<Nfp> = Vec::new();
 
-            // Find bottom-left placement
-            // IFP returns positions where the geometry's origin should be placed.
-            // Clamp to ensure placement keeps geometry within boundary.
-            let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-            if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
-                // Clamp position to keep geometry within boundary
-                let geom_aabb = geom.aabb_at_rotation(rotation);
-                let boundary_aabb = self.boundary.aabb();
+                for pg in placed_geometries {
+                    // Already-mirrored (if applicable) real-world polygon —
+                    // do NOT mirror it again below, `mirror_stationary=false` always.
+                    let placed_exterior = pg.translated_exterior();
+                    let placed_geom = Geometry2D::new(format!("_placed_{}", pg.geometry.id()))
+                        .with_polygon(placed_exterior);
 
-                if let Some((clamped_x, clamped_y)) =
-                    clamp_placement_to_boundary(x, y, geom_aabb, boundary_aabb)
-                {
-                    // Only verify overlap if clamping changed the position
-                    // The original NFP-found position is already collision-free by definition
-                    let was_clamped = (clamped_x - x).abs() > 1e-6 || (clamped_y - y).abs() > 1e-6;
-                    if was_clamped {
-                        // Verify no actual polygon overlap using SAT
-                        if !verify_no_overlap(
-                            geom,
-                            (clamped_x, clamped_y),
-                            rotation,
-                            placed_geometries,
-                        ) {
-                            continue; // Skip - clamped position would cause overlap
-                        }
+                    if let Ok(nfp) =
+                        compute_nfp_mirrored(&placed_geom, geom, rotation, false, mirror)
+                    {
+                        let expanded = expand_nfp(&nfp, spacing);
+                        nfps.push(expanded);
                     }
+                }
 
-                    if clamped_y < best_y {
-                        best_y = clamped_y;
-                        best_placement = Some(PlacedItem {
-                            instance_idx,
-                            x: clamped_x,
-                            y: clamped_y,
-                            rotation,
-                            score: clamped_y, // Score based on Y position
-                        });
+                // Shrink IFP by spacing
+                let ifp_shrunk = shrink_ifp(&ifp, spacing);
+
+                // Find bottom-left placement
+                // IFP returns positions where the geometry's origin should be placed.
+                // Clamp to ensure placement keeps geometry within boundary.
+                let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
+                if let Some((x, y)) =
+                    find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
+                {
+                    // Clamp position to keep geometry within boundary
+                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    let boundary_aabb = self.boundary.aabb();
+
+                    if let Some((clamped_x, clamped_y)) =
+                        clamp_placement_to_boundary(x, y, geom_aabb, boundary_aabb)
+                    {
+                        // Only verify overlap if clamping changed the position
+                        // The original NFP-found position is already collision-free by definition
+                        let was_clamped =
+                            (clamped_x - x).abs() > 1e-6 || (clamped_y - y).abs() > 1e-6;
+                        if was_clamped {
+                            // Verify no actual polygon overlap using SAT
+                            if !verify_no_overlap_mirrored(
+                                geom,
+                                (clamped_x, clamped_y),
+                                rotation,
+                                mirror,
+                                placed_geometries,
+                            ) {
+                                continue; // Skip - clamped position would cause overlap
+                            }
+                        }
+
+                        if clamped_y < best_y {
+                            best_y = clamped_y;
+                            best_placement = Some(PlacedItem {
+                                instance_idx,
+                                x: clamped_x,
+                                y: clamped_y,
+                                rotation,
+                                mirrored: mirror,
+                                score: clamped_y, // Score based on Y position
+                            });
+                        }
                     }
                 }
             }
@@ -323,7 +349,7 @@ impl GdrrNestingProblem {
                 geometry: geom.clone(),
                 position: (item.x, item.y),
                 rotation: item.rotation,
-                mirrored: false, // GDRR doesn't enumerate mirror candidates yet (allow_flip)
+                mirrored: item.mirrored,
             });
         }
 
@@ -362,7 +388,7 @@ impl GdrrNestingProblem {
                     geometry: geom.clone(),
                     position: (placement.x, placement.y),
                     rotation: placement.rotation,
-                    mirrored: false, // GDRR doesn't enumerate mirror candidates yet (allow_flip)
+                    mirrored: placement.mirrored,
                 });
 
                 solution.placed.push(placement);
@@ -697,13 +723,16 @@ pub fn run_gdrr_nesting(
         let info = &problem.instances[item.instance_idx];
         let geom = &problem.geometries[info.geometry_idx];
 
-        result.placements.push(Placement::new_2d(
-            geom.id().to_string(),
-            info.instance_num,
-            item.x,
-            item.y,
-            item.rotation,
-        ));
+        result.placements.push(
+            Placement::new_2d(
+                geom.id().to_string(),
+                info.instance_num,
+                item.x,
+                item.y,
+                item.rotation,
+            )
+            .with_mirrored(item.mirrored),
+        );
     }
 
     result.boundaries_used = if result.placements.is_empty() { 0 } else { 1 };
@@ -767,6 +796,7 @@ mod tests {
                     x: 10.0,
                     y: 10.0,
                     rotation: 0.0,
+                    mirrored: false,
                     score: 10.0,
                 },
                 PlacedItem {
@@ -774,6 +804,7 @@ mod tests {
                     x: 60.0,
                     y: 10.0,
                     rotation: 0.0,
+                    mirrored: false,
                     score: 10.0,
                 },
             ],
@@ -915,5 +946,116 @@ mod tests {
 
         assert!(result.iterations <= 10);
         assert!(!result.best_solution.placed.is_empty());
+    }
+
+    /// Chiral L-shape — see `nfp.rs`'s `chiral_l` fixture for why this
+    /// specific shape (asymmetric width/height/notch, no reflection symmetry).
+    fn chiral_l(id: &str) -> Geometry2D {
+        Geometry2D::l_shape(id, 30.0, 20.0, 20.0, 10.0)
+    }
+
+    fn polygons_overlap(a: &[(f64, f64)], b: &[(f64, f64)]) -> bool {
+        for i in 0..a.len() {
+            let (a1, a2) = (a[i], a[(i + 1) % a.len()]);
+            for j in 0..b.len() {
+                let (b1, b2) = (b[j], b[(j + 1) % b.len()]);
+                if crate::polygon_ops::segments_intersect(a1, a2, b1, b2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// `allow_flip`/mirroring, GDRR strategy. `try_place_item` (and the rest
+    /// of GDRR) calls no `.validate()`, so calling it directly genuinely
+    /// bypasses the public `allow_flip = true` rejection — same bypass
+    /// strategy as GA/SA/BRKGA.
+    #[test]
+    fn test_gdrr_try_place_item_mirror_no_overlap() {
+        let geometries = vec![chiral_l("L").with_flip(true).with_quantity(2)];
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let config = Config::default().with_spacing(1.0);
+        let problem = GdrrNestingProblem::new(
+            geometries.clone(),
+            boundary,
+            config,
+            Arc::new(AtomicBool::new(false)),
+            60000,
+        );
+
+        let margin = problem.config.margin;
+        let boundary_polygon = problem.get_boundary_polygon_with_margin(margin);
+        let sample_step = problem.compute_sample_step();
+
+        // Place instance 0 first (no other placed pieces to avoid).
+        let placement0 = problem
+            .try_place_item(0, &[], &boundary_polygon, sample_step)
+            .expect("first piece must fit");
+
+        // Place instance 1 avoiding instance 0.
+        let placed_geometries = vec![PlacedGeometry {
+            geometry: geometries[0].clone(),
+            position: (placement0.x, placement0.y),
+            rotation: placement0.rotation,
+            mirrored: placement0.mirrored,
+        }];
+        let placement1 = problem
+            .try_place_item(1, &placed_geometries, &boundary_polygon, sample_step)
+            .expect("second piece must fit avoiding the first");
+
+        // At least one of the two should end up mirrored in this tight,
+        // symmetric-instance scenario — otherwise this test isn't actually
+        // exercising the mirror path, just confirming allow_flip doesn't
+        // break anything (best_y ties break toward whichever candidate is
+        // evaluated first, so both false is possible but both being false
+        // AND non-overlapping AND placed would mean mirroring never even
+        // got a chance to matter here — assert overlap-freedom instead,
+        // which holds regardless of which orientation won).
+        let poly0 = PlacedGeometry {
+            geometry: geometries[0].clone(),
+            position: (placement0.x, placement0.y),
+            rotation: placement0.rotation,
+            mirrored: placement0.mirrored,
+        }
+        .translated_exterior();
+        let poly1 = PlacedGeometry {
+            geometry: geometries[0].clone(),
+            position: (placement1.x, placement1.y),
+            rotation: placement1.rotation,
+            mirrored: placement1.mirrored,
+        }
+        .translated_exterior();
+        assert!(
+            !polygons_overlap(&poly0, &poly1),
+            "instance 0 (mirrored={}) and instance 1 (mirrored={}) must not overlap",
+            placement0.mirrored,
+            placement1.mirrored
+        );
+    }
+
+    #[test]
+    fn test_gdrr_try_place_item_mirror_ignored_without_allow_flip() {
+        let geometries = vec![chiral_l("L").with_quantity(1)];
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let problem = GdrrNestingProblem::new(
+            geometries,
+            boundary,
+            Config::default(),
+            Arc::new(AtomicBool::new(false)),
+            60000,
+        );
+
+        let margin = problem.config.margin;
+        let boundary_polygon = problem.get_boundary_polygon_with_margin(margin);
+        let sample_step = problem.compute_sample_step();
+
+        let placement = problem
+            .try_place_item(0, &[], &boundary_polygon, sample_step)
+            .expect("piece must fit");
+        assert!(
+            !placement.mirrored,
+            "allow_flip=false must suppress mirroring"
+        );
     }
 }
