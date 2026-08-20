@@ -515,6 +515,45 @@ mod tests {
     }
 
     #[test]
+    fn test_aabb_at_rotation_mirrored_delegates_when_not_mirrored() {
+        let poly = Geometry2D::new("P1").with_polygon(vec![
+            (10.0, 20.0),
+            (50.0, 20.0),
+            (50.0, 80.0),
+            (10.0, 80.0),
+        ]);
+        assert_eq!(
+            poly.aabb_at_rotation_mirrored(0.3, false),
+            poly.aabb_at_rotation(0.3)
+        );
+    }
+
+    #[test]
+    fn test_aabb_at_rotation_mirrored_reflects_asymmetric_extents() {
+        // Local extents asymmetric about the origin: x in [10, 50], not
+        // [-20, 20] — reflection (x -> -x) swaps and negates them to
+        // [-50, -10], a genuinely different AABB position (same width),
+        // which is exactly the case `clamp_placement_to_boundary_with_margin`
+        // needs the mirrored extents for.
+        let poly = Geometry2D::new("P1").with_polygon(vec![
+            (10.0, 20.0),
+            (50.0, 20.0),
+            (50.0, 80.0),
+            (10.0, 80.0),
+        ]);
+        let (min, max) = poly.aabb_at_rotation_mirrored(0.0, true);
+        assert_relative_eq!(min[0], -50.0);
+        assert_relative_eq!(max[0], -10.0);
+        // Y is unaffected by reflection across the y-axis.
+        assert_relative_eq!(min[1], 20.0);
+        assert_relative_eq!(max[1], 80.0);
+        // Width/height are preserved under reflection.
+        let (unmirrored_min, unmirrored_max) = poly.aabb_at_rotation(0.0);
+        assert_relative_eq!(max[0] - min[0], unmirrored_max[0] - unmirrored_min[0]);
+        assert_relative_eq!(max[1] - min[1], unmirrored_max[1] - unmirrored_min[1]);
+    }
+
+    #[test]
     fn test_rectangle_is_convex() {
         let rect = Geometry2D::rectangle("R1", 10.0, 10.0);
         assert!(rect.is_convex());
