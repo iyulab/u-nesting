@@ -292,7 +292,9 @@ impl GdrrNestingProblem {
                     find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
                 {
                     // Clamp position to keep geometry within boundary
-                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    // (mirror-aware — an unmirrored AABB has the wrong local
+                    // extents for a mirrored candidate, see `aabb_at_rotation_mirrored`).
+                    let geom_aabb = geom.aabb_at_rotation_mirrored(rotation, mirror);
                     let boundary_aabb = self.boundary.aabb();
 
                     if let Some((clamped_x, clamped_y)) =
@@ -968,9 +970,10 @@ mod tests {
     }
 
     /// `allow_flip`/mirroring, GDRR strategy. `try_place_item` (and the rest
-    /// of GDRR) calls no `.validate()`, so calling it directly genuinely
-    /// bypasses the public `allow_flip = true` rejection — same bypass
-    /// strategy as GA/SA/BRKGA.
+    /// of GDRR) calls no `.validate()`, so calling it directly exercises the
+    /// mirror candidate deterministically — same rationale as GA/SA/BRKGA;
+    /// useful even now that the public gate is open (Phase 4), since GDRR's
+    /// own public path is randomized.
     #[test]
     fn test_gdrr_try_place_item_mirror_no_overlap() {
         let geometries = vec![chiral_l("L").with_flip(true).with_quantity(2)];

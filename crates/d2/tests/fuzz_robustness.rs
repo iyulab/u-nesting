@@ -82,6 +82,12 @@ fn star_ring(radii: &[f64]) -> Vec<(f64, f64)> {
 /// Assert that no two placements in `result` overlap, reconstructing each
 /// piece's on-sheet footprint with the library's own transform and checking
 /// every pair with the independent `i_overlay` oracle.
+///
+/// Reflects mirrored placements before rotating (`(x,y) -> (-x,y)`, matching
+/// `PlacedGeometry::translated_exterior`'s mirror-then-rotate-then-translate
+/// order — `Geometry2D::transformed_exterior` has no mirror parameter at all,
+/// so calling it directly on a mirrored placement silently reconstructs the
+/// *unmirrored* shape and this oracle would validate the wrong polygon).
 fn assert_no_overlap(pieces: &[(String, Geometry2D)], result: &SolveResult<f64>, eps: f64) {
     let map: HashMap<&str, &Geometry2D> = pieces.iter().map(|(id, g)| (id.as_str(), g)).collect();
 
@@ -91,7 +97,19 @@ fn assert_no_overlap(pieces: &[(String, Geometry2D)], result: &SolveResult<f64>,
         .map(|p| {
             let g = map[p.geometry_id.as_str()];
             let rot = p.rotation.first().copied().unwrap_or(0.0);
-            g.transformed_exterior(p.position[0], p.position[1], rot)
+            let base: Vec<(f64, f64)> = if p.mirrored {
+                g.exterior().iter().map(|&(x, y)| (-x, y)).collect()
+            } else {
+                g.exterior().to_vec()
+            };
+            let (cos_r, sin_r) = (rot.cos(), rot.sin());
+            base.iter()
+                .map(|&(vx, vy)| {
+                    let rx = vx * cos_r - vy * sin_r;
+                    let ry = vx * sin_r + vy * cos_r;
+                    (p.position[0] + rx, p.position[1] + ry)
+                })
+                .collect()
         })
         .collect();
 
@@ -199,6 +217,71 @@ proptest! {
             // Concave boolean ops carry more FP noise than the convex case; a
             // real overlap (with a 2-unit spacing gap) is orders of magnitude
             // larger than this floor.
+            assert_no_overlap(&pieces, &result, 1e-2);
+        }
+    }
+}
+
+proptest! {
+    // Unlike the convex/concave blocks above (fast, deterministic BLF/NfpGuided
+    // only), this block's strategy sample includes the metaheuristic solvers
+    // (GA/SA/BRKGA/GDRR/ALNS), which default to a 30s time budget each
+    // (`Config::default().time_limit_ms`) — at 40 cases that's a multi-minute
+    // tail risk for a 2-piece toy instance that should converge in
+    // milliseconds. Capped explicitly below and the case count trimmed to
+    // match, keeping the same per-case cost discipline as the rest of this
+    // file (per the resource policy noted on the concave block) without
+    // losing coverage across all 7 strategies (each case samples one).
+    #![proptest_config(ProptestConfig::with_cases(15))]
+
+    /// Phase 4 (`allow_flip`/mirroring): `Geometry2D::validate()` no longer rejects
+    /// `allow_flip = true` (all 7 placement strategies now support
+    /// mirroring). This is the exact risk the removed rejection used to
+    /// guard against — "silently accepting `allow_flip` would misreport
+    /// what was solved" — now checked directly: any mirrored candidate a
+    /// strategy selects must still produce a non-overlapping layout.
+    /// Concave (star) pieces specifically exercise winding-restoration
+    /// after reflection, which a convex rectangle can't distinguish from an
+    /// unmirrored placement. `MilpExact` is intentionally excluded — exact
+    /// solves are too slow for property-test fuzzing; its `allow_flip`
+    /// acceptance is covered deterministically by
+    /// `integration_tests::allow_flip_is_accepted_for_milp_exact`.
+    #[test]
+    fn placement_has_no_overlap_with_mirroring(
+        stars in prop::collection::vec(
+            prop::collection::vec(20.0f64..120.0, 5..9),
+            2..5,
+        ),
+        strat in prop::sample::select(vec![
+            Strategy::BottomLeftFill,
+            Strategy::NfpGuided,
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+            Strategy::SimulatedAnnealing,
+            Strategy::Gdrr,
+            Strategy::Alns,
+        ]),
+    ) {
+        let pieces: Vec<(String, Geometry2D)> = stars
+            .iter()
+            .enumerate()
+            .map(|(i, radii)| {
+                let id = format!("m{i}");
+                let ring = star_ring(radii);
+                (
+                    id.clone(),
+                    Geometry2D::new(id).with_polygon(ring).with_quantity(2).with_flip(true),
+                )
+            })
+            .collect();
+        let geoms: Vec<Geometry2D> = pieces.iter().map(|(_, g)| g.clone()).collect();
+        let boundary = Boundary2D::rectangle(1000.0, 5000.0);
+
+        // A degenerate star (all-equal radii rounding to collinear runs) may be
+        // rejected; only the accepted layouts carry the no-overlap obligation.
+        if let Ok(result) = Nester2D::new(Config::default().with_strategy(strat).with_spacing(2.0))
+            .solve(&geoms, &boundary)
+        {
             assert_no_overlap(&pieces, &result, 1e-2);
         }
     }

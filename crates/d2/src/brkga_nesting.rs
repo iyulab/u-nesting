@@ -213,7 +213,9 @@ impl BrkgaNestingProblem {
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
             if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
                 // Clamp position to keep geometry within boundary
-                let geom_aabb = geom.aabb_at_rotation(rotation_angle);
+                // (mirror-aware — an unmirrored AABB has the wrong local
+                // extents for a mirrored candidate, see `aabb_at_rotation_mirrored`).
+                let geom_aabb = geom.aabb_at_rotation_mirrored(rotation_angle, mirror);
                 let boundary_aabb = self.boundary.aabb();
 
                 if let Some((clamped_x, clamped_y)) =

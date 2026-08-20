@@ -7,14 +7,11 @@ use crate::clamp_placement_to_boundary_with_margin;
 use crate::ga_nesting::{run_ga_nesting, run_ga_nesting_with_progress};
 use crate::gdrr_nesting::run_gdrr_nesting;
 use crate::geometry::Geometry2D;
-#[cfg(feature = "milp")]
-use crate::milp_solver::run_milp_nesting;
 use crate::nfp::{
     compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
     rotate_nfp, translate_nfp, Nfp, NfpCache, PlacedGeometry,
 };
 #[cfg(feature = "milp")]
-#[allow(unused_imports)]
 use crate::nfp_cm_solver::run_nfp_cm_nesting;
 use crate::sa_nesting::run_sa_nesting;
 use crate::validate_and_filter_placements;
@@ -452,8 +449,13 @@ impl Nester2D {
 
                 // Place the geometry at the best position found
                 if let Some((x, y, rotation, mirror)) = best_placement {
-                    // Clamp to ensure geometry stays within boundary
-                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    // Clamp to ensure geometry stays within boundary. Must be
+                    // mirror-aware: a mirrored candidate's true local extents
+                    // are reflected, not just the unmirrored AABB — using the
+                    // wrong one here shifts a already NFP-validated (x, y)
+                    // into an overlap (found via `placement_has_no_overlap_with_mirroring`,
+                    // `fuzz_robustness.rs`).
+                    let geom_aabb = geom.aabb_at_rotation_mirrored(rotation, mirror);
                     let boundary_aabb = boundary.aabb();
 
                     if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
@@ -771,6 +773,17 @@ impl Nester2D {
     }
 
     /// MILP-based exact solver.
+    ///
+    /// Uses the NFP Covering Model formulation (`nfp_cm_solver`) — the other
+    /// MILP module this crate carried (`milp_solver`, a continuous-position
+    /// Big-M formulation) placed nothing for *any* input through this public
+    /// entry point, including plain rectangles with no rotation or mirroring
+    /// involved, and was covered by no test that actually went through
+    /// `Strategy::MilpExact` end-to-end — every existing MILP test called
+    /// straight into a solver module's own function. `nfp_cm_solver` is the
+    /// one with working, tested coverage (including `allow_flip` support),
+    /// so this now calls that instead; `milp_solver` was removed as
+    /// orphaned (nothing else referenced it).
     #[cfg(feature = "milp")]
     fn milp_exact(
         &self,
@@ -783,7 +796,7 @@ impl Nester2D {
             .with_rotation_steps(4)
             .with_grid_step(1.0);
 
-        let result = run_milp_nesting(
+        let result = run_nfp_cm_nesting(
             geometries,
             boundary,
             &self.config,
@@ -810,7 +823,7 @@ impl Nester2D {
                 .with_time_limit_ms((self.config.time_limit_ms / 2).max(30000))
                 .with_max_items(15);
 
-            let exact_result = run_milp_nesting(
+            let exact_result = run_nfp_cm_nesting(
                 geometries,
                 boundary,
                 &self.config,
@@ -1177,7 +1190,8 @@ impl Nester2D {
 
                 if let Some((x, y, rotation, mirror)) = best_placement {
                     // Clamp to ensure geometry stays within boundary
-                    let geom_aabb = geom.aabb_at_rotation(rotation);
+                    // (mirror-aware — see the same fix in `nfp_guided_blf`).
+                    let geom_aabb = geom.aabb_at_rotation_mirrored(rotation, mirror);
                     let boundary_aabb = boundary.aabb();
 
                     if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
@@ -1713,21 +1727,23 @@ mod tests {
 
     /// Phase 1 (`allow_flip`/mirroring), placement-level correctness.
     ///
-    /// `nfp_guided_blf` can't be exercised end-to-end with `allow_flip =
-    /// true` yet: `Geometry2D::validate()` rejects it unconditionally, and
-    /// that per-geometry `validate()` call is baked into the strategy
-    /// function itself (not just `solve()`'s `validate_geometries` gate),
-    /// so calling `nfp_guided_blf` directly doesn't bypass it either — the
-    /// gate genuinely has no live code path yet, by design (`validate()`
-    /// stays shut until every strategy supports mirroring, see
-    /// `logs/ROADMAP.md` §12).
-    ///
-    /// So this replicates `nfp_guided_blf`'s own placement sequence one
-    /// level down, using the exact primitives it calls
-    /// (`compute_ifp_with_margin_and_mirror`, `compute_nfp_mirrored`,
+    /// Written while `Geometry2D::validate()` still rejected `allow_flip =
+    /// true` unconditionally (that per-geometry gate was baked into the
+    /// strategy function itself, so calling `nfp_guided_blf` directly
+    /// couldn't bypass it either) — this replicated `nfp_guided_blf`'s own
+    /// placement sequence one level down, using the exact primitives it
+    /// calls (`compute_ifp_with_margin_and_mirror`, `compute_nfp_mirrored`,
     /// `find_bottom_left_placement`) — none of which call `.validate()` —
     /// to prove the thing that could actually go wrong: NFP-based collision
     /// avoidance between an unmirrored piece and a mirrored one.
+    ///
+    /// The gate is now open (Phase 4) and `nfp_guided_blf` *is* reachable
+    /// end-to-end with `allow_flip = true`
+    /// via `Nester2D::solve` — see
+    /// `integration_tests::allow_flip_is_accepted_across_strategies` and
+    /// `fuzz_robustness::placement_has_no_overlap_with_mirroring` for that
+    /// path. This test stays as a focused, deterministic primitive-level
+    /// regression; it is no longer the only way to exercise this.
     #[test]
     fn test_mirror_aware_placement_avoids_overlap() {
         // Nonzero spacing, matching how `nfp_guided_blf` actually calls these

@@ -303,17 +303,6 @@ impl Geometry for Geometry2D {
             )));
         }
 
-        // Mirroring is unimplemented (the placement pipeline never applies a
-        // reflection), so silently accepting `allow_flip` would misreport what
-        // was solved. Reject it explicitly rather than ignore it.
-        if self.allow_flip {
-            return Err(Error::InvalidGeometry(format!(
-                "Polygon '{}': allow_flip is not supported (mirroring is unimplemented); \
-                 set allow_flip to false",
-                self.id
-            )));
-        }
-
         // Reject degenerate (zero-area / collinear) polygons: they make NFP and
         // collision tests meaningless. Threshold scales with extent so a small
         // but legitimate piece survives while a truly collinear ring is caught.
@@ -412,6 +401,46 @@ impl Geometry2D {
         for &(x, y) in &self.exterior {
             let rx = x * cos_r - y * sin_r;
             let ry = x * sin_r + y * cos_r;
+            min_x = min_x.min(rx);
+            min_y = min_y.min(ry);
+            max_x = max_x.max(rx);
+            max_y = max_y.max(ry);
+        }
+
+        ([min_x, min_y], [max_x, max_y])
+    }
+
+    /// Same as [`Self::aabb_at_rotation`], but the geometry can be mirrored
+    /// first (`allow_flip` support) — mirror-then-rotate, matching the order
+    /// every other mirror-aware transform in this crate uses
+    /// ([`crate::polygon_ops::mirror_polygon`],
+    /// [`crate::nfp::compute_nfp_mirrored`],
+    /// [`crate::nfp::PlacedGeometry::translated_exterior`]).
+    ///
+    /// A reflection preserves AABB *width*/*height* (mirroring negates local
+    /// x, which swaps min/max but not their difference), but **not** the
+    /// extents' offsets from the local origin when the geometry isn't
+    /// symmetric about it — `aabb_at_rotation(rotation)` alone silently
+    /// reuses the unmirrored offsets for a mirrored placement, which is
+    /// exactly wrong for the boundary-clamp step every mirror-supporting
+    /// strategy runs after picking a candidate.
+    pub fn aabb_at_rotation_mirrored(&self, rotation: f64, mirror: bool) -> ([f64; 2], [f64; 2]) {
+        if !mirror {
+            return self.aabb_at_rotation(rotation);
+        }
+
+        let cos_r = rotation.cos();
+        let sin_r = rotation.sin();
+
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+
+        for &(x, y) in &self.exterior {
+            let mx = -x; // mirror across the y-axis first
+            let rx = mx * cos_r - y * sin_r;
+            let ry = mx * sin_r + y * cos_r;
             min_x = min_x.min(rx);
             min_y = min_y.min(ry);
             max_x = max_x.max(rx);

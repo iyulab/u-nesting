@@ -66,8 +66,6 @@ pub mod brkga_nesting;
 pub mod ga_nesting;
 pub mod gdrr_nesting;
 pub mod geometry;
-#[cfg(feature = "milp")]
-pub mod milp_solver;
 pub mod nester;
 pub mod nfp;
 #[cfg(feature = "milp")]

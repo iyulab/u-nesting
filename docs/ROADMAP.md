@@ -1314,7 +1314,11 @@ Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
 - [x] `Strategy::HybridExact` 추가
 
 #### 산출물
-- [x] `d2/milp_solver.rs` - MILP based exact solver
+- [x] ~~`d2/milp_solver.rs`~~ - MILP based exact solver. **2026-08 갱신**: `Strategy::MilpExact`/
+  `HybridExact`가 실제로는 이 모듈을 호출하도록 배선된 적이 없어(Phase 8.2의
+  `nfp_cm_solver.rs`로 교체 배선이 누락된 채 방치) 공개 API 경로로는 항상 미배치를
+  반환했음 — Big-M 포뮬레이션 자체의 결함은 아니었으나 배선이 살아있던 적이 없어 원본
+  모듈을 제거하고 아래 8.2의 `nfp_cm_solver.rs`로 교체
 - [x] `core/exact.rs` - ExactConfig, ExactResult, SolutionStatus
 - [x] `Strategy::MilpExact`, `Strategy::HybridExact` 추가
 - [x] Conditional compilation (`milp` feature flag)

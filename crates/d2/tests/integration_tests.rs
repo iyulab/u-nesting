@@ -707,15 +707,72 @@ mod bucket_b_tests {
         );
     }
 
+    /// Public-API contract for `allow_flip`: every placement strategy now
+    /// supports mirroring, so `validate()` no longer rejects
+    /// `allow_flip = true` — this replaces the old
+    /// `allow_flip_is_rejected_until_implemented` contract test with its
+    /// positive counterpart. Uses an asymmetric L-shape (chirality actually
+    /// matters for it, unlike a rectangle) so a real reflection is on the
+    /// table, not a no-op.
+    /// Overlap-correctness of the mirrored geometry itself is proven
+    /// separately by the `i_overlay`-oracle property tests in
+    /// `fuzz_robustness.rs`; this test is the accept/reject contract only.
     #[test]
-    fn allow_flip_is_rejected_until_implemented() {
+    fn allow_flip_is_accepted_across_strategies() {
         let boundary = Boundary2D::rectangle(1000.0, 1000.0);
-        let piece = Geometry2D::rectangle("r", 100.0, 50.0).with_flip(true);
-        let nester = Nester2D::new(Config::default().with_strategy(Strategy::BottomLeftFill));
-        assert!(
-            nester.solve(&[piece], &boundary).is_err(),
-            "allow_flip must error while mirroring is unimplemented"
-        );
+        let strategies = [
+            Strategy::BottomLeftFill,
+            Strategy::NfpGuided,
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+            Strategy::SimulatedAnnealing,
+            Strategy::Gdrr,
+            Strategy::Alns,
+        ];
+        for strat in strategies {
+            let piece = Geometry2D::l_shape("L", 30.0, 20.0, 20.0, 10.0)
+                .with_flip(true)
+                .with_quantity(2);
+            let nester = Nester2D::new(Config::default().with_strategy(strat));
+            let result = nester.solve(&[piece], &boundary).unwrap_or_else(|e| {
+                panic!("{strat:?} must accept allow_flip now that mirroring is implemented: {e}")
+            });
+            assert!(
+                result.unplaced.is_empty(),
+                "{strat:?}: both L-shape instances should place in a 1000x1000 boundary"
+            );
+        }
+    }
+
+    /// Same contract as `allow_flip_is_accepted_across_strategies`, for the
+    /// MILP-exact strategy — gated separately since it needs the `milp`
+    /// feature (`good_lp`/`highs-sys`, cmake+LLVM toolchain). A single
+    /// instance in a tight boundary, unlike the other strategies' 2-instance
+    /// 1000x1000 case: `Nester2D::solve`'s `MilpExact` path fixes its
+    /// candidate grid at 1.0 (`nester.rs`'s `milp_exact`), and mirroring
+    /// doubles the candidate count on top of that — a large boundary blows
+    /// up the grid enough to risk the solver's own time budget (matches the
+    /// existing MILP unit tests' convention of a small, tight boundary).
+    ///
+    /// Uses a rectangle, unlike the other strategies' L-shape: `MilpExact`'s
+    /// public entry point was found to only ever place axis-aligned
+    /// rectangles — a triangle, a convex pentagon, and a general (non-right-
+    /// angled) convex quadrilateral all came back fully unplaced regardless
+    /// of `allow_flip`, so this is a pre-existing gap in the solver's own
+    /// candidate/conflict model, independent of mirroring and out of scope
+    /// here (tracked separately). A rectangle can't show mirroring changing
+    /// the outcome (reflection is a no-op on it), so this test only proves
+    /// the accept/reject contract, matching what a rectangle can prove.
+    #[cfg(feature = "milp")]
+    #[test]
+    fn allow_flip_is_accepted_for_milp_exact() {
+        let boundary = Boundary2D::rectangle(50.0, 40.0);
+        let piece = Geometry2D::rectangle("R", 10.0, 10.0).with_flip(true);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::MilpExact));
+        let result = nester
+            .solve(&[piece], &boundary)
+            .expect("MilpExact must accept allow_flip now that mirroring is implemented");
+        assert!(result.unplaced.is_empty());
     }
 
     #[test]

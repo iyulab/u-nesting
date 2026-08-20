@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-08-21
+
+### Added
+
+- **`allow_flip` (mirror reflection) is now supported end-to-end, across every
+  placement strategy** (Bottom-Left Fill, NFP-guided BLF, Genetic Algorithm,
+  BRKGA, Simulated Annealing, GDRR, ALNS, and the MILP-exact solver). A piece
+  marked `allow_flip: true` can now be placed either in its original
+  orientation or mirrored across its local axis, whichever a strategy finds
+  better — previously `allow_flip: true` was rejected outright with an
+  explicit error, since no strategy implemented mirroring yet. `Placement`'s
+  existing `mirrored` field (and the 2D response's `flipped` field) now
+  actually reflects what was solved; no wire-schema changes were needed since
+  both fields already existed.
+
+### Fixed
+
+- **Mirrored placements could overlap an already-placed piece under NFP-guided
+  strategies.** The boundary-clamp step that runs after a strategy picks a
+  placement candidate computed the piece's bounding box from its *unmirrored*
+  orientation regardless of whether the winning candidate was actually
+  mirrored. For a piece whose local shape isn't symmetric about its own
+  reference point, that bounding box is wrong for a mirrored placement — the
+  clamp could then shift an already collision-free position into one that
+  overlaps a previously placed piece. Fixed by computing the clamp bounds
+  from the mirrored orientation whenever the candidate is mirrored. Only
+  reachable together with the `allow_flip` support above, since mirroring had
+  no live path before this release.
+- **`Strategy::MilpExact` and `Strategy::HybridExact` never actually reached a
+  working solver.** Both called into an older continuous-position MILP
+  formulation that placed nothing for any input through the public solve
+  entry point — not even a single unrotated, unmirrored rectangle — so
+  `MilpExact` always returned every piece unplaced and `HybridExact` always
+  silently fell back to its heuristic path. Fixed by routing both to the
+  NFP Covering Model formulation that already had working, tested coverage
+  (including the `allow_flip` support above); the older module is removed.
+
 ## [0.7.2] - 2026-07-15
 
 Documentation-only clarification from continued fabric-cutting dogfooding. No
