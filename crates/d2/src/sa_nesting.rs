@@ -15,7 +15,8 @@ use crate::boundary::Boundary2D;
 use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
-    compute_ifp, compute_nfp, find_bottom_left_placement, verify_no_overlap, Nfp, PlacedGeometry,
+    compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
+    verify_no_overlap_mirrored, Nfp, PlacedGeometry,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -42,6 +43,10 @@ pub struct SaNestingProblem {
     rotation_angles: Vec<Vec<f64>>,
     /// Maximum rotation options across all geometries.
     max_rotation_options: usize,
+    /// Whether any geometry allows mirroring (`allow_flip` support) — gates
+    /// whether `MirrorFlip` is offered as a neighborhood operator, same
+    /// pattern as `max_rotation_options` gating `Rotation`.
+    any_allow_flip: bool,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
 }
@@ -58,6 +63,7 @@ impl SaNestingProblem {
         let mut instances = Vec::new();
         let mut rotation_angles = Vec::new();
         let mut max_rotation_options = 1;
+        let mut any_allow_flip = false;
 
         for (geom_idx, geom) in geometries.iter().enumerate() {
             // Get rotation angles for this geometry
@@ -65,6 +71,7 @@ impl SaNestingProblem {
             let angles = if angles.is_empty() { vec![0.0] } else { angles };
             max_rotation_options = max_rotation_options.max(angles.len());
             rotation_angles.push(angles);
+            any_allow_flip = any_allow_flip || geom.allow_flip();
 
             // Create instances
             for instance_num in 0..geom.quantity() {
@@ -82,6 +89,7 @@ impl SaNestingProblem {
             instances,
             rotation_angles,
             max_rotation_options,
+            any_allow_flip,
             cancelled,
         }
     }
@@ -140,8 +148,20 @@ impl SaNestingProblem {
                 .copied()
                 .unwrap_or(0.0);
 
+            // Mirror flag from solution (`allow_flip` support), masked
+            // against this instance's own geometry — see
+            // `PermutationSolution.mirrors` / `NeighborhoodOperator::MirrorFlip`.
+            let mirror =
+                solution.mirrors.get(seq_idx).copied().unwrap_or(false) && geom.allow_flip();
+
             // Compute IFP for this geometry at this rotation
-            let ifp = match compute_ifp(&boundary_polygon, geom, rotation_angle) {
+            let ifp = match compute_ifp_with_margin_and_mirror(
+                &boundary_polygon,
+                geom,
+                rotation_angle,
+                0.0,
+                mirror,
+            ) {
                 Ok(ifp) => ifp,
                 Err(_) => continue,
             };
@@ -153,11 +173,15 @@ impl SaNestingProblem {
             // Compute NFPs with all placed geometries
             let mut nfps: Vec<Nfp> = Vec::new();
             for placed in &placed_geometries {
+                // Already-mirrored (if applicable) real-world polygon — do
+                // NOT mirror it again below, `mirror_stationary=false` always.
                 let placed_exterior = placed.translated_exterior();
                 let placed_geom = Geometry2D::new(format!("_placed_{}", placed.geometry.id()))
                     .with_polygon(placed_exterior);
 
-                if let Ok(nfp) = compute_nfp(&placed_geom, geom, rotation_angle) {
+                if let Ok(nfp) =
+                    compute_nfp_mirrored(&placed_geom, geom, rotation_angle, false, mirror)
+                {
                     let expanded = expand_nfp(&nfp, spacing);
                     nfps.push(expanded);
                 }
@@ -183,10 +207,11 @@ impl SaNestingProblem {
                     let was_clamped = (clamped_x - x).abs() > 1e-6 || (clamped_y - y).abs() > 1e-6;
                     if was_clamped {
                         // Verify no actual polygon overlap using SAT
-                        if !verify_no_overlap(
+                        if !verify_no_overlap_mirrored(
                             geom,
                             (clamped_x, clamped_y),
                             rotation_angle,
+                            mirror,
                             &placed_geometries,
                         ) {
                             continue; // Skip - clamped position would cause overlap
@@ -199,14 +224,14 @@ impl SaNestingProblem {
                         clamped_x,
                         clamped_y,
                         rotation_angle,
-                    );
+                    )
+                    .with_mirrored(mirror);
 
                     placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(
-                        geom.clone(),
-                        (clamped_x, clamped_y),
-                        rotation_angle,
-                    ));
+                    placed_geometries.push(
+                        PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation_angle)
+                            .with_mirrored(mirror),
+                    );
                     total_placed_area += geom.measure();
                     placed_count += 1;
                 }
@@ -265,6 +290,7 @@ impl SaProblem for SaNestingProblem {
             NeighborhoodOperator::Inversion => solution.apply_inversion(rng),
             NeighborhoodOperator::Rotation => solution.apply_rotation(rng),
             NeighborhoodOperator::Chain => solution.apply_chain(rng),
+            NeighborhoodOperator::MirrorFlip => solution.apply_mirror_flip(rng),
         }
     }
 
@@ -275,22 +301,19 @@ impl SaProblem for SaNestingProblem {
     }
 
     fn available_operators(&self) -> Vec<NeighborhoodOperator> {
+        let mut ops = vec![
+            NeighborhoodOperator::Swap,
+            NeighborhoodOperator::Relocate,
+            NeighborhoodOperator::Inversion,
+            NeighborhoodOperator::Chain,
+        ];
         if self.max_rotation_options > 1 {
-            vec![
-                NeighborhoodOperator::Swap,
-                NeighborhoodOperator::Relocate,
-                NeighborhoodOperator::Inversion,
-                NeighborhoodOperator::Rotation,
-                NeighborhoodOperator::Chain,
-            ]
-        } else {
-            vec![
-                NeighborhoodOperator::Swap,
-                NeighborhoodOperator::Relocate,
-                NeighborhoodOperator::Inversion,
-                NeighborhoodOperator::Chain,
-            ]
+            ops.push(NeighborhoodOperator::Rotation);
         }
+        if self.any_allow_flip {
+            ops.push(NeighborhoodOperator::MirrorFlip);
+        }
+        ops
     }
 
     fn on_temperature_change(
@@ -492,5 +515,146 @@ mod tests {
         if placed_count > 0 {
             assert!(utilization > 0.0);
         }
+    }
+
+    #[test]
+    fn test_permutation_solution_mirrors_gene_present() {
+        let mut rng = rand::rng();
+        let solution = PermutationSolution::random(10, 4, &mut rng);
+        assert_eq!(solution.mirrors.len(), 10);
+
+        let fixed = PermutationSolution::new(10, 4);
+        assert_eq!(fixed.mirrors, vec![false; 10]);
+    }
+
+    #[test]
+    fn test_apply_mirror_flip_flips_bit() {
+        let mut rng = rand::rng();
+        let mut single = PermutationSolution::new(1, 1);
+        assert!(!single.mirrors[0]);
+
+        single = single.apply_mirror_flip(&mut rng);
+        assert!(single.mirrors[0]);
+        single = single.apply_mirror_flip(&mut rng);
+        assert!(!single.mirrors[0]);
+    }
+
+    #[test]
+    fn test_available_operators_includes_mirror_flip_only_when_allowed() {
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let cancelled = Arc::new(AtomicBool::new(false));
+
+        let plain = vec![Geometry2D::rectangle("R", 10.0, 10.0).with_quantity(1)];
+        let problem = SaNestingProblem::new(
+            plain,
+            boundary.clone(),
+            Config::default(),
+            cancelled.clone(),
+        );
+        assert!(!problem
+            .available_operators()
+            .contains(&NeighborhoodOperator::MirrorFlip));
+
+        let flippable = vec![Geometry2D::rectangle("R", 10.0, 10.0)
+            .with_flip(true)
+            .with_quantity(1)];
+        let problem = SaNestingProblem::new(flippable, boundary, Config::default(), cancelled);
+        assert!(problem
+            .available_operators()
+            .contains(&NeighborhoodOperator::MirrorFlip));
+    }
+
+    /// Chiral L-shape — see `nfp.rs`'s `chiral_l` fixture for why this
+    /// specific shape (asymmetric width/height/notch, no reflection symmetry).
+    fn chiral_l(id: &str) -> Geometry2D {
+        Geometry2D::l_shape(id, 30.0, 20.0, 20.0, 10.0)
+    }
+
+    fn polygons_overlap(a: &[(f64, f64)], b: &[(f64, f64)]) -> bool {
+        for i in 0..a.len() {
+            let (a1, a2) = (a[i], a[(i + 1) % a.len()]);
+            for j in 0..b.len() {
+                let (b1, b2) = (b[j], b[(j + 1) % b.len()]);
+                if crate::polygon_ops::segments_intersect(a1, a2, b1, b2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Phase 3 (`allow_flip`/mirroring), SA strategy. Same bypass strategy
+    /// as Phase 2's GA test: `SaNestingProblem::decode()` calls no
+    /// `.validate()` (only `solve()`'s centralized gate does), so calling it
+    /// directly genuinely bypasses the public `allow_flip = true` rejection.
+    #[test]
+    fn test_sa_decode_mirror_no_overlap() {
+        let geometries = vec![chiral_l("L").with_flip(true).with_quantity(2)];
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let config = Config::default().with_spacing(1.0);
+        let problem = SaNestingProblem::new(
+            geometries.clone(),
+            boundary,
+            config,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let mut solution = PermutationSolution::new(2, 1);
+        solution.mirrors = vec![false, true];
+
+        let (placements, utilization, placed_count) = problem.decode(&solution);
+
+        assert_eq!(
+            placed_count, 2,
+            "both instances should fit in this boundary"
+        );
+        assert_eq!(placements.len(), 2);
+        assert!(utilization > 0.0);
+        assert!(!placements[0].mirrored);
+        assert!(
+            placements[1].mirrored,
+            "instance 1's mirror gene was true and allow_flip is set — decode() must honor it"
+        );
+
+        let poly0 = PlacedGeometry::new(
+            geometries[0].clone(),
+            (placements[0].x(), placements[0].y()),
+            placements[0].angle(),
+        )
+        .with_mirrored(placements[0].mirrored)
+        .translated_exterior();
+        let poly1 = PlacedGeometry::new(
+            geometries[0].clone(),
+            (placements[1].x(), placements[1].y()),
+            placements[1].angle(),
+        )
+        .with_mirrored(placements[1].mirrored)
+        .translated_exterior();
+        assert!(
+            !polygons_overlap(&poly0, &poly1),
+            "unmirrored instance 0 and mirrored instance 1 must not overlap"
+        );
+    }
+
+    #[test]
+    fn test_sa_decode_mirror_ignored_without_allow_flip() {
+        let geometries = vec![chiral_l("L").with_quantity(1)];
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let problem = SaNestingProblem::new(
+            geometries,
+            boundary,
+            Config::default(),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let mut solution = PermutationSolution::new(1, 1);
+        solution.mirrors = vec![true];
+
+        let (placements, _utilization, placed_count) = problem.decode(&solution);
+        assert_eq!(placed_count, 1);
+        assert!(
+            !placements[0].mirrored,
+            "allow_flip=false must suppress the mirror gene"
+        );
     }
 }

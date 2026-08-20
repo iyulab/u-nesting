@@ -175,6 +175,11 @@ pub enum NeighborhoodOperator {
     Rotation,
     /// Chain swap (3-opt style).
     Chain,
+    /// Flip an element's mirror flag (`allow_flip` support, 2D nesting only
+    /// — a solution's `mirrors` vector is harmless-if-unused by problems
+    /// with no mirror concept, same as an all-`false` `rotations` vector is
+    /// for a problem with a single rotation option).
+    MirrorFlip,
 }
 
 /// Trait for problem-specific SA operations.
@@ -508,6 +513,9 @@ pub struct PermutationSolution {
     pub rotations: Vec<usize>,
     /// Number of rotation options per item.
     pub rotation_options: usize,
+    /// Mirror flag per item (`allow_flip` support, 2D nesting only — see
+    /// [`NeighborhoodOperator::MirrorFlip`]).
+    pub mirrors: Vec<bool>,
     /// Cached objective value.
     objective: f64,
 }
@@ -519,6 +527,7 @@ impl PermutationSolution {
             sequence: (0..size).collect(),
             rotations: vec![0; size],
             rotation_options,
+            mirrors: vec![false; size],
             objective: f64::NEG_INFINITY,
         }
     }
@@ -532,10 +541,13 @@ impl PermutationSolution {
             .map(|_| rng.random_range(0..rotation_options.max(1)))
             .collect();
 
+        let mirrors: Vec<bool> = (0..size).map(|_| rng.random()).collect();
+
         Self {
             sequence,
             rotations,
             rotation_options,
+            mirrors,
             objective: f64::NEG_INFINITY,
         }
     }
@@ -617,6 +629,22 @@ impl PermutationSolution {
         result
     }
 
+    /// Applies mirror-flip operator: flips one element's mirror bit
+    /// (`allow_flip` support). Same shape as `apply_rotation` — unconditional
+    /// on the gene, the consuming problem masks it against its own
+    /// per-item mirror-eligibility (e.g. `Geometry2D::allow_flip()`).
+    pub fn apply_mirror_flip<R: Rng>(&self, rng: &mut R) -> Self {
+        let mut result = self.clone();
+        if result.mirrors.is_empty() {
+            return result;
+        }
+
+        let idx = rng.random_range(0..result.mirrors.len());
+        result.mirrors[idx] = !result.mirrors[idx];
+        result.objective = f64::NEG_INFINITY;
+        result
+    }
+
     /// Applies chain operator: 3-opt style move.
     pub fn apply_chain<R: Rng>(&self, rng: &mut R) -> Self {
         let mut result = self.clone();
@@ -684,6 +712,7 @@ mod tests {
                 NeighborhoodOperator::Inversion => solution.apply_inversion(rng),
                 NeighborhoodOperator::Rotation => solution.apply_rotation(rng),
                 NeighborhoodOperator::Chain => solution.apply_chain(rng),
+                NeighborhoodOperator::MirrorFlip => solution.apply_mirror_flip(rng),
             }
         }
 

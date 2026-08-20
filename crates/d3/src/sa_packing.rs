@@ -122,6 +122,11 @@ impl SaProblem for SaPackingProblem {
             NeighborhoodOperator::Inversion => solution.apply_inversion(rng),
             NeighborhoodOperator::Rotation => solution.apply_rotation(rng),
             NeighborhoodOperator::Chain => solution.apply_chain(rng),
+            // 3D packing has no `allow_flip`/mirror concept (2D-only, see
+            // `NeighborhoodOperator::MirrorFlip` doc comment) — never
+            // offered by `available_operators()` below, so unreachable in
+            // practice; the arm exists only to satisfy match exhaustiveness.
+            NeighborhoodOperator::MirrorFlip => solution.clone(),
         }
     }
 
