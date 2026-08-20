@@ -1209,10 +1209,28 @@ pub fn verify_no_overlap(
     rotation: f64,
     placed_geometries: &[PlacedGeometry],
 ) -> bool {
+    verify_no_overlap_mirrored(geometry, position, rotation, false, placed_geometries)
+}
+
+/// Same as [`verify_no_overlap`], but the geometry being placed can be
+/// mirrored (`allow_flip` support) — `placed_geometries` already carries
+/// each placed piece's own mirror state via [`PlacedGeometry::translated_exterior`].
+pub fn verify_no_overlap_mirrored(
+    geometry: &Geometry2D,
+    position: (f64, f64),
+    rotation: f64,
+    mirrored: bool,
+    placed_geometries: &[PlacedGeometry],
+) -> bool {
     use crate::nfp_sliding::polygons_overlap;
 
     // Get the transformed polygon for the geometry being placed
-    let rotated = rotate_polygon(geometry.exterior(), rotation);
+    let base = if mirrored {
+        crate::polygon_ops::mirror_polygon(geometry.exterior())
+    } else {
+        geometry.exterior().to_vec()
+    };
+    let rotated = rotate_polygon(&base, rotation);
     let transformed: Vec<(f64, f64)> = rotated
         .into_iter()
         .map(|(x, y)| (x + position.0, y + position.1))

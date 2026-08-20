@@ -7,7 +7,8 @@ use crate::boundary::Boundary2D;
 use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
-    compute_ifp, compute_nfp, find_bottom_left_placement, verify_no_overlap, Nfp, PlacedGeometry,
+    compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
+    verify_no_overlap_mirrored, Nfp, PlacedGeometry,
 };
 use rand::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -26,6 +27,14 @@ pub struct NestingChromosome {
     pub order: Vec<usize>,
     /// Rotation index for each geometry instance.
     pub rotations: Vec<usize>,
+    /// Mirror flag for each geometry instance (`allow_flip` support).
+    ///
+    /// Populated unconditionally for every instance, same as `rotations` —
+    /// `decode()` masks it against the instance's own `Geometry2D::allow_flip()`,
+    /// the same modulo-based tolerance `rotations` already uses for
+    /// geometries with fewer rotation options than the population-wide max.
+    /// A gene for a non-flippable geometry is simply never read.
+    pub mirrors: Vec<bool>,
     /// Cached fitness value.
     fitness: f64,
     /// Number of placed pieces (for fitness calculation).
@@ -40,6 +49,7 @@ impl NestingChromosome {
         Self {
             order: (0..num_instances).collect(),
             rotations: vec![0; num_instances],
+            mirrors: vec![false; num_instances],
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
             total_count: num_instances,
@@ -59,9 +69,12 @@ impl NestingChromosome {
             .map(|_| rng.random_range(0..rotation_options.max(1)))
             .collect();
 
+        let mirrors: Vec<bool> = (0..num_instances).map(|_| rng.random()).collect();
+
         Self {
             order,
             rotations,
+            mirrors,
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
             total_count: num_instances,
@@ -118,9 +131,18 @@ impl NestingChromosome {
             .map(|(a, b)| if rng.random() { *a } else { *b })
             .collect();
 
+        // Crossover mirrors (uniform), same pattern as rotations.
+        let mirrors: Vec<bool> = self
+            .mirrors
+            .iter()
+            .zip(&other.mirrors)
+            .map(|(a, b)| if rng.random() { *a } else { *b })
+            .collect();
+
         Self {
             order: child_order,
             rotations,
+            mirrors,
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
             total_count: self.total_count,
@@ -147,6 +169,20 @@ impl NestingChromosome {
 
         let idx = rng.random_range(0..self.rotations.len());
         self.rotations[idx] = rng.random_range(0..rotation_options);
+        self.fitness = f64::NEG_INFINITY;
+    }
+
+    /// Mirror-flag mutation (`allow_flip` support): flips one instance's
+    /// mirror bit. Unconditional on the gene, same as `rotation_mutate` —
+    /// `decode()` is what masks a flip against the instance's own
+    /// `allow_flip()`, so mutating a non-flippable instance's bit is harmless.
+    pub fn mirror_mutate<R: Rng>(&mut self, rng: &mut R) {
+        if self.mirrors.is_empty() {
+            return;
+        }
+
+        let idx = rng.random_range(0..self.mirrors.len());
+        self.mirrors[idx] = !self.mirrors[idx];
         self.fitness = f64::NEG_INFINITY;
     }
 
@@ -184,15 +220,17 @@ impl Individual for NestingChromosome {
     }
 
     fn mutate<R: Rng>(&mut self, rng: &mut R) {
-        // 50% swap, 30% inversion, 20% rotation
+        // 45% swap, 25% inversion, 15% rotation, 15% mirror
         let r: f64 = rng.random();
-        if r < 0.5 {
+        if r < 0.45 {
             self.swap_mutate(rng);
-        } else if r < 0.8 {
+        } else if r < 0.70 {
             self.inversion_mutate(rng);
-        } else {
+        } else if r < 0.85 {
             // Rotation mutation with 4 options (0, 90, 180, 270 degrees)
             self.rotation_mutate(4, rng);
+        } else {
+            self.mirror_mutate(rng);
         }
     }
 }
@@ -304,8 +342,23 @@ impl NestingProblem {
                 .copied()
                 .unwrap_or(0.0);
 
+            // Mirror flag from chromosome (`allow_flip` support), masked
+            // against this instance's own geometry — see `mirrors` doc comment.
+            let mirror = chromosome
+                .mirrors
+                .get(instance_idx)
+                .copied()
+                .unwrap_or(false)
+                && geom.allow_flip();
+
             // Compute IFP for this geometry at this rotation
-            let ifp = match compute_ifp(&boundary_polygon, geom, rotation_angle) {
+            let ifp = match compute_ifp_with_margin_and_mirror(
+                &boundary_polygon,
+                geom,
+                rotation_angle,
+                0.0,
+                mirror,
+            ) {
                 Ok(ifp) => ifp,
                 Err(_) => {
                     continue;
@@ -319,11 +372,15 @@ impl NestingProblem {
             // Compute NFPs with all placed geometries
             let mut nfps: Vec<Nfp> = Vec::new();
             for placed in &placed_geometries {
+                // Already-mirrored (if applicable) real-world polygon — do
+                // NOT mirror it again below, `mirror_stationary=false` always.
                 let placed_exterior = placed.translated_exterior();
                 let placed_geom = Geometry2D::new(format!("_placed_{}", placed.geometry.id()))
                     .with_polygon(placed_exterior);
 
-                if let Ok(nfp) = compute_nfp(&placed_geom, geom, rotation_angle) {
+                if let Ok(nfp) =
+                    compute_nfp_mirrored(&placed_geom, geom, rotation_angle, false, mirror)
+                {
                     let expanded = self.expand_nfp(&nfp, spacing);
                     nfps.push(expanded);
                 }
@@ -349,10 +406,11 @@ impl NestingProblem {
                     let was_clamped = (clamped_x - x).abs() > 1e-6 || (clamped_y - y).abs() > 1e-6;
                     if was_clamped {
                         // Verify no actual polygon overlap using SAT
-                        if !verify_no_overlap(
+                        if !verify_no_overlap_mirrored(
                             geom,
                             (clamped_x, clamped_y),
                             rotation_angle,
+                            mirror,
                             &placed_geometries,
                         ) {
                             continue; // Skip - clamped position would cause overlap
@@ -365,14 +423,14 @@ impl NestingProblem {
                         clamped_x,
                         clamped_y,
                         rotation_angle,
-                    );
+                    )
+                    .with_mirrored(mirror);
 
                     placements.push(placement);
-                    placed_geometries.push(PlacedGeometry::new(
-                        geom.clone(),
-                        (clamped_x, clamped_y),
-                        rotation_angle,
-                    ));
+                    placed_geometries.push(
+                        PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation_angle)
+                            .with_mirrored(mirror),
+                    );
                     total_placed_area += geom.measure();
                     placed_count += 1;
                 }
@@ -666,6 +724,153 @@ mod tests {
         let mut sorted = chromosome.order.clone();
         sorted.sort();
         assert_eq!(sorted, (0..10).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn test_nesting_chromosome_mirrors_gene_present() {
+        let mut rng = rand::rng();
+        let chromosome = NestingChromosome::random_with_options(10, 4, &mut rng);
+        assert_eq!(chromosome.mirrors.len(), 10);
+
+        let fixed = NestingChromosome::new(10, 4);
+        assert_eq!(fixed.mirrors, vec![false; 10]);
+    }
+
+    #[test]
+    fn test_nesting_chromosome_mirror_crossover() {
+        let mut rng = rand::rng();
+        // All-true vs all-false parents — every crossover gene must come
+        // from exactly one of the two, so the child is either true or false
+        // per position (not some third corrupted value — trivially true for
+        // bool, but this also proves the vector is populated per-position,
+        // not left at a stale default length).
+        let mut parent1 = NestingChromosome::random_with_options(10, 4, &mut rng);
+        let mut parent2 = NestingChromosome::random_with_options(10, 4, &mut rng);
+        parent1.mirrors = vec![true; 10];
+        parent2.mirrors = vec![false; 10];
+
+        let child = parent1.order_crossover(&parent2, &mut rng);
+        assert_eq!(child.mirrors.len(), 10);
+        assert!(child.mirrors.iter().all(|&m| m || !m)); // always true for bool; length/no-panic is the real assertion
+    }
+
+    #[test]
+    fn test_mirror_mutate_flips_bit() {
+        let mut rng = rand::rng();
+        let mut chromosome = NestingChromosome::new(5, 1);
+        assert_eq!(chromosome.mirrors, vec![false; 5]);
+
+        // Deterministic single-instance chromosome — flip must change it.
+        let mut single = NestingChromosome::new(1, 1);
+        single.mirror_mutate(&mut rng);
+        assert!(single.mirrors[0]);
+        single.mirror_mutate(&mut rng);
+        assert!(!single.mirrors[0]);
+
+        chromosome.mirror_mutate(&mut rng);
+        assert_eq!(chromosome.mirrors.iter().filter(|&&m| m).count(), 1);
+    }
+
+    /// Chiral L-shape — see `nfp.rs`'s `chiral_l` fixture for why this
+    /// specific shape (asymmetric width/height/notch, no reflection symmetry).
+    fn chiral_l(id: &str) -> Geometry2D {
+        Geometry2D::l_shape(id, 30.0, 20.0, 20.0, 10.0)
+    }
+
+    fn polygons_overlap(a: &[(f64, f64)], b: &[(f64, f64)]) -> bool {
+        for i in 0..a.len() {
+            let (a1, a2) = (a[i], a[(i + 1) % a.len()]);
+            for j in 0..b.len() {
+                let (b1, b2) = (b[j], b[(j + 1) % b.len()]);
+                if crate::polygon_ops::segments_intersect(a1, a2, b1, b2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Phase 2 (`allow_flip`/mirroring), GA strategy. Unlike BLF
+    /// (`nester.rs`), `NestingProblem::decode()` calls no `.validate()` at
+    /// all (only `solve()`'s centralized `validate_geometries` gate does) —
+    /// so calling it directly genuinely bypasses the public
+    /// `allow_flip = true` rejection, exactly the "internal test, separate
+    /// path from the public gate" the design plan called for.
+    #[test]
+    fn test_ga_decode_mirror_no_overlap() {
+        let geometries = vec![chiral_l("L").with_flip(true).with_quantity(2)];
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let config = Config::default().with_spacing(1.0);
+        let problem = NestingProblem::new(
+            geometries.clone(),
+            boundary,
+            config,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        // Chromosome the GA could produce: place instance 0 first
+        // unmirrored, instance 1 second mirrored — decode() applies exactly
+        // what the chromosome specifies (the GA's job across generations is
+        // to discover which values are good, not decode()'s).
+        let mut chromosome = NestingChromosome::new(2, 1);
+        chromosome.mirrors = vec![false, true];
+
+        let (placements, utilization, placed_count) = problem.decode(&chromosome);
+
+        assert_eq!(
+            placed_count, 2,
+            "both instances should fit in this boundary"
+        );
+        assert_eq!(placements.len(), 2);
+        assert!(utilization > 0.0);
+        assert!(!placements[0].mirrored);
+        assert!(
+            placements[1].mirrored,
+            "instance 1's mirror gene was true and allow_flip is set — decode() must honor it"
+        );
+
+        let poly0 = PlacedGeometry::new(
+            geometries[0].clone(),
+            (placements[0].x(), placements[0].y()),
+            placements[0].angle(),
+        )
+        .with_mirrored(placements[0].mirrored)
+        .translated_exterior();
+        let poly1 = PlacedGeometry::new(
+            geometries[0].clone(),
+            (placements[1].x(), placements[1].y()),
+            placements[1].angle(),
+        )
+        .with_mirrored(placements[1].mirrored)
+        .translated_exterior();
+        assert!(
+            !polygons_overlap(&poly0, &poly1),
+            "unmirrored instance 0 and mirrored instance 1 must not overlap"
+        );
+    }
+
+    #[test]
+    fn test_ga_decode_mirror_ignored_without_allow_flip() {
+        // allow_flip defaults to false: even a true mirror gene must be
+        // masked off by decode() (`&& geom.allow_flip()`), not honored.
+        let geometries = vec![chiral_l("L").with_quantity(1)];
+        let boundary = Boundary2D::rectangle(65.0, 45.0);
+        let problem = NestingProblem::new(
+            geometries,
+            boundary,
+            Config::default(),
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        let mut chromosome = NestingChromosome::new(1, 1);
+        chromosome.mirrors = vec![true];
+
+        let (placements, _utilization, placed_count) = problem.decode(&chromosome);
+        assert_eq!(placed_count, 1);
+        assert!(
+            !placements[0].mirrored,
+            "allow_flip=false must suppress the mirror gene"
+        );
     }
 
     #[test]
