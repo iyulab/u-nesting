@@ -252,7 +252,7 @@ pub fn compute_nfp_with_config(
             {
                 compute_nfp_convex(stat_exterior, &rotated_orbiting)
             } else {
-                compute_nfp_general(stationary, &rotated_orbiting)
+                compute_nfp_general(stat_exterior, &rotated_orbiting)
             }
         }
         NfpMethod::Sliding => {
@@ -289,6 +289,31 @@ pub fn compute_nfp_with_config(
 /// # Returns
 /// The computed NFP, or an error if computation fails.
 pub fn compute_nfp(stationary: &Geometry2D, orbiting: &Geometry2D, rotation: f64) -> Result<Nfp> {
+    compute_nfp_mirrored(stationary, orbiting, rotation, false, false)
+}
+
+/// Computes the No-Fit Polygon, optionally mirroring either input polygon
+/// first (`allow_flip` support).
+///
+/// Both sides can independently be mirrored: `stationary` here is typically
+/// an already-placed piece (which may itself have been placed mirrored), and
+/// `orbiting` is the new candidate being evaluated. Mirroring is applied
+/// before rotation on each side — reflect once, then enumerate rotation
+/// candidates over the reflected outline, matching how rotation candidates
+/// are already enumerated (Bennell & Oliveira 2008: reflection is "another
+/// orientation candidate", not a change to the NFP algorithm itself).
+///
+/// # Arguments
+/// * `mirror_stationary` - When true, reflects `stationary` across the
+///   y-axis before use (see [`crate::polygon_ops::mirror_polygon`]).
+/// * `mirror_orbiting` - Same, for `orbiting`, applied before rotation.
+pub fn compute_nfp_mirrored(
+    stationary: &Geometry2D,
+    orbiting: &Geometry2D,
+    rotation: f64,
+    mirror_stationary: bool,
+    mirror_orbiting: bool,
+) -> Result<Nfp> {
     // Get the polygons
     let stat_exterior = stationary.exterior();
     let orb_exterior = orbiting.exterior();
@@ -299,8 +324,20 @@ pub fn compute_nfp(stationary: &Geometry2D, orbiting: &Geometry2D, rotation: f64
         ));
     }
 
-    // Apply rotation to orbiting polygon
-    let rotated_orbiting = rotate_polygon(orb_exterior, rotation);
+    // Mirror (if requested) — reflection doesn't change convexity or hole
+    // emptiness, so `stationary.is_convex()`/`.holes()` below stay valid
+    // metadata queries against the *original* geometry either way.
+    let base_stationary = if mirror_stationary {
+        crate::polygon_ops::mirror_polygon(stat_exterior)
+    } else {
+        stat_exterior.to_vec()
+    };
+    let base_orbiting = if mirror_orbiting {
+        crate::polygon_ops::mirror_polygon(orb_exterior)
+    } else {
+        orb_exterior.to_vec()
+    };
+    let rotated_orbiting = rotate_polygon(&base_orbiting, rotation);
 
     // Check if both are convex for fast path
     if stationary.is_convex()
@@ -308,10 +345,10 @@ pub fn compute_nfp(stationary: &Geometry2D, orbiting: &Geometry2D, rotation: f64
         && stationary.holes().is_empty()
     {
         // Fast path: Minkowski sum for convex polygons
-        compute_nfp_convex(stat_exterior, &rotated_orbiting)
+        compute_nfp_convex(&base_stationary, &rotated_orbiting)
     } else {
         // General case: decomposition + union
-        compute_nfp_general(stationary, &rotated_orbiting)
+        compute_nfp_general(&base_stationary, &rotated_orbiting)
     }
 }
 
@@ -355,6 +392,23 @@ pub fn compute_ifp_with_margin(
     rotation: f64,
     margin: f64,
 ) -> Result<Nfp> {
+    compute_ifp_with_margin_and_mirror(boundary_polygon, geometry, rotation, margin, false)
+}
+
+/// Computes the Inner-Fit Polygon with margin, optionally mirroring the
+/// geometry first (`allow_flip` support) — same mirror-then-rotate ordering
+/// as [`compute_nfp_with_mirror`].
+///
+/// # Arguments
+/// * `mirror` - When true, reflects `geometry` across the y-axis before
+///   rotating (see [`crate::polygon_ops::mirror_polygon`]).
+pub fn compute_ifp_with_margin_and_mirror(
+    boundary_polygon: &[(f64, f64)],
+    geometry: &Geometry2D,
+    rotation: f64,
+    margin: f64,
+    mirror: bool,
+) -> Result<Nfp> {
     if boundary_polygon.len() < 3 {
         return Err(Error::InvalidBoundary(
             "Boundary must have at least 3 vertices".into(),
@@ -368,8 +422,13 @@ pub fn compute_ifp_with_margin(
         ));
     }
 
-    // Apply rotation to geometry
-    let rotated_geom = rotate_polygon(geom_exterior, rotation);
+    // Mirror (if requested), then rotate — order matters, see doc comment.
+    let base_geom = if mirror {
+        crate::polygon_ops::mirror_polygon(geom_exterior)
+    } else {
+        geom_exterior.to_vec()
+    };
+    let rotated_geom = rotate_polygon(&base_geom, rotation);
 
     // Apply margin by shrinking the boundary inward
     let effective_boundary = if margin > 0.0 {
@@ -632,14 +691,17 @@ fn compute_minkowski_sum_convex(poly_a: &[(f64, f64)], poly_b: &[(f64, f64)]) ->
 /// 1. Decompose both polygons into convex parts (using triangulation)
 /// 2. Compute pairwise Minkowski sums of convex parts
 /// 3. Union all partial results using `i_overlay`
-fn compute_nfp_general(stationary: &Geometry2D, rotated_orbiting: &[(f64, f64)]) -> Result<Nfp> {
+fn compute_nfp_general(
+    stat_exterior: &[(f64, f64)],
+    rotated_orbiting: &[(f64, f64)],
+) -> Result<Nfp> {
     // Triangulate both polygons into convex parts
-    let stat_triangles = triangulate_polygon(stationary.exterior());
+    let stat_triangles = triangulate_polygon(stat_exterior);
     let orb_triangles = triangulate_polygon(rotated_orbiting);
 
     if stat_triangles.is_empty() || orb_triangles.is_empty() {
         // Fall back to convex hull approximation
-        let stat_hull = stationary.convex_hull();
+        let stat_hull = convex_hull_of_points(stat_exterior);
         let orb_hull = convex_hull_of_points(rotated_orbiting);
         let reflected: Vec<(f64, f64)> = orb_hull.iter().map(|&(x, y)| (-x, -y)).collect();
         return compute_minkowski_sum_convex(&stat_hull, &reflected);
@@ -689,7 +751,7 @@ fn compute_nfp_general(stationary: &Geometry2D, rotated_orbiting: &[(f64, f64)])
 
     if partial_nfps.is_empty() {
         // Fall back to convex hull
-        let stat_hull = stationary.convex_hull();
+        let stat_hull = convex_hull_of_points(stat_exterior);
         let orb_hull = convex_hull_of_points(rotated_orbiting);
         let reflected: Vec<(f64, f64)> = orb_hull.iter().map(|&(x, y)| (-x, -y)).collect();
         return compute_minkowski_sum_convex(&stat_hull, &reflected);
@@ -1090,21 +1152,36 @@ pub struct PlacedGeometry {
     pub position: (f64, f64),
     /// The rotation angle in radians.
     pub rotation: f64,
+    /// Whether this geometry was placed mirrored (`allow_flip` support).
+    pub mirrored: bool,
 }
 
 impl PlacedGeometry {
-    /// Creates a new placed geometry.
+    /// Creates a new placed geometry (not mirrored — use [`Self::with_mirrored`]
+    /// for a mirrored placement).
     pub fn new(geometry: Geometry2D, position: (f64, f64), rotation: f64) -> Self {
         Self {
             geometry,
             position,
             rotation,
+            mirrored: false,
         }
+    }
+
+    /// Sets the mirrored flag.
+    pub fn with_mirrored(mut self, mirrored: bool) -> Self {
+        self.mirrored = mirrored;
+        self
     }
 
     /// Returns the translated polygon vertices.
     pub fn translated_exterior(&self) -> Vec<(f64, f64)> {
-        let rotated = rotate_polygon(self.geometry.exterior(), self.rotation);
+        let base = if self.mirrored {
+            crate::polygon_ops::mirror_polygon(self.geometry.exterior())
+        } else {
+            self.geometry.exterior().to_vec()
+        };
+        let rotated = rotate_polygon(&base, self.rotation);
         rotated
             .into_iter()
             .map(|(x, y)| (x + self.position.0, y + self.position.1))
@@ -1163,16 +1240,29 @@ struct NfpCacheKey {
     geometry_a: String,
     geometry_b: String,
     rotation_millideg: i32, // Rotation in millidegrees for integer key
+    // Mirror state of each side (`allow_flip` support) — a mirrored and an
+    // unmirrored NFP for the same (ids, rotation) are different polygons and
+    // must not collide in the cache.
+    mirror_a: bool,
+    mirror_b: bool,
 }
 
 impl NfpCacheKey {
-    fn new(id_a: &str, id_b: &str, rotation_rad: f64) -> Self {
+    fn new_mirrored(
+        id_a: &str,
+        id_b: &str,
+        rotation_rad: f64,
+        mirror_a: bool,
+        mirror_b: bool,
+    ) -> Self {
         // Convert radians to millidegrees for integer key
         let rotation_millideg = ((rotation_rad * 180.0 / PI) * 1000.0).round() as i32;
         Self {
             geometry_a: id_a.to_string(),
             geometry_b: id_b.to_string(),
             rotation_millideg,
+            mirror_a,
+            mirror_b,
         }
     }
 }
@@ -1207,7 +1297,25 @@ impl NfpCache {
     where
         F: FnOnce() -> Result<Nfp>,
     {
-        let cache_key = NfpCacheKey::new(key.0, key.1, key.2);
+        self.get_or_compute_mirrored((key.0, key.1, key.2, false, false), compute)
+    }
+
+    /// Same as [`Self::get_or_compute`], but the key also carries each side's
+    /// mirror state (`allow_flip` support) so a mirrored and an unmirrored
+    /// NFP for the same (ids, rotation) don't collide.
+    ///
+    /// # Arguments
+    /// * `key` - Tuple of (geometry_id_a, geometry_id_b, rotation_in_radians,
+    ///   mirror_a, mirror_b)
+    pub fn get_or_compute_mirrored<F>(
+        &self,
+        key: (&str, &str, f64, bool, bool),
+        compute: F,
+    ) -> Result<Arc<Nfp>>
+    where
+        F: FnOnce() -> Result<Nfp>,
+    {
+        let cache_key = NfpCacheKey::new_mirrored(key.0, key.1, key.2, key.3, key.4);
 
         // Try to get from cache first (read lock)
         {
@@ -1324,6 +1432,135 @@ mod tests {
         let rotated = rotate_polygon(&[(1.0, 0.0)], PI / 2.0);
         assert_relative_eq!(rotated[0].0, 0.0, epsilon = 1e-10);
         assert_relative_eq!(rotated[0].1, 1.0, epsilon = 1e-10);
+    }
+
+    /// A chiral L-shape: no reflection maps it back onto itself (unlike a
+    /// square-notched square, whose diagonal happens to be a symmetry axis),
+    /// so mirroring it must produce a genuinely different polygon — the
+    /// right fixture to prove the mirror flag isn't a silent no-op.
+    fn chiral_l() -> Geometry2D {
+        Geometry2D::l_shape("L", 30.0, 20.0, 20.0, 10.0)
+    }
+
+    #[test]
+    fn test_nfp_mirror_orbiting_changes_result() {
+        let stationary = Geometry2D::rectangle("S", 100.0, 100.0);
+        let orbiting = chiral_l();
+
+        let unmirrored = compute_nfp_mirrored(&stationary, &orbiting, 0.0, false, false).unwrap();
+        let mirrored = compute_nfp_mirrored(&stationary, &orbiting, 0.0, false, true).unwrap();
+
+        assert!(!unmirrored.is_empty());
+        assert!(!mirrored.is_empty());
+        assert_ne!(
+            unmirrored.polygons, mirrored.polygons,
+            "mirroring the orbiting polygon must change the NFP for a chiral shape"
+        );
+
+        // Reflection is area-preserving: the two NFPs must cover equal area
+        // even though their vertex layout differs.
+        let unmirrored_area: f64 = unmirrored
+            .polygons
+            .iter()
+            .map(|p| signed_area(p).abs())
+            .sum();
+        let mirrored_area: f64 = mirrored.polygons.iter().map(|p| signed_area(p).abs()).sum();
+        assert_relative_eq!(unmirrored_area, mirrored_area, epsilon = 1e-6);
+    }
+
+    #[test]
+    fn test_nfp_mirror_stationary_changes_result() {
+        let stationary = chiral_l();
+        let orbiting = Geometry2D::rectangle("O", 5.0, 5.0);
+
+        let unmirrored = compute_nfp_mirrored(&stationary, &orbiting, 0.0, false, false).unwrap();
+        let mirrored = compute_nfp_mirrored(&stationary, &orbiting, 0.0, true, false).unwrap();
+
+        assert!(!unmirrored.is_empty());
+        assert!(!mirrored.is_empty());
+        assert_ne!(
+            unmirrored.polygons, mirrored.polygons,
+            "mirroring the stationary polygon must change the NFP for a chiral shape"
+        );
+    }
+
+    #[test]
+    fn test_compute_nfp_unchanged_by_new_mirror_plumbing() {
+        // `compute_nfp` (the pre-existing public entry point) must still
+        // behave exactly as before — it's `compute_nfp_mirrored(.., false,
+        // false)` under the hood now, not a new code path.
+        let a = Geometry2D::rectangle("A", 10.0, 10.0);
+        let b = Geometry2D::rectangle("B", 5.0, 5.0);
+        let via_plain = compute_nfp(&a, &b, 0.0).unwrap();
+        let via_mirrored = compute_nfp_mirrored(&a, &b, 0.0, false, false).unwrap();
+        assert_eq!(via_plain.polygons, via_mirrored.polygons);
+    }
+
+    #[test]
+    fn test_ifp_mirror_changes_result() {
+        let boundary = rect(100.0, 100.0);
+        let geom = chiral_l();
+
+        let unmirrored =
+            compute_ifp_with_margin_and_mirror(&boundary, &geom, 0.0, 0.0, false).unwrap();
+        let mirrored =
+            compute_ifp_with_margin_and_mirror(&boundary, &geom, 0.0, 0.0, true).unwrap();
+
+        assert!(!unmirrored.is_empty());
+        assert!(!mirrored.is_empty());
+        assert_ne!(
+            unmirrored.polygons, mirrored.polygons,
+            "mirroring the geometry must change its IFP within the boundary for a chiral shape"
+        );
+    }
+
+    #[test]
+    fn test_compute_ifp_with_margin_unchanged_by_new_mirror_plumbing() {
+        let boundary = rect(100.0, 100.0);
+        let geom = Geometry2D::rectangle("G", 10.0, 10.0);
+        let via_plain = compute_ifp_with_margin(&boundary, &geom, 0.0, 5.0).unwrap();
+        let via_mirrored =
+            compute_ifp_with_margin_and_mirror(&boundary, &geom, 0.0, 5.0, false).unwrap();
+        assert_eq!(via_plain.polygons, via_mirrored.polygons);
+    }
+
+    #[test]
+    fn test_nfp_cache_mirror_flags_distinguish_entries() {
+        let cache = NfpCache::new();
+        let mut calls = 0;
+
+        let unmirrored = cache
+            .get_or_compute_mirrored(("A", "B", 0.0, false, false), || {
+                calls += 1;
+                Ok(Nfp::from_polygon(rect(1.0, 1.0)))
+            })
+            .unwrap();
+
+        // Same ids/rotation, different mirror flags: must NOT reuse the
+        // `(false, false)` entry — a distinct cache slot, so `compute` runs
+        // again rather than silently returning the wrong-orientation NFP.
+        let mirrored = cache
+            .get_or_compute_mirrored(("A", "B", 0.0, true, false), || {
+                calls += 1;
+                Ok(Nfp::from_polygon(rect(2.0, 2.0)))
+            })
+            .unwrap();
+
+        assert_eq!(
+            calls, 2,
+            "distinct mirror flags must both invoke compute, not share a slot"
+        );
+        assert_ne!(unmirrored.polygons, mirrored.polygons);
+
+        // Re-querying the first key must hit the cache (no third compute call).
+        let unmirrored_again = cache
+            .get_or_compute_mirrored(("A", "B", 0.0, false, false), || {
+                calls += 1;
+                Ok(Nfp::from_polygon(rect(99.0, 99.0)))
+            })
+            .unwrap();
+        assert_eq!(calls, 2, "re-querying an existing key must hit the cache");
+        assert_eq!(unmirrored.polygons, unmirrored_again.polygons);
     }
 
     #[test]

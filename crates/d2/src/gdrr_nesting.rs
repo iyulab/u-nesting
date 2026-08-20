@@ -323,6 +323,7 @@ impl GdrrNestingProblem {
                 geometry: geom.clone(),
                 position: (item.x, item.y),
                 rotation: item.rotation,
+                mirrored: false, // GDRR doesn't enumerate mirror candidates yet (allow_flip)
             });
         }
 
@@ -361,6 +362,7 @@ impl GdrrNestingProblem {
                     geometry: geom.clone(),
                     position: (placement.x, placement.y),
                     rotation: placement.rotation,
+                    mirrored: false, // GDRR doesn't enumerate mirror candidates yet (allow_flip)
                 });
 
                 solution.placed.push(placement);

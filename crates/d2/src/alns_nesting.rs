@@ -299,6 +299,7 @@ impl AlnsNestingProblem {
                 geometry: geom.clone(),
                 position: (item.x, item.y),
                 rotation: item.rotation,
+                mirrored: false, // ALNS doesn't enumerate mirror candidates yet (allow_flip)
             });
         }
 
@@ -335,6 +336,7 @@ impl AlnsNestingProblem {
                     geometry: geom.clone(),
                     position: (placement.x, placement.y),
                     rotation: placement.rotation,
+                    mirrored: false, // ALNS doesn't enumerate mirror candidates yet (allow_flip)
                 });
 
                 solution.placed.push(placement);

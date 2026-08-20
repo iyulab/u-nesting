@@ -59,6 +59,19 @@ pub(crate) fn segments_intersect(
         || (d4 == 0 && on_segment(p1, p2, p4))
 }
 
+/// Reflects a polygon across the y-axis (`(x, y) -> (-x, y)`) and reverses
+/// vertex order to restore CCW winding — a reflection has determinant -1, so
+/// leaving the order unchanged would silently flip an originally-CCW ring to
+/// CW, breaking every downstream signed-area/orientation assumption.
+///
+/// Used for `allow_flip` mirroring: standard technique (Bennell & Oliveira
+/// 2008) is to reflect the orbiting polygon once and feed it through the
+/// existing NFP/placement pipeline as an additional orientation candidate,
+/// the same way rotation candidates are enumerated.
+pub(crate) fn mirror_polygon(vertices: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    vertices.iter().rev().map(|&(x, y)| (-x, y)).collect()
+}
+
 /// Returns true when the polygon ring is **simple**: no pair of non-adjacent
 /// edges intersects. Adjacent edges (sharing a vertex) are exempt, as is the
 /// closing wrap-around pair. Fewer than 3 vertices is vacuously not simple.
@@ -124,6 +137,53 @@ mod tests {
         // Self-intersecting "bowtie": edges (0,0)-(100,100) and (100,0)-(0,100) cross.
         let bowtie = [(0.0, 0.0), (100.0, 100.0), (100.0, 0.0), (0.0, 100.0)];
         assert!(!is_simple_polygon(&bowtie));
+    }
+
+    #[test]
+    fn mirror_polygon_preserves_ccw_winding() {
+        // CCW unit square.
+        let square = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        assert_eq!(
+            orientation(square[0], square[1], square[2]),
+            1,
+            "fixture must be CCW"
+        );
+
+        let mirrored = mirror_polygon(&square);
+        assert_eq!(
+            orientation(mirrored[0], mirrored[1], mirrored[2]),
+            1,
+            "mirroring must restore CCW winding, not leave it CW"
+        );
+    }
+
+    #[test]
+    fn mirror_polygon_reflects_across_y_axis() {
+        // Asymmetric right triangle, order-independent point-set comparison
+        // (mirroring reverses traversal order alongside reflecting x).
+        let tri = [(0.0, 0.0), (4.0, 0.0), (0.0, 2.0)];
+        let mirrored = mirror_polygon(&tri);
+        let mut expected: Vec<(f64, f64)> = tri.iter().map(|&(x, y)| (-x, y)).collect();
+        let mut got = mirrored.clone();
+        expected.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        got.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(got, expected);
+    }
+
+    #[test]
+    fn mirror_polygon_is_involution() {
+        // Mirroring twice must return to the original polygon (up to the
+        // winding-restoring reversal, which is itself an involution on order).
+        let l = [
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 20.0),
+            (0.0, 20.0),
+        ];
+        let twice = mirror_polygon(&mirror_polygon(&l));
+        assert_eq!(twice, l);
     }
 
     #[test]

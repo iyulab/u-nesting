@@ -10,8 +10,8 @@ use crate::geometry::Geometry2D;
 #[cfg(feature = "milp")]
 use crate::milp_solver::run_milp_nesting;
 use crate::nfp::{
-    compute_ifp_with_margin, compute_nfp, find_bottom_left_placement, rotate_nfp, translate_nfp,
-    Nfp, NfpCache, PlacedGeometry,
+    compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
+    rotate_nfp, translate_nfp, Nfp, NfpCache, PlacedGeometry,
 };
 #[cfg(feature = "milp")]
 #[allow(unused_imports)]
@@ -33,6 +33,25 @@ use crate::placement_utils::{expand_nfp, shrink_ifp};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
+
+/// Mirror candidates to try for a geometry (`allow_flip` support): `[false,
+/// true]` when mirroring is allowed, `[false]` otherwise — same shape as an
+/// empty-vs-populated rotation list, so callers can nest a nested loop over
+/// it exactly like `rotation_angles` without a branch at the call site.
+///
+/// `Geometry2D::validate()` currently rejects `allow_flip = true` outright
+/// (mirroring the *strategy dispatch* is still incomplete — only BLF
+/// enumerates mirror candidates so far, see `logs/ROADMAP.md` §12), so in
+/// every live code path today this returns `[false]`. Wired ahead of that
+/// gate opening so BLF doesn't regress to the original silent-ignore bug the
+/// moment it does.
+fn mirror_candidates(geom: &Geometry2D) -> &'static [bool] {
+    if geom.allow_flip() {
+        &[false, true]
+    } else {
+        &[false]
+    }
+}
 
 /// Returns `(placed_count, used_bounding_box_area)` for a solve result.
 ///
@@ -113,6 +132,14 @@ impl Nester2D {
     }
 
     /// Bottom-Left Fill algorithm implementation with rotation optimization.
+    ///
+    /// Intentionally does not enumerate mirror candidates (`allow_flip`):
+    /// this is a pure AABB packer (row placement by bounding-box extent, no
+    /// NFP/IFP shape awareness), and reflecting a polygon about an axis
+    /// preserves its axis-aligned bounding-box width/height exactly — a
+    /// mirrored candidate would always be bit-for-bit degenerate with its
+    /// unmirrored counterpart here. See `nfp_guided_blf` for the strategy
+    /// that actually benefits from mirroring.
     fn bottom_left_fill(
         &self,
         geometries: &[Geometry2D],
@@ -322,6 +349,8 @@ impl Nester2D {
                 rotations
             };
 
+            let mirror_candidates = mirror_candidates(geom);
+
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed_ms();
@@ -338,75 +367,91 @@ impl Nester2D {
                     return Ok(result);
                 }
 
-                // Try each rotation angle to find the best placement
-                let mut best_placement: Option<(f64, f64, f64)> = None; // (x, y, rotation)
+                // Try each (rotation, mirror) candidate to find the best placement
+                let mut best_placement: Option<(f64, f64, f64, bool)> = None; // (x, y, rotation, mirror)
 
                 for &rotation in &rotation_angles {
-                    // Compute IFP for this geometry at this rotation (with margin from boundary)
-                    let ifp =
-                        match compute_ifp_with_margin(&boundary_polygon, geom, rotation, margin) {
+                    for &mirror in mirror_candidates {
+                        // Compute IFP for this candidate (with margin from boundary)
+                        let ifp = match compute_ifp_with_margin_and_mirror(
+                            &boundary_polygon,
+                            geom,
+                            rotation,
+                            margin,
+                            mirror,
+                        ) {
                             Ok(ifp) => ifp,
                             Err(_) => continue,
                         };
 
-                    if ifp.is_empty() {
-                        continue;
-                    }
+                        if ifp.is_empty() {
+                            continue;
+                        }
 
-                    // Compute NFPs with all placed geometries (using cache)
-                    let mut nfps: Vec<Nfp> = Vec::new();
-                    for placed in &placed_geometries {
-                        // Use cache for NFP computation (between original geometries at origin)
-                        // Key: (placed_geometry_id, current_geometry_id, rotation)
-                        let cache_key = (
-                            placed.geometry.id().as_str(),
-                            geom.id().as_str(),
-                            rotation - placed.rotation, // Relative rotation
-                        );
+                        // Compute NFPs with all placed geometries (using cache)
+                        let mut nfps: Vec<Nfp> = Vec::new();
+                        for placed in &placed_geometries {
+                            // Use cache for NFP computation (between original geometries at origin)
+                            // Key: (placed_geometry_id, current_geometry_id, rotation, mirror_a, mirror_b)
+                            let cache_key = (
+                                placed.geometry.id().as_str(),
+                                geom.id().as_str(),
+                                rotation - placed.rotation, // Relative rotation
+                                placed.mirrored,
+                                mirror,
+                            );
 
-                        // Compute NFP at origin and cache it (with relative rotation)
-                        // NFP is computed between the placed geometry at origin (no rotation)
-                        // and the new geometry with relative rotation applied.
-                        // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
-                        let nfp_at_origin = match self.nfp_cache.get_or_compute(cache_key, || {
-                            let placed_at_origin = placed.geometry.clone();
-                            compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
-                        }) {
-                            Ok(nfp) => nfp,
-                            Err(_) => continue,
-                        };
+                            // Compute NFP at origin and cache it (with relative rotation)
+                            // NFP is computed between the placed geometry at origin (no rotation)
+                            // and the new geometry with relative rotation applied.
+                            // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
+                            let nfp_at_origin =
+                                match self.nfp_cache.get_or_compute_mirrored(cache_key, || {
+                                    let placed_at_origin = placed.geometry.clone();
+                                    compute_nfp_mirrored(
+                                        &placed_at_origin,
+                                        geom,
+                                        rotation - placed.rotation,
+                                        placed.mirrored,
+                                        mirror,
+                                    )
+                                }) {
+                                    Ok(nfp) => nfp,
+                                    Err(_) => continue,
+                                };
 
-                        // Transform NFP: first rotate by placed.rotation, then translate to placed.position
-                        // This correctly accounts for the placed geometry's actual orientation
-                        let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
-                        let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
-                        let expanded = self.expand_nfp(&translated_nfp, spacing);
-                        nfps.push(expanded);
-                    }
+                            // Transform NFP: first rotate by placed.rotation, then translate to placed.position
+                            // This correctly accounts for the placed geometry's actual orientation
+                            let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
+                            let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
+                            let expanded = self.expand_nfp(&translated_nfp, spacing);
+                            nfps.push(expanded);
+                        }
 
-                    // Shrink IFP by spacing from boundary
-                    let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
+                        // Shrink IFP by spacing from boundary
+                        let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
 
-                    // Find the optimal valid placement (minimize X for shorter strip)
-                    let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-                    if let Some((x, y)) =
-                        find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
-                    {
-                        // Compare with current best: prefer smaller X (shorter strip), then smaller Y
-                        let is_better = match best_placement {
-                            None => true,
-                            Some((best_x, best_y, _)) => {
-                                x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
+                        // Find the optimal valid placement (minimize X for shorter strip)
+                        let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
+                        if let Some((x, y)) =
+                            find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
+                        {
+                            // Compare with current best: prefer smaller X (shorter strip), then smaller Y
+                            let is_better = match best_placement {
+                                None => true,
+                                Some((best_x, best_y, _, _)) => {
+                                    x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
+                                }
+                            };
+                            if is_better {
+                                best_placement = Some((x, y, rotation, mirror));
                             }
-                        };
-                        if is_better {
-                            best_placement = Some((x, y, rotation));
                         }
                     }
                 }
 
                 // Place the geometry at the best position found
-                if let Some((x, y, rotation)) = best_placement {
+                if let Some((x, y, rotation, mirror)) = best_placement {
                     // Clamp to ensure geometry stays within boundary
                     let geom_aabb = geom.aabb_at_rotation(rotation);
                     let boundary_aabb = boundary.aabb();
@@ -424,14 +469,14 @@ impl Nester2D {
                             clamped_x,
                             clamped_y,
                             rotation,
-                        );
+                        )
+                        .with_mirrored(mirror);
 
                         placements.push(placement);
-                        placed_geometries.push(PlacedGeometry::new(
-                            geom.clone(),
-                            (clamped_x, clamped_y),
-                            rotation,
-                        ));
+                        placed_geometries.push(
+                            PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation)
+                                .with_mirrored(mirror),
+                        );
                         total_placed_area += geom.measure();
                     } else {
                         // Could not place - geometry doesn't fit
@@ -784,6 +829,9 @@ impl Nester2D {
     }
 
     /// Bottom-Left Fill with progress callback.
+    ///
+    /// Same AABB-only reasoning as `bottom_left_fill` — mirror candidates are
+    /// intentionally not enumerated here, see that function's doc comment.
     fn bottom_left_fill_with_progress(
         &self,
         geometries: &[Geometry2D],
@@ -1022,6 +1070,8 @@ impl Nester2D {
                 rotations
             };
 
+            let mirror_candidates = mirror_candidates(geom);
+
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed_ms();
@@ -1052,64 +1102,80 @@ impl Nester2D {
                     return Ok(result);
                 }
 
-                let mut best_placement: Option<(f64, f64, f64)> = None;
+                let mut best_placement: Option<(f64, f64, f64, bool)> = None;
 
                 for &rotation in &rotation_angles {
-                    let ifp =
-                        match compute_ifp_with_margin(&boundary_polygon, geom, rotation, margin) {
+                    for &mirror in mirror_candidates {
+                        let ifp = match compute_ifp_with_margin_and_mirror(
+                            &boundary_polygon,
+                            geom,
+                            rotation,
+                            margin,
+                            mirror,
+                        ) {
                             Ok(ifp) => ifp,
                             Err(_) => continue,
                         };
 
-                    if ifp.is_empty() {
-                        continue;
-                    }
+                        if ifp.is_empty() {
+                            continue;
+                        }
 
-                    let mut nfps: Vec<Nfp> = Vec::new();
-                    for placed in &placed_geometries {
-                        // Use cache for NFP computation
-                        let cache_key = (
-                            placed.geometry.id().as_str(),
-                            geom.id().as_str(),
-                            rotation - placed.rotation,
-                        );
+                        let mut nfps: Vec<Nfp> = Vec::new();
+                        for placed in &placed_geometries {
+                            // Use cache for NFP computation
+                            let cache_key = (
+                                placed.geometry.id().as_str(),
+                                geom.id().as_str(),
+                                rotation - placed.rotation,
+                                placed.mirrored,
+                                mirror,
+                            );
 
-                        // Compute NFP at origin and cache it (with relative rotation)
-                        // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
-                        let nfp_at_origin = match self.nfp_cache.get_or_compute(cache_key, || {
-                            let placed_at_origin = placed.geometry.clone();
-                            compute_nfp(&placed_at_origin, geom, rotation - placed.rotation)
-                        }) {
-                            Ok(nfp) => nfp,
-                            Err(_) => continue,
-                        };
+                            // Compute NFP at origin and cache it (with relative rotation)
+                            // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
+                            let nfp_at_origin =
+                                match self.nfp_cache.get_or_compute_mirrored(cache_key, || {
+                                    let placed_at_origin = placed.geometry.clone();
+                                    compute_nfp_mirrored(
+                                        &placed_at_origin,
+                                        geom,
+                                        rotation - placed.rotation,
+                                        placed.mirrored,
+                                        mirror,
+                                    )
+                                }) {
+                                    Ok(nfp) => nfp,
+                                    Err(_) => continue,
+                                };
 
-                        // Transform NFP: first rotate by placed.rotation, then translate
-                        let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
-                        let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
-                        let expanded = self.expand_nfp(&translated_nfp, spacing);
-                        nfps.push(expanded);
-                    }
+                            // Transform NFP: first rotate by placed.rotation, then translate
+                            let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
+                            let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
+                            let expanded = self.expand_nfp(&translated_nfp, spacing);
+                            nfps.push(expanded);
+                        }
 
-                    let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
-                    let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
+                        let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
+                        let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
-                    if let Some((x, y)) =
-                        find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
-                    {
-                        let is_better = match best_placement {
-                            None => true,
-                            Some((best_x, best_y, _)) => {
-                                x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
+                        if let Some((x, y)) =
+                            find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
+                        {
+                            let is_better = match best_placement {
+                                None => true,
+                                Some((best_x, best_y, _, _)) => {
+                                    x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
+                                }
+                            };
+                            if is_better {
+                                best_placement = Some((x, y, rotation, mirror));
                             }
-                        };
-                        if is_better {
-                            best_placement = Some((x, y, rotation));
                         }
                     }
                 }
 
-                if let Some((x, y, rotation)) = best_placement {
+                if let Some((x, y, rotation, mirror)) = best_placement {
                     // Clamp to ensure geometry stays within boundary
                     let geom_aabb = geom.aabb_at_rotation(rotation);
                     let boundary_aabb = boundary.aabb();
@@ -1127,13 +1193,13 @@ impl Nester2D {
                             clamped_x,
                             clamped_y,
                             rotation,
-                        );
+                        )
+                        .with_mirrored(mirror);
                         placements.push(placement);
-                        placed_geometries.push(PlacedGeometry::new(
-                            geom.clone(),
-                            (clamped_x, clamped_y),
-                            rotation,
-                        ));
+                        placed_geometries.push(
+                            PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation)
+                                .with_mirrored(mirror),
+                        );
                         total_placed_area += geom.measure();
                         placed_count += 1;
 
@@ -1615,6 +1681,104 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Returns true if any edge of `a` crosses any edge of `b` (world-space
+    /// polygons). Sufficient for a placement-correctness regression check —
+    /// the placement pipeline builds pieces edge-to-edge, so any real overlap
+    /// between two placed pieces shows up as a boundary crossing.
+    fn polygons_overlap(a: &[(f64, f64)], b: &[(f64, f64)]) -> bool {
+        for i in 0..a.len() {
+            let a1 = a[i];
+            let a2 = a[(i + 1) % a.len()];
+            for j in 0..b.len() {
+                let b1 = b[j];
+                let b2 = b[(j + 1) % b.len()];
+                if crate::polygon_ops::segments_intersect(a1, a2, b1, b2) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    #[test]
+    fn test_mirror_candidates_reflects_allow_flip() {
+        let plain = Geometry2D::rectangle("R", 10.0, 10.0);
+        assert_eq!(mirror_candidates(&plain), &[false]);
+
+        let flippable = Geometry2D::rectangle("R", 10.0, 10.0).with_flip(true);
+        assert_eq!(mirror_candidates(&flippable), &[false, true]);
+    }
+
+    /// Phase 1 (`allow_flip`/mirroring), placement-level correctness.
+    ///
+    /// `nfp_guided_blf` can't be exercised end-to-end with `allow_flip =
+    /// true` yet: `Geometry2D::validate()` rejects it unconditionally, and
+    /// that per-geometry `validate()` call is baked into the strategy
+    /// function itself (not just `solve()`'s `validate_geometries` gate),
+    /// so calling `nfp_guided_blf` directly doesn't bypass it either — the
+    /// gate genuinely has no live code path yet, by design (`validate()`
+    /// stays shut until every strategy supports mirroring, see
+    /// `logs/ROADMAP.md` §12).
+    ///
+    /// So this replicates `nfp_guided_blf`'s own placement sequence one
+    /// level down, using the exact primitives it calls
+    /// (`compute_ifp_with_margin_and_mirror`, `compute_nfp_mirrored`,
+    /// `find_bottom_left_placement`) — none of which call `.validate()` —
+    /// to prove the thing that could actually go wrong: NFP-based collision
+    /// avoidance between an unmirrored piece and a mirrored one.
+    #[test]
+    fn test_mirror_aware_placement_avoids_overlap() {
+        // Nonzero spacing, matching how `nfp_guided_blf` actually calls these
+        // primitives (`expand_nfp`/`shrink_ifp` by `self.config.spacing`) —
+        // at zero spacing, BLF's own bottom-left search can legitimately
+        // return pieces exactly edge-touching (a "kissing" placement is a
+        // valid zero-gap packing, not an overlap), which would make this
+        // test's boundary-crossing overlap check spuriously fail on a
+        // shared-edge placement instead of the collision it's meant to catch.
+        let spacing = 1.0;
+        let geom = Geometry2D::l_shape("L", 30.0, 20.0, 20.0, 10.0);
+        let boundary_polygon = vec![(0.0, 0.0), (65.0, 0.0), (65.0, 45.0), (0.0, 45.0)];
+        let cache = NfpCache::new();
+
+        // Place the first instance unmirrored, at the boundary's IFP origin.
+        let ifp1 =
+            compute_ifp_with_margin_and_mirror(&boundary_polygon, &geom, 0.0, 0.0, false).unwrap();
+        let ifp1_shrunk = shrink_ifp(&ifp1, spacing);
+        let (x1, y1) =
+            find_bottom_left_placement(&ifp1_shrunk, &[], 1.0).expect("first piece must fit");
+        let placed1 = PlacedGeometry::new(geom.clone(), (x1, y1), 0.0).with_mirrored(false);
+
+        // Place the second instance MIRRORED, avoiding the first.
+        let ifp2 =
+            compute_ifp_with_margin_and_mirror(&boundary_polygon, &geom, 0.0, 0.0, true).unwrap();
+        let ifp2_shrunk = shrink_ifp(&ifp2, spacing);
+        let nfp_at_origin = cache
+            .get_or_compute_mirrored(("L", "L", 0.0, false, true), || {
+                compute_nfp_mirrored(&placed1.geometry, &geom, 0.0, false, true)
+            })
+            .unwrap();
+        let translated_nfp = translate_nfp(&nfp_at_origin, placed1.position);
+        let expanded_nfp = expand_nfp(&translated_nfp, spacing);
+        let (x2, y2) = find_bottom_left_placement(&ifp2_shrunk, &[&expanded_nfp], 1.0)
+            .expect("mirrored second piece must fit avoiding the first");
+        let placed2 = PlacedGeometry::new(geom.clone(), (x2, y2), 0.0).with_mirrored(true);
+
+        assert_ne!(
+            (x1, y1),
+            (x2, y2),
+            "mirrored placement must actually avoid the first piece's position"
+        );
+        assert!(
+            !polygons_overlap(
+                &placed1.translated_exterior(),
+                &placed2.translated_exterior()
+            ),
+            "unmirrored piece at {:?} and mirrored piece at {:?} must not overlap",
+            (x1, y1),
+            (x2, y2)
+        );
     }
 
     #[test]
