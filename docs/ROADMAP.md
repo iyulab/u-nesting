@@ -1360,7 +1360,11 @@ Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
   로컬 원점에서 무회전 상태라고 가정한 NFP를 전역 좌표로 그대로 비교하고 있어서,
   기준 후보가 실제로는 회전돼 있으면 검사가 어긋나 실제로 겹치는 두 배치가 동시에
   선택될 수 있었음. 다른 전략이 이미 하는 방식대로(NFP를 기준 후보의 실제 회전만큼
-  회전 후 실제 원점으로 평행이동해 절대좌표로 옮긴 뒤 비교) 수정.
+  회전 후 실제 원점으로 평행이동해 절대좌표로 옮긴 뒤 비교) 수정. **위 두 결함을
+  고치는 과정에서 세 번째 결함도 발견·수정**: `ExactConfig.time_limit_ms`가 충돌
+  사전계산 단계의 자체 휴리스틱에만 쓰이고 정작 가장 오래 걸릴 수 있는 MIP solve
+  자체에는 전달된 적이 없었음 — 이미 의존 중인 `good_lp`(HiGHS 백엔드)의
+  `WithTimeLimit::with_time_limit`로 실제 solve 호출에 적용해 수정.
 - [x] `run_nfp_cm_nesting()` function
 - [x] ExactConfig.grid_step for position granularity
 

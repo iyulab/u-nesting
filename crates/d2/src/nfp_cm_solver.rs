@@ -43,7 +43,7 @@ use u_nesting_core::{Placement, SolveResult};
 #[cfg(feature = "milp")]
 use good_lp::{
     constraint, default_solver, variable, Expression, ProblemVariables, Solution, SolverModel,
-    Variable,
+    Variable, WithTimeLimit,
 };
 
 use std::collections::HashMap;
@@ -589,7 +589,15 @@ fn solve_nfp_cm_milp(
     let strip_length = vars.add(variable().min(0.0).max(bound_width).name("strip_length"));
 
     // Objective: minimize strip length
-    let mut problem = vars.minimise(strip_length).using(default_solver);
+    //
+    // `config.time_limit_ms` bounds the solver itself (HiGHS), not just the
+    // conflict-precomputation heuristic below — without this, a hard
+    // instance could run the underlying MIP search indefinitely regardless
+    // of what the caller configured.
+    let mut problem = vars
+        .minimise(strip_length)
+        .using(default_solver)
+        .with_time_limit(config.time_limit_ms as f64 / 1000.0);
 
     // Constraint: each piece must be assigned exactly one position
     for (i, _piece) in pieces.iter().enumerate() {

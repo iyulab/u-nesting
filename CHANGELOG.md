@@ -33,6 +33,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   into absolute space the same way the other strategies already do: rotate
   it by the reference candidate's own rotation, then translate to its actual
   placement origin, before testing the other candidate's position against it.
+- **`Strategy::MilpExact`'s `time_limit_ms` config bounded only its internal
+  conflict-precomputation heuristic, never the actual MIP solve** — the one
+  step that can legitimately run the longest on a hard instance. A caller
+  setting a short time budget got no such bound where it mattered most.
+  Fixed by passing the configured limit to the underlying HiGHS solver
+  itself before solving.
 
 ## [0.8.0] - 2026-08-21
 
