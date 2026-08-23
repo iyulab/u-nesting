@@ -630,23 +630,6 @@ fn solve_nfp_cm_milp(
         problem = problem.with(constraint!(z[*i][*ci] + z[*j][*cj] <= 1.0));
     }
 
-    // Symmetry breaking for identical pieces
-    if config.use_symmetry_breaking {
-        for i in 0..(n - 1) {
-            if pieces[i].geometry_idx == pieces[i + 1].geometry_idx {
-                // Lexicographic ordering on candidate indices
-                // Sum over candidates weighted by index must be <= for piece i vs i+1
-                // This is a simplified version
-                for (c, _) in pieces[i].candidates.iter().enumerate() {
-                    if c < pieces[i + 1].candidates.len() {
-                        // z[i][c] implies z[i+1][c'] for some c' >= c
-                        // Simplified: just ensure first non-zero is ordered
-                    }
-                }
-            }
-        }
-    }
-
     // Solve
     log::info!(
         "Solving NFP-CM MILP with {} pieces, {} candidates, {} conflicts",

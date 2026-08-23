@@ -74,12 +74,6 @@ pub struct ExactConfig {
     /// Number of discrete rotation angles to consider.
     pub rotation_steps: usize,
 
-    /// Whether to use symmetry breaking constraints.
-    pub use_symmetry_breaking: bool,
-
-    /// Whether to use valid inequalities (cuts).
-    pub use_cuts: bool,
-
     /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
     pub verbosity: u32,
 
@@ -95,8 +89,6 @@ impl Default for ExactConfig {
             max_items: 15,        // Small instances only
             grid_step: 1.0,       // 1 unit grid
             rotation_steps: 4,    // 0, 90, 180, 270 degrees
-            use_symmetry_breaking: true,
-            use_cuts: true,
             verbosity: 0,
             seed: None,
         }
@@ -136,18 +128,6 @@ impl ExactConfig {
     /// Set number of discrete rotation angles.
     pub fn with_rotation_steps(mut self, steps: usize) -> Self {
         self.rotation_steps = steps.max(1);
-        self
-    }
-
-    /// Enable or disable symmetry breaking constraints.
-    pub fn with_symmetry_breaking(mut self, enable: bool) -> Self {
-        self.use_symmetry_breaking = enable;
-        self
-    }
-
-    /// Enable or disable valid inequalities (cuts).
-    pub fn with_cuts(mut self, enable: bool) -> Self {
-        self.use_cuts = enable;
         self
     }
 

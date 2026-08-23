@@ -1301,7 +1301,11 @@ Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
 - [x] Binary variables for rotation selection
 - [x] Big-M formulation for non-overlap constraints
 - [x] Strip length minimization objective
-- [x] Symmetry breaking constraints
+- [x] Symmetry breaking constraints — **2026-08 정정(0.9.0)**: 이 체크박스는 삭제된
+  `milp_solver.rs`(Big-M formulation) 사양이다. 배선 조사 결과 이 모듈은 실제로 호출된
+  적이 없어 제거됐고(위 산출물 참고), 실제 서빙 중인 8.2의 `nfp_cm_solver.rs`는
+  `use_symmetry_breaking` 필드를 노출했지만 구현은 no-op이었음이 드러나 필드 자체를
+  제거함 — 현재 라이브 코드에 대칭성-차단 제약은 존재하지 않는다.
 
 ##### 8.1.3 MILP Solver 래퍼 구현 ✅
 - [x] `milp_solver.rs` 구현 (`run_milp_nesting()`)
@@ -1366,7 +1370,13 @@ Phase 10.4 (문서) ← 독립적, 병렬 진행 가능
   자체에는 전달된 적이 없었음 — 이미 의존 중인 `good_lp`(HiGHS 백엔드)의
   `WithTimeLimit::with_time_limit`로 실제 solve 호출에 적용해 수정.
 - [x] `run_nfp_cm_nesting()` function
-- [x] ExactConfig.grid_step for position granularity
+- [x] ExactConfig.grid_step for position granularity. **2026-08 갱신(0.9.0,
+  breaking)**: `ExactConfig.use_symmetry_breaking`/`use_cuts`가 둘 다 no-op(전자는
+  읽히기만 하고 제약 미생성, 후자는 어디서도 참조된 적 없음)임이 드러나 필드+빌더
+  삭제. 정답 정확성과 무관한 순수 성능 훅이었고, 실사용 수요 없이 지금 이 솔버에
+  실제 대칭성-차단 제약을 설계해 얹는 것은(바로 위 0.8.1의 정확성 결함 3건을 고친
+  직후라) 검증 안 된 리스크만 추가하는 셈이라 제거를 택함. 실수요가 생기면 그때
+  실제 구현과 함께 재도입.
 
 ### Phase 8 요약
 

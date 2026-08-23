@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-08-23
+
+### Removed
+
+- **`ExactConfig::use_symmetry_breaking` and `ExactConfig::use_cuts`** (and their
+  `with_symmetry_breaking`/`with_cuts` builders) — both fields were silent no-ops.
+  `use_symmetry_breaking` was read by the MILP solver but guarded a loop whose body
+  never added any constraint; `use_cuts` was never read anywhere at all. Neither
+  affected solution correctness (both were meant as pure performance hooks), but a
+  documented config knob that does nothing is worse than no knob — a caller could
+  reasonably believe toggling it changed solver behavior. Removed rather than
+  implemented: no demonstrated performance need justifies the correctness risk of
+  adding real symmetry-breaking constraints to a solver whose exactness this same
+  release line has spent three prior fixes repairing (see 0.8.1 below). If a real
+  need for either surfaces, they can be reintroduced with an actual implementation
+  behind them. Breaking for any direct consumer of `u_nesting_core::exact::ExactConfig`
+  building these fields; not reachable through the JSON/FFI/WASM config surface, which
+  never exposed them.
+
 ## [0.8.1] - 2026-08-23
 
 ### Fixed
