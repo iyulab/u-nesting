@@ -413,7 +413,7 @@ impl Geometry2D {
     /// Same as [`Self::aabb_at_rotation`], but the geometry can be mirrored
     /// first (`allow_flip` support) — mirror-then-rotate, matching the order
     /// every other mirror-aware transform in this crate uses
-    /// ([`crate::polygon_ops::mirror_polygon`],
+    /// (`crate::polygon_ops::mirror_polygon`,
     /// [`crate::nfp::compute_nfp_mirrored`],
     /// [`crate::nfp::PlacedGeometry::translated_exterior`]).
     ///

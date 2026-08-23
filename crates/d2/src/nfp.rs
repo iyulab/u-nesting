@@ -305,7 +305,7 @@ pub fn compute_nfp(stationary: &Geometry2D, orbiting: &Geometry2D, rotation: f64
 ///
 /// # Arguments
 /// * `mirror_stationary` - When true, reflects `stationary` across the
-///   y-axis before use (see [`crate::polygon_ops::mirror_polygon`]).
+///   y-axis before use (see `crate::polygon_ops::mirror_polygon`).
 /// * `mirror_orbiting` - Same, for `orbiting`, applied before rotation.
 pub fn compute_nfp_mirrored(
     stationary: &Geometry2D,
@@ -397,11 +397,11 @@ pub fn compute_ifp_with_margin(
 
 /// Computes the Inner-Fit Polygon with margin, optionally mirroring the
 /// geometry first (`allow_flip` support) — same mirror-then-rotate ordering
-/// as [`compute_nfp_with_mirror`].
+/// as [`compute_nfp_mirrored`].
 ///
 /// # Arguments
 /// * `mirror` - When true, reflects `geometry` across the y-axis before
-///   rotating (see [`crate::polygon_ops::mirror_polygon`]).
+///   rotating (see `crate::polygon_ops::mirror_polygon`).
 pub fn compute_ifp_with_margin_and_mirror(
     boundary_polygon: &[(f64, f64)],
     geometry: &Geometry2D,
