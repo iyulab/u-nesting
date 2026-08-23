@@ -45,6 +45,8 @@ jobs:
           save-if: false
 
       - uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: '0.15.0'
 
       - name: Build WASM (web target)
         run: wasm-pack build crates/wasm --target web --scope iyulab --out-dir ../../demo/web/pkg
