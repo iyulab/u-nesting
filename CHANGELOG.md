@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-08-23
+
+### Fixed
+
+- **`Strategy::MilpExact` (and `HybridExact`'s exact-first attempt) placed
+  almost nothing except axis-aligned rectangles.** After picking a candidate
+  position, the solver converted its own grid-anchor coordinate directly into
+  the piece's placement origin without translating by the piece's rotated
+  local-frame offset — every other placement strategy already applies this
+  conversion when turning a grid candidate into a `Placement`. For an
+  axis-aligned rectangle that offset happens to be zero, so rectangles placed
+  correctly by coincidence; any other shape (concave or convex, at any
+  rotation the solver picked to minimize strip length) was silently
+  positioned outside the boundary and then dropped, coming back as unplaced
+  with no error. Fixed by applying the same anchor-to-origin correction the
+  other strategies use.
+- **`Strategy::MilpExact` could select two genuinely overlapping placements
+  once a piece's own rotation was non-zero.** Its internal conflict check
+  between two candidates compared their positions directly in global
+  coordinates against a No-Fit Polygon computed assuming the reference piece
+  sits unrotated at its own local origin — correct only while that reference
+  candidate happened to be unrotated. Only reachable with two or more
+  instances (a single piece never has a conflict to check), so this was
+  latent for as long as the bug above kept multi-piece exact solves from
+  reaching a rotated candidate at all. Fixed by carrying the No-Fit Polygon
+  into absolute space the same way the other strategies already do: rotate
+  it by the reference candidate's own rotation, then translate to its actual
+  placement origin, before testing the other candidate's position against it.
+
 ## [0.8.0] - 2026-08-21
 
 ### Added

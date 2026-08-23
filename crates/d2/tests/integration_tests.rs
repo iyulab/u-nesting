@@ -1,9 +1,50 @@
 //! Integration tests for u-nesting-d2.
 
+#[cfg(feature = "milp")]
+use i_overlay::core::fill_rule::FillRule;
+#[cfg(feature = "milp")]
+use i_overlay::core::overlay_rule::OverlayRule;
+#[cfg(feature = "milp")]
+use i_overlay::float::single::SingleFloatOverlay;
 use u_nesting_d2::{
     Boundary, Boundary2D, Config, Geometry, Geometry2D, Geometry2DExt, Nester2D, Solver, Strategy,
     Transform2D, AABB2D,
 };
+
+/// Shoelace area of a closed ring (sign-agnostic). Shared oracle helper —
+/// see `fuzz_robustness.rs`'s identical function for the rationale; kept
+/// duplicated rather than factored into a shared test-support module, since
+/// no such module exists yet in this crate's `tests/` layout. Only used by
+/// the `milp`-gated regression test below.
+#[cfg(feature = "milp")]
+fn ring_area(ring: &[(f64, f64)]) -> f64 {
+    let n = ring.len();
+    let mut acc = 0.0;
+    for i in 0..n {
+        let (x0, y0) = ring[i];
+        let (x1, y1) = ring[(i + 1) % n];
+        acc += x0 * y1 - x1 * y0;
+    }
+    (acc * 0.5).abs()
+}
+
+/// Robust overlap area of two simple polygons via an `i_overlay` boolean
+/// intersection — correct for concave inputs, unlike a SAT/edge-crossing
+/// predicate. See `fuzz_robustness.rs`'s identical function.
+#[cfg(feature = "milp")]
+fn intersection_area(a: &[(f64, f64)], b: &[(f64, f64)]) -> f64 {
+    let subj: Vec<[f64; 2]> = a.iter().map(|&(x, y)| [x, y]).collect();
+    let clip: Vec<[f64; 2]> = b.iter().map(|&(x, y)| [x, y]).collect();
+    let shapes = subj.overlay(&[clip], OverlayRule::Intersect, FillRule::NonZero);
+    let mut area = 0.0;
+    for shape in &shapes {
+        if let Some(outer) = shape.first() {
+            let ring: Vec<(f64, f64)> = outer.iter().map(|&[x, y]| (x, y)).collect();
+            area += ring_area(&ring);
+        }
+    }
+    area
+}
 
 mod geometry_tests {
     use super::*;
@@ -750,29 +791,163 @@ mod bucket_b_tests {
     /// instance in a tight boundary, unlike the other strategies' 2-instance
     /// 1000x1000 case: `Nester2D::solve`'s `MilpExact` path fixes its
     /// candidate grid at 1.0 (`nester.rs`'s `milp_exact`), and mirroring
-    /// doubles the candidate count on top of that — a large boundary blows
-    /// up the grid enough to risk the solver's own time budget (matches the
-    /// existing MILP unit tests' convention of a small, tight boundary).
+    /// doubles the candidate count on top of that — a second instance would
+    /// add pairwise conflict checks on top of an already-fine grid, without
+    /// adding overlap-correctness signal beyond what the module-level
+    /// mirror/no-overlap test already covers with a coarser grid.
     ///
-    /// Uses a rectangle, unlike the other strategies' L-shape: `MilpExact`'s
-    /// public entry point was found to only ever place axis-aligned
-    /// rectangles — a triangle, a convex pentagon, and a general (non-right-
-    /// angled) convex quadrilateral all came back fully unplaced regardless
-    /// of `allow_flip`, so this is a pre-existing gap in the solver's own
-    /// candidate/conflict model, independent of mirroring and out of scope
-    /// here (tracked separately). A rectangle can't show mirroring changing
-    /// the outcome (reflection is a no-op on it), so this test only proves
-    /// the accept/reject contract, matching what a rectangle can prove.
+    /// Uses an asymmetric L-shape, like the other strategies' test (not a
+    /// rectangle): this solver used to convert a candidate's boundary-anchor
+    /// grid position directly into the piece's placement origin, without
+    /// translating by the piece's own rotated local-frame offset. For an
+    /// axis-aligned rectangle that offset happens to be zero, so only
+    /// rectangles were ever placed correctly — every other shape (this
+    /// L-shape included) was silently positioned outside the boundary and
+    /// then dropped as unplaced. Fixed by applying the same anchor-to-origin
+    /// correction (`aabb_at_rotation_mirrored`-based) the other strategies
+    /// already use when converting a grid candidate into a placement.
     #[cfg(feature = "milp")]
     #[test]
     fn allow_flip_is_accepted_for_milp_exact() {
         let boundary = Boundary2D::rectangle(50.0, 40.0);
-        let piece = Geometry2D::rectangle("R", 10.0, 10.0).with_flip(true);
+        let piece = Geometry2D::l_shape("L", 30.0, 20.0, 20.0, 10.0).with_flip(true);
         let nester = Nester2D::new(Config::default().with_strategy(Strategy::MilpExact));
         let result = nester
             .solve(&[piece], &boundary)
             .expect("MilpExact must accept allow_flip now that mirroring is implemented");
-        assert!(result.unplaced.is_empty());
+        assert!(
+            result.unplaced.is_empty(),
+            "an asymmetric non-rectangular piece must be placed, not silently dropped"
+        );
+    }
+
+    /// Regression guard for the anchor-to-origin conversion bug fixed
+    /// alongside `allow_flip_is_accepted_for_milp_exact` above: a convex
+    /// triangle, a convex pentagon, and a general (non-right-angled) convex
+    /// quadrilateral, none of which had `allow_flip` involved at all,
+    /// previously came back fully unplaced through `MilpExact` — only an
+    /// axis-aligned rectangle ever placed correctly. Each shape here is a
+    /// single instance in the same tight boundary as the sibling test, for
+    /// the same solve-time reasons.
+    #[cfg(feature = "milp")]
+    #[test]
+    fn milp_exact_places_non_rectangular_shapes() {
+        let boundary = Boundary2D::rectangle(50.0, 40.0);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::MilpExact));
+
+        let cases: Vec<(&str, Geometry2D)> = vec![
+            (
+                "triangle",
+                Geometry2D::new("T").with_polygon(vec![(0.0, 0.0), (30.0, 0.0), (0.0, 20.0)]),
+            ),
+            (
+                "pentagon",
+                Geometry2D::new("P").with_polygon(vec![
+                    (0.0, 0.0),
+                    (10.0, 0.0),
+                    (15.0, 5.0),
+                    (10.0, 10.0),
+                    (0.0, 10.0),
+                ]),
+            ),
+            (
+                "general_quadrilateral",
+                Geometry2D::new("Q").with_polygon(vec![
+                    (0.0, 0.0),
+                    (30.0, 0.0),
+                    (20.0, 20.0),
+                    (0.0, 10.0),
+                ]),
+            ),
+        ];
+
+        for (name, geom) in cases {
+            let result = nester
+                .solve(&[geom], &boundary)
+                .unwrap_or_else(|e| panic!("{name} must solve without error: {e}"));
+            assert!(
+                result.unplaced.is_empty(),
+                "{name} must be placed, not silently dropped"
+            );
+        }
+    }
+
+    /// Regression guard for a second bug found alongside the one above:
+    /// once a candidate's own rotation was no longer zero, the exact
+    /// solver's own conflict check between two *different* candidates
+    /// compared their positions directly in global coordinates against a
+    /// No-Fit Polygon that assumes the reference piece sits unrotated at
+    /// its own local origin — silently mismatching whenever the reference
+    /// candidate actually had a non-zero rotation, and letting genuinely
+    /// overlapping placements both get selected. Only reachable with 2+
+    /// instances (a single piece has no conflict pairs at all, so
+    /// `allow_flip_is_accepted_for_milp_exact` above never exercised this
+    /// path). Verified against the same independent, concave-safe
+    /// `i_overlay` boolean-intersection oracle `fuzz_robustness.rs` uses
+    /// (which itself excludes `MilpExact` from its property tests as too
+    /// slow for fuzzing — this is that strategy's deterministic substitute).
+    ///
+    /// Calls the solver module directly rather than through
+    /// `Nester2D::solve` (unlike the other `MilpExact` tests above): the
+    /// public entry point's own candidate grid (`nester.rs`'s `milp_exact`,
+    /// step 1.0 with 4 rotation steps) is far too fine for two mirrored
+    /// instances to solve in test time — this uses a coarser grid, which
+    /// exercises the same conflict-check code path just as directly.
+    #[cfg(feature = "milp")]
+    #[test]
+    fn milp_exact_multi_instance_placements_do_not_overlap() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+        use u_nesting_core::exact::ExactConfig;
+        use u_nesting_d2::nfp_cm_solver::run_nfp_cm_nesting;
+
+        let boundary = Boundary2D::rectangle(70.0, 70.0);
+        let piece = Geometry2D::l_shape("L", 30.0, 20.0, 20.0, 10.0)
+            .with_flip(true)
+            .with_quantity(2);
+        let config = Config::default().with_spacing(0.5);
+        let exact_config = ExactConfig::default()
+            .with_time_limit_ms(20_000)
+            .with_rotation_steps(4)
+            .with_grid_step(10.0);
+        let result = run_nfp_cm_nesting(
+            std::slice::from_ref(&piece),
+            &boundary,
+            &config,
+            &exact_config,
+            Arc::new(AtomicBool::new(false)),
+        );
+        assert!(
+            result.unplaced.is_empty(),
+            "both mirrored/rotated instances should fit in this boundary"
+        );
+
+        let polys: Vec<Vec<(f64, f64)>> = result
+            .placements
+            .iter()
+            .map(|p| {
+                let base: Vec<(f64, f64)> = if p.mirrored {
+                    piece.exterior().iter().map(|&(x, y)| (-x, y)).collect()
+                } else {
+                    piece.exterior().to_vec()
+                };
+                let (sin_a, cos_a) = p.angle().sin_cos();
+                base.iter()
+                    .map(|&(vx, vy)| {
+                        (
+                            vx * cos_a - vy * sin_a + p.x(),
+                            vx * sin_a + vy * cos_a + p.y(),
+                        )
+                    })
+                    .collect()
+            })
+            .collect();
+
+        let overlap = intersection_area(&polys[0], &polys[1]);
+        assert!(
+            overlap < 1e-6,
+            "the two placements must not overlap, found area {overlap}"
+        );
     }
 
     #[test]

@@ -33,7 +33,7 @@
 use crate::boundary::Boundary2D;
 use crate::geometry::Geometry2D;
 #[cfg(feature = "milp")]
-use crate::nfp::{compute_nfp_mirrored, Nfp};
+use crate::nfp::{compute_nfp_mirrored, rotate_nfp, translate_nfp, Nfp};
 #[cfg(feature = "milp")]
 use u_nesting_core::exact::{ExactConfig, ExactResult};
 use u_nesting_core::geometry::{Boundary, Geometry};
@@ -54,10 +54,22 @@ use std::time::Instant;
 /// Candidate placement position.
 #[derive(Debug, Clone)]
 struct CandidatePosition {
-    /// X coordinate.
+    /// X coordinate — grid anchor of the piece's *AABB* at this rotation,
+    /// used for the strip-length constraint (which is stated in terms of
+    /// AABB width/height). NOT the `Placement` origin — see `origin_x`.
     x: f64,
-    /// Y coordinate.
+    /// Y coordinate — see `x`.
     y: f64,
+    /// The `Placement`/NFP-frame origin translation for this candidate,
+    /// i.e. `x` corrected by the piece's own rotated (and mirrored) local
+    /// AABB minimum (`x - g_min[0]`). This is the coordinate space every
+    /// other strategy places pieces in, and the one `compute_nfp_mirrored`'s
+    /// output assumes for whichever geometry is passed as `stationary`.
+    /// Precomputed once per (rotation, mirror) here instead of recomputing
+    /// per grid cell or per conflict-candidate pair.
+    origin_x: f64,
+    /// See `origin_x`.
+    origin_y: f64,
     /// Rotation angle in radians.
     rotation: f64,
     /// Rotation index.
@@ -191,8 +203,8 @@ pub fn run_nfp_cm_nesting(
                     Placement::new_2d(
                         piece.id.clone(),
                         piece.instance_num,
-                        candidate.x,
-                        candidate.y,
+                        candidate.origin_x,
+                        candidate.origin_y,
                         candidate.rotation,
                     )
                     .with_mirrored(candidate.mirror),
@@ -282,15 +294,28 @@ fn build_piece_info(
                     continue; // Piece doesn't fit at this rotation
                 }
 
+                // AABB-min-to-origin offset, once per (rotation, mirror) —
+                // mirroring can shift it even though it never changes
+                // width/height (see the `mirror_candidates` comment above).
+                let origin_offsets: Vec<(bool, [f64; 2])> = mirror_candidates
+                    .iter()
+                    .map(|&mirror| {
+                        let (g_min, _) = geom.aabb_at_rotation_mirrored(angle, mirror);
+                        (mirror, g_min)
+                    })
+                    .collect();
+
                 // Sample positions on grid
                 let mut x = min_x;
                 while x <= max_x {
                     let mut y = min_y;
                     while y <= max_y {
-                        for &mirror in mirror_candidates {
+                        for &(mirror, g_min) in &origin_offsets {
                             candidates.push(CandidatePosition {
                                 x,
                                 y,
+                                origin_x: x - g_min[0],
+                                origin_y: y - g_min[1],
                                 rotation: angle,
                                 rotation_idx: rot_idx,
                                 mirror,
@@ -389,12 +414,33 @@ fn compute_conflicts(
                     });
 
                     let overlaps = if let Some(nfp) = nfp_opt {
-                        // Check if relative position falls inside NFP
-                        let rel_x = cand_j.x - cand_i.x;
-                        let rel_y = cand_j.y - cand_i.y;
+                        // `nfp` is expressed in `geom_i`'s own *local* frame
+                        // (it was computed with `geom_i` fixed at rotation
+                        // 0, per `compute_nfp_mirrored`'s contract) — valid
+                        // only while `cand_i` itself sits at rotation 0 in
+                        // the real placement. Whenever `cand_i` has its own
+                        // non-zero absolute rotation, testing a raw global
+                        // offset against this local-frame NFP silently
+                        // mismatches the two candidates' actual geometry.
+                        // Every strategy that already places pieces
+                        // correctly (`nester.rs`'s NFP-guided placement)
+                        // carries the same per-pair NFP into absolute space
+                        // the same way: rotate by the stationary piece's own
+                        // rotation, then translate to its actual origin —
+                        // only then is a candidate's own absolute origin a
+                        // valid point to test against it.
+                        let absolute_nfp = translate_nfp(
+                            &rotate_nfp(nfp, cand_i.rotation),
+                            (cand_i.origin_x, cand_i.origin_y),
+                        );
 
                         // Point-in-polygon test with spacing buffer
-                        point_in_nfp_with_spacing(nfp, rel_x, rel_y, spacing)
+                        point_in_nfp_with_spacing(
+                            &absolute_nfp,
+                            cand_j.origin_x,
+                            cand_j.origin_y,
+                            spacing,
+                        )
                     } else {
                         // Fallback to AABB check
                         aabb_overlap(
