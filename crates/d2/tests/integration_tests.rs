@@ -997,6 +997,33 @@ mod bucket_b_tests {
         );
     }
 
+    /// `Strategy::HybridExact` had no test coverage at all before this —
+    /// neither its exact-attempt-succeeds path nor its ALNS-fallback path.
+    /// A single rectangle instance is enough for the exact attempt to
+    /// succeed outright (this only needs to prove the strategy works
+    /// end-to-end through the public API, not exercise the fallback itself
+    /// — that path already delegates to `alns`, which has its own coverage).
+    /// Deliberately a single instance, not two: `HybridExact`'s own config
+    /// (unlike `MilpExact`'s) doesn't override the default 1.0 grid step,
+    /// and two instances' worth of conflict-candidate pairs at that
+    /// granularity is far too slow for a test (the same reason the
+    /// multi-instance MILP tests above call the solver module directly with
+    /// a coarser grid instead of going through this public entry point).
+    #[cfg(feature = "milp")]
+    #[test]
+    fn hybrid_exact_solves_through_public_api() {
+        let boundary = Boundary2D::rectangle(50.0, 40.0);
+        let piece = Geometry2D::rectangle("R", 10.0, 10.0);
+        let nester = Nester2D::new(Config::default().with_strategy(Strategy::HybridExact));
+        let result = nester
+            .solve(&[piece], &boundary)
+            .expect("HybridExact must solve without error");
+        assert!(
+            result.unplaced.is_empty(),
+            "the single instance should fit in this boundary"
+        );
+    }
+
     #[test]
     fn small_valid_piece_survives_degeneracy_check() {
         // A legitimately small piece (0.5×0.5, area 0.25) must NOT be rejected
