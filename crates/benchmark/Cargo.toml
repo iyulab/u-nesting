@@ -31,8 +31,6 @@ clap = { version = "4.6", features = ["derive"] }
 # Timing
 instant = "0.1"
 
-# CSV output
-csv = "1.3"
 
 # TOML serialization for scenarios
 toml = "1.1"
@@ -40,8 +38,6 @@ toml = "1.1"
 # Progress display
 
 [dev-dependencies]
-criterion = { workspace = true }
-tempfile = "3.10"
 
 [[bin]]
 name = "bench-runner"

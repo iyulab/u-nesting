@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Dropped dependencies that no code used: `log` and `u-numflow` from
+  `u-nesting-core`; `thiserror` and `rand` from `u-nesting-cutting`;
+  `thiserror` from `u-nesting-d2`; `thiserror` and `rayon` from
+  `u-nesting-d3` (its `parallel` feature now only forwards to
+  `u-nesting-core/parallel`, which is where the parallel code lives); `libc`
+  and `log` from `u-nesting-ffi`. Each was declared, and kept current through
+  version bumps, without being named anywhere in the source -- it only added a
+  crate to every build. CI now checks for this with `cargo-machete`.
+
 ## [0.10.0] - 2026-09-07
 
 A minor rather than a patch release for two independent reasons: the Python

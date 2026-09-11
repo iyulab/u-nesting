@@ -13,20 +13,17 @@ categories = ["algorithms", "mathematics"]
 [dependencies]
 u-nesting-core.workspace = true
 serde = { workspace = true, optional = true }
-thiserror.workspace = true
-rayon = { workspace = true, optional = true }
 rand.workspace = true
 log.workspace = true
 
 [dev-dependencies]
-proptest.workspace = true
 approx.workspace = true
 criterion.workspace = true
 
 [features]
 default = []
 serde = ["dep:serde", "u-nesting-core/serde"]
-parallel = ["dep:rayon", "u-nesting-core/parallel"]
+parallel = ["u-nesting-core/parallel"]
 
 [[bench]]
 name = "packer_bench"

@@ -13,13 +13,9 @@ categories = ["algorithms", "mathematics"]
 [dependencies]
 u-nesting-core.workspace = true
 serde = { workspace = true, optional = true }
-thiserror.workspace = true
-rand.workspace = true
 log.workspace = true
 
 [dev-dependencies]
-proptest.workspace = true
-approx.workspace = true
 u-nesting-d2.workspace = true
 
 [features]

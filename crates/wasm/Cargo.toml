@@ -18,7 +18,6 @@ u-nesting-core = { workspace = true, features = ["serde"] }
 u-nesting-d2 = { workspace = true, features = ["serde"] }
 u-nesting-d3 = { workspace = true, features = ["serde"] }
 u-nesting-cutting = { workspace = true, features = ["serde"] }
-serde = { workspace = true }
 serde_json = { workspace = true }
 wasm-bindgen = { workspace = true }
 
@@ -27,3 +26,8 @@ wasm-opt = false
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
+
+# `getrandom` is named nowhere in the source: it is declared only to turn on its
+# `wasm_js` backend for wasm32, which `rand` needs to build there.
+[package.metadata.cargo-machete]
+ignored = ["getrandom"]

@@ -15,7 +15,6 @@ u-nesting-core.workspace = true
 i_overlay.workspace = true
 rstar.workspace = true
 serde = { workspace = true, optional = true }
-thiserror.workspace = true
 rayon = { workspace = true, optional = true }
 rand.workspace = true
 log.workspace = true
