@@ -35,8 +35,6 @@ jobs:
       changed: ${{ steps.check.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
 
       - name: Verify binding versions are in lockstep
         run: bash scripts/check-version-consistency.sh
@@ -47,10 +45,23 @@ jobs:
           VERSION=$(grep -m1 'version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Check if version changed
+      - name: Check if version is unpublished on PyPI
         id: check
+        # Ask the registry, not the diff of the last commit: a multi-commit push
+        # whose final commit lacks the version bump skipped a release silently
+        # (u-routing 0.2.3), and the two-commit diff this job used to make had the
+        # same blind spot. The sibling crates.io and NuGet workflows already
+        # decide this way.
         run: |
-          git diff HEAD~1 HEAD -- Cargo.toml | grep -q '+version = ' && echo "changed=true" >> $GITHUB_OUTPUT || echo "changed=false" >> $GITHUB_OUTPUT
+          VERSION=${{ steps.get_version.outputs.version }}
+          HTTP=$(curl -s -o /dev/null -w '%{http_code}' -H "User-Agent: u-nesting-ci/1.0" "https://pypi.org/pypi/u-nesting/${VERSION}/json")
+          if [ "$HTTP" = "200" ]; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "u-nesting ${VERSION} already on PyPI — skipping"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "u-nesting ${VERSION} not on PyPI (HTTP ${HTTP}) — will publish"
+          fi
 
   linux:
     needs: check-version
