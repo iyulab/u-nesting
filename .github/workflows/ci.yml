@@ -37,6 +37,38 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check --workspace --all-features
 
+  # The declared `rust-version` was measured by hand (toolchains 1.85 / 1.87
+  # / 1.89 installed and run), and nothing since has checked that the crate
+  # still builds there: the cross-repo guard only orders the floors. This job
+  # builds on exactly the declared toolchain on every push. Dependencies are
+  # resolved the way a consumer on that toolchain would resolve them -- the
+  # MSRV-aware resolver takes the newest version of each dependency that
+  # declares support for the floor -- so a dependency raising its own floor
+  # surfaces as this job failing to resolve, not as a broken build somewhere
+  # downstream.
+  msrv:
+    name: MSRV (declared rust-version builds)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read the declared floor
+        id: msrv
+        run: |
+          MSRV=$(grep -m1 '^rust-version' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          test -n "$MSRV" || { echo "no rust-version in Cargo.toml"; exit 1; }
+          echo "version=$MSRV" >> "$GITHUB_OUTPUT"
+          echo "Declared MSRV: $MSRV"
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - run: cargo generate-lockfile
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+      - run: cargo check --workspace --all-features
+
   fmt:
     name: Format
     runs-on: ubuntu-latest
