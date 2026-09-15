@@ -394,3 +394,86 @@ fn the_margin_holds_along_a_slanted_edge() {
         assert!(min_gap(&polys) >= 10.0 - SHORTFALL_TOL, "{strategy:?}");
     }
 }
+
+/// A sheet with a hole: the ring around the hole holds 64 squares, and the
+/// NFP-based placement finds all of them instead of placing parts over the
+/// hole and losing them to the boundary check.
+#[test]
+fn the_ring_around_a_hole_is_filled() {
+    let hole: Vec<Point> = vec![
+        (200.0, 200.0),
+        (800.0, 200.0),
+        (800.0, 800.0),
+        (200.0, 800.0),
+    ];
+    let boundary = Boundary2D::rectangle(1000.0, 1000.0).with_hole(hole);
+    let pieces = [Geometry2D::rectangle("s", 100.0, 100.0)
+        .with_quantity(80)
+        .with_rotations(vec![0.0])];
+    let result = Nester2D::new(config(Strategy::NfpGuided).with_time_limit(0))
+        .solve(&pieces, &boundary)
+        .unwrap();
+    assert_eq!(result.placements.len(), 64);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(16))]
+
+    /// Every piece stays inside the sheet, outside the hole, at least `margin`
+    /// from both, and at least `spacing` from every other piece.
+    #[test]
+    fn a_hole_keeps_pieces_out_by_the_margin(
+        hole in (60.0f64..160.0, 60.0f64..160.0, 60.0f64..180.0, 60.0f64..180.0),
+        legs in prop::collection::vec((25.0f64..60.0, 25.0f64..60.0, 8.0f64..20.0), 1..3),
+        spacing in 0.5f64..10.0,
+        margin in 0.0f64..15.0,
+        strategy in prop::sample::select(STRATEGIES.to_vec()),
+    ) {
+        let (hx, hy, hw, hh) = hole;
+        let hole_ring: Vec<Point> = vec![(hx, hy), (hx + hw, hy), (hx + hw, hy + hh), (hx, hy + hh)];
+        let (w, h) = (400.0, 400.0);
+        let outer: Vec<Point> = vec![(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)];
+        let boundary = Boundary2D::rectangle(w, h).with_hole(hole_ring.clone());
+        let pieces: Vec<Geometry2D> = legs
+            .iter()
+            .enumerate()
+            .map(|(i, &(lw, lh, t))| {
+                l_piece(&format!("L{i}"), lw, lh, t)
+                    .with_quantity(6)
+                    .with_rotations_deg(vec![0.0, 90.0])
+                    .with_flip(true)
+            })
+            .collect();
+        let result = Nester2D::new(
+            config(strategy).with_spacing(spacing).with_margin(margin).with_time_limit(400),
+        )
+        .solve(&pieces, &boundary)
+        .unwrap();
+        let polys = world_polygons(&pieces, &result);
+        for (i, poly) in polys.iter().enumerate() {
+            let to_edge = clearance_inside(poly, &outer);
+            prop_assert!(to_edge.is_some(), "{strategy:?}: piece {i} leaves the sheet");
+            prop_assert!(to_edge.unwrap_or_default() >= margin - SHORTFALL_TOL, "{strategy:?}: piece {i} too close to the sheet edge");
+            // `polygon_distance` is 0 both for touching and for overlapping.
+            let hole_gap = polygon_distance(poly, &hole_ring);
+            let crosses = (0..poly.len()).any(|a| {
+                (0..hole_ring.len()).any(|b| {
+                    segments_cross(
+                        poly[a],
+                        poly[(a + 1) % poly.len()],
+                        hole_ring[b],
+                        hole_ring[(b + 1) % hole_ring.len()],
+                    )
+                })
+            });
+            let overlaps_hole =
+                crosses || point_inside(poly[0], &hole_ring) || point_inside(hole_ring[0], poly);
+            prop_assert!(
+                !overlaps_hole && hole_gap >= margin - SHORTFALL_TOL,
+                "{strategy:?}: piece {i} is {hole_gap} from the hole (margin {margin})"
+            );
+        }
+        let gap = min_gap(&polys);
+        prop_assert!(gap >= spacing - SHORTFALL_TOL, "{strategy:?}: gap {gap} < spacing {spacing}");
+    }
+}

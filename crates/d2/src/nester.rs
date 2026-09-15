@@ -26,7 +26,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 use u_nesting_core::{Placement, Result, SolveResult};
 
-use crate::placement_utils::{inset_boundary, offset_nfp};
+use crate::placement_utils::{hole_nfps, inset_boundary, offset_nfp};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
@@ -433,6 +433,7 @@ impl Nester2D {
                         // clearance to the edge is `margin`, already applied to the boundary.
 
                         // Find the optimal valid placement (minimize X for shorter strip)
+                        nfps.extend(hole_nfps(boundary, geom, rotation, mirror, margin));
                         let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
                         if let Some((x, y)) =
                             find_bottom_left_placement(&ifp, &nfp_refs, sample_step)
@@ -1152,6 +1153,7 @@ impl Nester2D {
 
                         // `spacing` separates pieces from each other, not from the boundary —
                         // clearance to the edge is `margin`, already applied to the boundary.
+                        nfps.extend(hole_nfps(boundary, geom, rotation, mirror, margin));
                         let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
                         if let Some((x, y)) =

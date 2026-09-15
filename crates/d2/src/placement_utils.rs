@@ -4,6 +4,7 @@
 //! multiple nesting strategy implementations (GA, SA, BRKGA, ALNS, GDRR).
 
 use crate::boundary::Boundary2D;
+use crate::geometry::Geometry2D;
 use crate::nfp::Nfp;
 use u_nesting_core::geometry::Boundary;
 
@@ -90,6 +91,31 @@ pub fn inset_boundary(boundary: &Boundary2D, margin: f64) -> Vec<(f64, f64)> {
         ring.reverse();
     }
     ring
+}
+
+/// Regions a piece's reference point must stay out of because of the
+/// boundary's holes: for each hole, the no-fit polygon of the hole and the
+/// piece (at `rotation`, mirrored if `mirror`), grown by `margin`.
+///
+/// Without these the placement search treats a hole as usable area and every
+/// piece it puts there is later rejected by the boundary check.
+pub fn hole_nfps(
+    boundary: &Boundary2D,
+    geometry: &Geometry2D,
+    rotation: f64,
+    mirror: bool,
+    margin: f64,
+) -> Vec<Nfp> {
+    boundary
+        .holes()
+        .iter()
+        .enumerate()
+        .filter_map(|(i, hole)| {
+            let stationary = Geometry2D::new(format!("_hole_{i}")).with_polygon(hole.clone());
+            crate::nfp::compute_nfp_mirrored(&stationary, geometry, rotation, false, mirror).ok()
+        })
+        .map(|nfp| offset_nfp(&nfp, margin))
+        .collect()
 }
 
 /// Computes the nesting fitness score from placement results.

@@ -39,6 +39,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `margin` against every boundary edge, including holes.
 - The final boundary filter ignored mirroring (`allow_flip`): it checked the
   unmirrored outline of a mirrored part.
+- **A boundary with holes placed nothing.** Deciding whether a part lies inside
+  a boundary with holes (or any non-rectangular boundary) counted a part flush
+  against an edge as crossing it, so every part touching the sheet edge was
+  rejected; a 1000 × 1000 sheet with a 600 × 600 hole placed 0 of the 64 parts
+  its border holds. The boundary is now a closed region, decided by area.
+- **Holes were invisible to placement.** The NFP-based strategies placed parts
+  over a hole and lost them to the boundary check; holes are now regions a
+  part keeps `margin` away from, and the same sheet places all 64.
 - **3D extreme-point packing lost boxes whenever `spacing` was positive.** New
   candidate corners were created flush against the last box, where a neighbour
   may not start once a gap is required, so eight 40-unit boxes that fit a

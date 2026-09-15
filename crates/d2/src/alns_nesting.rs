@@ -35,7 +35,7 @@ use u_nesting_core::solver::Config;
 use u_nesting_core::timing::Timer;
 use u_nesting_core::{Placement, SolveResult};
 
-use crate::placement_utils::{inset_boundary, offset_nfp, InstanceInfo};
+use crate::placement_utils::{hole_nfps, inset_boundary, offset_nfp, InstanceInfo};
 use rand::prelude::*;
 
 /// A placed item in the ALNS solution.
@@ -252,6 +252,13 @@ impl AlnsNestingProblem {
 
                 // `spacing` separates pieces from each other, not from the boundary —
                 // clearance to the edge is `margin`, already applied to the boundary.
+                nfps.extend(hole_nfps(
+                    &self.boundary,
+                    geom,
+                    rotation,
+                    mirror,
+                    self.config.margin,
+                ));
                 let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
                 // IFP returns positions where the geometry's origin should be placed.

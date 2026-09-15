@@ -18,7 +18,9 @@ use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::{Placement, SolveResult};
 
-use crate::placement_utils::{inset_boundary, nesting_fitness, offset_nfp, InstanceInfo};
+use crate::placement_utils::{
+    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, InstanceInfo,
+};
 
 /// Nesting chromosome representing a placement order and rotations.
 #[derive(Debug, Clone)]
@@ -391,6 +393,13 @@ impl NestingProblem {
 
             // Find the bottom-left valid placement
             // IFP returns positions where the geometry's origin should be placed.
+            nfps.extend(hole_nfps(
+                &self.boundary,
+                geom,
+                rotation_angle,
+                mirror,
+                margin,
+            ));
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
             let placement_result = find_bottom_left_placement(&ifp, &nfp_refs, sample_step);
             if let Some((x, y)) = placement_result {
