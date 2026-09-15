@@ -542,30 +542,40 @@ mod metaheuristic_quality_tests {
     }
 
     /// Enlarging the allowed rotation set must never *worsen* the result
-    /// (issue #3 expectation 2). Holds because BLF searches a superset of
-    /// rotations (monotonic) and the floor caps the stochastic strategies at BLF.
+    /// (issue #3 expectation 2). Bottom-left fill searches a superset of
+    /// rotations, so it is monotonic outright. A time-limited search is not — it
+    /// has more to explore in the same time — but it is floored at bottom-left
+    /// fill with the rotations it was given, which is never longer than bottom-left
+    /// fill with fewer: the search with more rotations never loses to the greedy
+    /// layout with fewer.
+    ///
+    /// (Until the no-fit placement followed the strip direction, the searches
+    /// never beat bottom-left fill on this tall strip, so they always returned
+    /// it and looked monotonic too.)
     #[test]
     fn larger_rotation_set_never_worsens_strip_length() {
-        for strat in [
-            Strategy::BottomLeftFill,
-            Strategy::GeneticAlgorithm,
-            Strategy::Brkga,
-        ] {
-            let (_, small) = solve(strat, vec![0.0]);
+        let (_, blf_small) = solve(Strategy::BottomLeftFill, vec![0.0]);
+        let (_, blf_big) = solve(Strategy::BottomLeftFill, vec![0.0, 90.0, 180.0, 270.0]);
+        assert!(
+            blf_big <= blf_small + 1e-3,
+            "BottomLeftFill: larger rotation set worsened strip length {blf_big} > {blf_small}"
+        );
+        for strat in [Strategy::GeneticAlgorithm, Strategy::Brkga] {
             let (_, big) = solve(strat, vec![0.0, 90.0, 180.0, 270.0]);
             assert!(
-                big <= small + 1e-3,
-                "{strat:?}: larger rotation set worsened strip length {big} > {small}"
+                big <= blf_small + 1e-3,
+                "{strat:?}: with more rotations {big} is longer than bottom-left fill with fewer {blf_small}"
             );
         }
     }
 
     /// When the BLF floor overrides a metaheuristic's placements, the result must
     /// still carry the search's provenance (strategy label, generations, fitness)
-    /// — the metaheuristic ran, only its layout was floored. On the concave
-    /// L-instance BLF strictly beats the stochastic strategies, so this always
-    /// exercises the floored branch (the bug: floored results returned a bare BLF
-    /// with `generations = None`, failing any `strategy == Brkga` inspection).
+    /// — the metaheuristic ran, only its layout was floored. A one-millisecond
+    /// limit stops the search partway through its first layout, so bottom-left
+    /// fill always wins and the floored branch is always taken (the bug: floored
+    /// results returned a bare BLF with `generations = None`, failing any
+    /// `strategy == Brkga` inspection).
     #[test]
     fn floored_result_keeps_metaheuristic_provenance() {
         let (geoms, boundary) = l_instance(vec![0.0, 90.0, 180.0, 270.0]);
@@ -577,8 +587,13 @@ mod metaheuristic_quality_tests {
                 .with_strategy(strat)
                 .with_spacing(2.0)
                 .with_seed(42)
-                .with_time_limit(800);
+                .with_time_limit(1);
             let r = Nester2D::new(config).solve(&geoms, &boundary).unwrap();
+            assert_eq!(
+                r.placements.len(),
+                8,
+                "{strat:?}: the floor must supply the full layout"
+            );
             assert_eq!(
                 r.strategy.as_deref(),
                 Some(label),

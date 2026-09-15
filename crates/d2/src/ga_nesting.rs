@@ -8,7 +8,7 @@ use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
     compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
-    verify_no_overlap_mirrored, Nfp, PlacedGeometry,
+    verify_no_overlap_mirrored, Nfp, PackingAxis, PlacedGeometry,
 };
 use rand::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -417,7 +417,12 @@ impl NestingProblem {
                 margin,
             ));
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-            let placement_result = find_bottom_left_placement(&ifp, &nfp_refs, sample_step);
+            let placement_result = find_bottom_left_placement(
+                &ifp,
+                &nfp_refs,
+                sample_step,
+                PackingAxis::of(&self.boundary),
+            );
             if let Some((x, y)) = placement_result {
                 // Clamp position to keep geometry within boundary
                 // (mirror-aware — an unmirrored AABB has the wrong local

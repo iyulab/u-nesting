@@ -9,7 +9,7 @@ use crate::gdrr_nesting::run_gdrr_nesting;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
     compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
-    rotate_nfp, translate_nfp, Nfp, NfpCache, PlacedGeometry,
+    rotate_nfp, translate_nfp, Nfp, NfpCache, PackingAxis, PlacedGeometry,
 };
 #[cfg(feature = "milp")]
 use crate::nfp_cm_solver::run_nfp_cm_nesting;
@@ -93,14 +93,10 @@ fn solution_quality(
         return (0, f64::INFINITY);
     }
 
-    // Material length = extent along the boundary's longer (open-roll) axis.
-    let (b_min, b_max) = boundary.aabb();
-    let bound_w = b_max[0] - b_min[0];
-    let bound_h = b_max[1] - b_min[1];
-    let strip_length = if bound_h >= bound_w {
-        max_y - min_y
-    } else {
-        max_x - min_x
+    // Material length = extent along the boundary's length axis.
+    let strip_length = match PackingAxis::of(boundary) {
+        PackingAxis::Y => max_y - min_y,
+        PackingAxis::X => max_x - min_x,
     };
     (result.placements.len(), strip_length)
 }
@@ -142,172 +138,7 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
-        let start = Timer::now();
-        let mut result = SolveResult::new();
-        let mut placements = Vec::new();
-
-        // Get boundary dimensions
-        let (b_min, b_max) = boundary.aabb();
-        let margin = self.config.margin;
-        let spacing = self.config.spacing;
-
-        let bound_min_x = b_min[0] + margin;
-        let bound_min_y = b_min[1] + margin;
-        let bound_max_x = b_max[0] - margin;
-        let bound_max_y = b_max[1] - margin;
-
-        let strip_width = bound_max_x - bound_min_x;
-        let strip_height = bound_max_y - bound_min_y;
-
-        // Simple row-based placement with rotation optimization
-        let mut current_x = bound_min_x;
-        let mut current_y = bound_min_y;
-        let mut row_height = 0.0_f64;
-
-        let mut total_placed_area = 0.0;
-
-        for geom in geometries {
-            geom.validate()?;
-
-            // Get allowed rotation angles (default to 0 if none specified)
-            let rotations = geom.rotations();
-            let rotation_angles: Vec<f64> = if rotations.is_empty() {
-                vec![0.0]
-            } else {
-                rotations
-            };
-
-            for instance in 0..geom.quantity() {
-                if self.cancelled.load(Ordering::Relaxed) {
-                    result.computation_time_ms = start.elapsed_ms();
-                    return Ok(result);
-                }
-
-                // Check time limit (0 = unlimited)
-                if self.config.time_limit_ms > 0 && start.elapsed_ms() >= self.config.time_limit_ms
-                {
-                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
-                    result.utilization = total_placed_area / boundary.measure();
-                    result.computation_time_ms = start.elapsed_ms();
-                    result.placements = placements;
-                    return Ok(result);
-                }
-
-                // Find the best rotation for current position
-                let mut best_fit: Option<(f64, f64, f64, f64, f64, [f64; 2])> = None; // (rotation, width, height, x, y, g_min)
-
-                for &rotation in &rotation_angles {
-                    let (g_min, g_max) = geom.aabb_at_rotation(rotation);
-                    let g_width = g_max[0] - g_min[0];
-                    let g_height = g_max[1] - g_min[1];
-
-                    // Skip if geometry doesn't fit in boundary at all
-                    if g_width > strip_width || g_height > strip_height {
-                        continue;
-                    }
-
-                    // Calculate placement position for this rotation
-                    let mut place_x = current_x;
-                    let mut place_y = current_y;
-
-                    // Check if piece fits in remaining row space
-                    if place_x + g_width > bound_max_x {
-                        // Would need to move to next row
-                        place_x = bound_min_x;
-                        place_y += row_height + spacing;
-                    }
-
-                    // Check if piece fits in boundary height
-                    if place_y + g_height > bound_max_y {
-                        continue; // This rotation doesn't fit
-                    }
-
-                    // Calculate score: prefer rotations that minimize wasted space
-                    // Score = row advancement (lower is better)
-                    let score = if place_x == bound_min_x && place_y > current_y {
-                        // New row: score is based on new Y position
-                        place_y - bound_min_y + g_height
-                    } else {
-                        // Same row: score is based on strip length advancement
-                        place_x - bound_min_x + g_width
-                    };
-
-                    let is_better = match &best_fit {
-                        None => true,
-                        Some((_, _, _, _, _, _)) => {
-                            // Prefer placements that don't start new rows
-                            let best_score = if let Some((_, _, _, bx, by, _)) = best_fit {
-                                if bx == bound_min_x && by > current_y {
-                                    by - bound_min_y + g_height
-                                } else {
-                                    bx - bound_min_x + g_width
-                                }
-                            } else {
-                                f64::INFINITY
-                            };
-                            score < best_score - 1e-6
-                        }
-                    };
-
-                    if is_better {
-                        best_fit = Some((rotation, g_width, g_height, place_x, place_y, g_min));
-                    }
-                }
-
-                // Place the geometry with the best rotation
-                if let Some((rotation, g_width, g_height, place_x, place_y, g_min)) = best_fit {
-                    // Update row tracking if we moved to a new row
-                    if place_x == bound_min_x && place_y > current_y {
-                        row_height = 0.0;
-                    }
-
-                    // Compute origin position from AABB position
-                    let origin_x = place_x - g_min[0];
-                    let origin_y = place_y - g_min[1];
-
-                    // Clamp to ensure geometry stays within boundary
-                    let geom_aabb = geom.aabb_at_rotation(rotation);
-                    let boundary_aabb = (b_min, b_max);
-
-                    if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
-                        origin_x,
-                        origin_y,
-                        geom_aabb,
-                        boundary_aabb,
-                        margin,
-                    ) {
-                        let placement = Placement::new_2d(
-                            geom.id().clone(),
-                            instance,
-                            clamped_x,
-                            clamped_y,
-                            rotation,
-                        );
-
-                        placements.push(placement);
-                        total_placed_area += geom.measure();
-
-                        // Update position for next piece
-                        // Use actual clamped AABB position, not original place_x/place_y
-                        let actual_place_x = clamped_x + g_min[0];
-                        let actual_place_y = clamped_y + g_min[1];
-                        current_x = actual_place_x + g_width + spacing;
-                        current_y = actual_place_y;
-                        row_height = row_height.max(g_height);
-                    }
-                } else {
-                    // Can't place this piece with any rotation
-                    result.unplaced.push(geom.id().clone());
-                }
-            }
-        }
-
-        result.placements = placements;
-        result.boundaries_used = 1;
-        result.utilization = total_placed_area / boundary.measure();
-        result.computation_time_ms = start.elapsed_ms();
-
-        Ok(result)
+        self.bottom_left_fill_impl(geometries, boundary, None)
     }
 
     /// NFP-guided Bottom-Left Fill algorithm.
@@ -432,19 +263,22 @@ impl Nester2D {
                         // `spacing` separates pieces from each other, not from the boundary —
                         // clearance to the edge is `margin`, already applied to the boundary.
 
-                        // Find the optimal valid placement (minimize X for shorter strip)
+                        // Find the optimal valid placement (shortest strip first)
                         nfps.extend(hole_nfps(boundary, geom, rotation, mirror, margin));
                         let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-                        if let Some((x, y)) =
-                            find_bottom_left_placement(&ifp, &nfp_refs, sample_step)
-                        {
-                            // Compare with current best: prefer smaller X (shorter strip), then smaller Y
-                            let is_better = match best_placement {
-                                None => true,
-                                Some((best_x, best_y, _, _)) => {
-                                    x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
-                                }
-                            };
+                        if let Some((x, y)) = find_bottom_left_placement(
+                            &ifp,
+                            &nfp_refs,
+                            sample_step,
+                            PackingAxis::of(boundary),
+                        ) {
+                            // Compare with current best in packing order: shorter strip first
+                            let is_better =
+                                match best_placement {
+                                    None => true,
+                                    Some((best_x, best_y, _, _)) => PackingAxis::of(boundary)
+                                        .precedes((x, y), (best_x, best_y), 1e-6),
+                                };
                             if is_better {
                                 best_placement = Some((x, y, rotation, mirror));
                             }
@@ -830,34 +664,56 @@ impl Nester2D {
         boundary: &Boundary2D,
         callback: &ProgressCallback,
     ) -> Result<SolveResult<f64>> {
+        self.bottom_left_fill_impl(geometries, boundary, Some(callback))
+    }
+
+    /// The bottom-left fill both entry points run.
+    ///
+    /// Rows are filled across the boundary's width and advance along its length
+    /// ([`PackingAxis::of`]), so a wide sheet is filled in columns and a tall one
+    /// in rows: the layout uses as little of the length as it can. The row logic
+    /// works in `(across, along)` coordinates and maps back to `(x, y)` only when
+    /// a placement is recorded.
+    fn bottom_left_fill_impl(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        callback: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
         let start = Timer::now();
         let mut result = SolveResult::new();
         let mut placements = Vec::new();
+        let report = |info: ProgressInfo| {
+            if let Some(callback) = callback {
+                callback(info);
+            }
+        };
 
-        // Get boundary dimensions
+        let axis = PackingAxis::of(boundary);
+        // (across, along) <-> (x, y)
+        let to_ca = |x: f64, y: f64| match axis {
+            PackingAxis::Y => (x, y),
+            PackingAxis::X => (y, x),
+        };
+        let from_ca = |across: f64, along: f64| match axis {
+            PackingAxis::Y => (across, along),
+            PackingAxis::X => (along, across),
+        };
+
         let (b_min, b_max) = boundary.aabb();
         let margin = self.config.margin;
         let spacing = self.config.spacing;
+        let (min_across, min_along) = to_ca(b_min[0] + margin, b_min[1] + margin);
+        let (max_across, max_along) = to_ca(b_max[0] - margin, b_max[1] - margin);
 
-        let bound_min_x = b_min[0] + margin;
-        let bound_min_y = b_min[1] + margin;
-        let bound_max_x = b_max[0] - margin;
-        let bound_max_y = b_max[1] - margin;
-
-        let strip_width = bound_max_x - bound_min_x;
-        let strip_height = bound_max_y - bound_min_y;
-
-        let mut current_x = bound_min_x;
-        let mut current_y = bound_min_y;
-        let mut row_height = 0.0_f64;
+        let mut cursor_across = min_across;
+        let mut cursor_along = min_along;
+        let mut row_depth = 0.0_f64;
         let mut total_placed_area = 0.0;
-
-        // Count total pieces for progress
         let total_pieces: usize = geometries.iter().map(|g| g.quantity()).sum();
         let mut placed_count = 0usize;
 
-        // Initial progress callback
-        callback(
+        report(
             ProgressInfo::new()
                 .with_phase("BLF Placement")
                 .with_items(0, total_pieces)
@@ -877,7 +733,7 @@ impl Nester2D {
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed_ms();
-                    callback(
+                    report(
                         ProgressInfo::new()
                             .with_phase("Cancelled")
                             .with_items(placed_count, total_pieces)
@@ -894,7 +750,7 @@ impl Nester2D {
                     result.utilization = total_placed_area / boundary.measure();
                     result.computation_time_ms = start.elapsed_ms();
                     result.placements = placements;
-                    callback(
+                    report(
                         ProgressInfo::new()
                             .with_phase("Time Limit Reached")
                             .with_items(placed_count, total_pieces)
@@ -904,102 +760,104 @@ impl Nester2D {
                     return Ok(result);
                 }
 
-                let mut best_fit: Option<(f64, f64, f64, f64, f64, [f64; 2])> = None;
+                // The rotation that advances least: along the row if it still fits
+                // there, otherwise along the length when it opens a new row.
+                // (rotation, across extent, along extent, place across, place along)
+                let mut best_fit: Option<(f64, f64, f64, f64, f64)> = None;
 
                 for &rotation in &rotation_angles {
                     let (g_min, g_max) = geom.aabb_at_rotation(rotation);
-                    let g_width = g_max[0] - g_min[0];
-                    let g_height = g_max[1] - g_min[1];
+                    let (extent_across, extent_along) =
+                        to_ca(g_max[0] - g_min[0], g_max[1] - g_min[1]);
 
-                    if g_width > strip_width || g_height > strip_height {
+                    if extent_across > max_across - min_across
+                        || extent_along > max_along - min_along
+                    {
                         continue;
                     }
 
-                    let mut place_x = current_x;
-                    let mut place_y = current_y;
-
-                    if place_x + g_width > bound_max_x {
-                        place_x = bound_min_x;
-                        place_y += row_height + spacing;
+                    let mut place_across = cursor_across;
+                    let mut place_along = cursor_along;
+                    let new_row = place_across + extent_across > max_across;
+                    if new_row {
+                        place_across = min_across;
+                        place_along += row_depth + spacing;
                     }
-
-                    if place_y + g_height > bound_max_y {
+                    if place_along + extent_along > max_along {
                         continue;
                     }
 
-                    let score = if place_x == bound_min_x && place_y > current_y {
-                        place_y - bound_min_y + g_height
-                    } else {
-                        place_x - bound_min_x + g_width
-                    };
-
-                    let is_better = match &best_fit {
-                        None => true,
-                        Some((_, _, _, bx, by, _)) => {
-                            let best_score = if *bx == bound_min_x && *by > current_y {
-                                by - bound_min_y
-                            } else {
-                                bx - bound_min_x
-                            };
-                            score < best_score - 1e-6
+                    // Advancement a placement costs: along the length when it
+                    // opens a row, across the row otherwise. A candidate is
+                    // measured against the best so far with its own extents, so
+                    // within one row the first rotation that fits is kept.
+                    let advance = |across: f64, along: f64| {
+                        if across == min_across && along > cursor_along {
+                            along - min_along + extent_along
+                        } else {
+                            across - min_across + extent_across
                         }
                     };
-
-                    if is_better {
-                        best_fit = Some((rotation, g_width, g_height, place_x, place_y, g_min));
-                    }
-                }
-
-                if let Some((rotation, g_width, g_height, place_x, place_y, g_min)) = best_fit {
-                    if place_x == bound_min_x && place_y > current_y {
-                        row_height = 0.0;
-                    }
-
-                    // Compute origin position from AABB position
-                    let origin_x = place_x - g_min[0];
-                    let origin_y = place_y - g_min[1];
-
-                    // Clamp to ensure geometry stays within boundary
-                    let geom_aabb = geom.aabb_at_rotation(rotation);
-                    let boundary_aabb = (b_min, b_max);
-
-                    if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
-                        origin_x,
-                        origin_y,
-                        geom_aabb,
-                        boundary_aabb,
-                        margin,
-                    ) {
-                        let placement = Placement::new_2d(
-                            geom.id().clone(),
-                            instance,
-                            clamped_x,
-                            clamped_y,
+                    let better = best_fit.is_none_or(|best| {
+                        advance(place_across, place_along) < advance(best.3, best.4) - 1e-6
+                    });
+                    if better {
+                        best_fit = Some((
                             rotation,
-                        );
-
-                        placements.push(placement);
-                        total_placed_area += geom.measure();
-                        placed_count += 1;
-
-                        current_x = place_x + g_width + spacing;
-                        current_y = place_y;
-                        row_height = row_height.max(g_height);
-
-                        // Progress callback every piece
-                        callback(
-                            ProgressInfo::new()
-                                .with_phase("BLF Placement")
-                                .with_items(placed_count, total_pieces)
-                                .with_utilization(total_placed_area / boundary.measure())
-                                .with_elapsed(start.elapsed_ms()),
-                        );
-                    } else {
-                        result.unplaced.push(geom.id().clone());
+                            extent_across,
+                            extent_along,
+                            place_across,
+                            place_along,
+                        ));
                     }
-                } else {
-                    result.unplaced.push(geom.id().clone());
                 }
+
+                let Some((rotation, extent_across, extent_along, place_across, place_along)) =
+                    best_fit
+                else {
+                    result.unplaced.push(geom.id().clone());
+                    continue;
+                };
+                if place_across == min_across && place_along > cursor_along {
+                    row_depth = 0.0;
+                }
+
+                let geom_aabb = geom.aabb_at_rotation(rotation);
+                let (place_x, place_y) = from_ca(place_across, place_along);
+                let Some((x, y)) = clamp_placement_to_boundary_with_margin(
+                    place_x - geom_aabb.0[0],
+                    place_y - geom_aabb.0[1],
+                    geom_aabb,
+                    (b_min, b_max),
+                    margin,
+                ) else {
+                    result.unplaced.push(geom.id().clone());
+                    continue;
+                };
+
+                placements.push(Placement::new_2d(
+                    geom.id().clone(),
+                    instance,
+                    x,
+                    y,
+                    rotation,
+                ));
+                total_placed_area += geom.measure();
+                placed_count += 1;
+
+                // Continue from where the clamped piece actually sits.
+                let (actual_across, actual_along) = to_ca(x + geom_aabb.0[0], y + geom_aabb.0[1]);
+                cursor_across = actual_across + extent_across + spacing;
+                cursor_along = actual_along;
+                row_depth = row_depth.max(extent_along);
+
+                report(
+                    ProgressInfo::new()
+                        .with_phase("BLF Placement")
+                        .with_items(placed_count, total_pieces)
+                        .with_utilization(total_placed_area / boundary.measure())
+                        .with_elapsed(start.elapsed_ms()),
+                );
             }
         }
 
@@ -1008,8 +866,7 @@ impl Nester2D {
         result.utilization = total_placed_area / boundary.measure();
         result.computation_time_ms = start.elapsed_ms();
 
-        // Final progress callback
-        callback(
+        report(
             ProgressInfo::new()
                 .with_phase("Complete")
                 .with_items(placed_count, total_pieces)
@@ -1157,15 +1014,18 @@ impl Nester2D {
                         nfps.extend(hole_nfps(boundary, geom, rotation, mirror, margin));
                         let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
-                        if let Some((x, y)) =
-                            find_bottom_left_placement(&ifp, &nfp_refs, sample_step)
-                        {
-                            let is_better = match best_placement {
-                                None => true,
-                                Some((best_x, best_y, _, _)) => {
-                                    x < best_x - 1e-6 || (x < best_x + 1e-6 && y < best_y - 1e-6)
-                                }
-                            };
+                        if let Some((x, y)) = find_bottom_left_placement(
+                            &ifp,
+                            &nfp_refs,
+                            sample_step,
+                            PackingAxis::of(boundary),
+                        ) {
+                            let is_better =
+                                match best_placement {
+                                    None => true,
+                                    Some((best_x, best_y, _, _)) => PackingAxis::of(boundary)
+                                        .precedes((x, y), (best_x, best_y), 1e-6),
+                                };
                             if is_better {
                                 best_placement = Some((x, y, rotation, mirror));
                             }
@@ -1760,7 +1620,8 @@ mod tests {
         // Place the first instance unmirrored, at the boundary's IFP origin.
         let ifp1 =
             compute_ifp_with_margin_and_mirror(&boundary_polygon, &geom, 0.0, 0.0, false).unwrap();
-        let (x1, y1) = find_bottom_left_placement(&ifp1, &[], 1.0).expect("first piece must fit");
+        let (x1, y1) = find_bottom_left_placement(&ifp1, &[], 1.0, PackingAxis::X)
+            .expect("first piece must fit");
         let placed1 = PlacedGeometry::new(geom.clone(), (x1, y1), 0.0).with_mirrored(false);
 
         // Place the second instance MIRRORED, avoiding the first.
@@ -1773,7 +1634,7 @@ mod tests {
             .unwrap();
         let translated_nfp = translate_nfp(&nfp_at_origin, placed1.position);
         let expanded_nfp = offset_nfp(&translated_nfp, spacing);
-        let (x2, y2) = find_bottom_left_placement(&ifp2, &[&expanded_nfp], 1.0)
+        let (x2, y2) = find_bottom_left_placement(&ifp2, &[&expanded_nfp], 1.0, PackingAxis::X)
             .expect("mirrored second piece must fit avoiding the first");
         let placed2 = PlacedGeometry::new(geom.clone(), (x2, y2), 0.0).with_mirrored(true);
 

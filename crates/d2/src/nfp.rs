@@ -1001,6 +1001,53 @@ fn point_on_polygon_boundary(point: (f64, f64), polygon: &[(f64, f64)]) -> bool 
     false
 }
 
+/// The boundary axis a layout should use as little of — the strip's length.
+///
+/// Strip packing fixes one dimension and minimises the other. For a boundary
+/// this is its longer side (an open-ended strip is always long in `y`), the
+/// same axis the solvers use to compare layouts. Placement fills across the
+/// other axis before advancing along this one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PackingAxis {
+    /// Minimise the extent along `x`; fill each column in `y` first.
+    X,
+    /// Minimise the extent along `y`; fill each row in `x` first.
+    Y,
+}
+
+impl PackingAxis {
+    /// The length axis of `boundary`.
+    pub fn of(boundary: &crate::boundary::Boundary2D) -> Self {
+        use u_nesting_core::geometry::Boundary;
+        if boundary.is_infinite() {
+            return PackingAxis::Y;
+        }
+        let (min, max) = boundary.aabb();
+        if max[1] - min[1] >= max[0] - min[0] {
+            PackingAxis::Y
+        } else {
+            PackingAxis::X
+        }
+    }
+
+    /// `(along, across)`: the coordinate along the length axis, then the other.
+    /// Positions compare lexicographically on this key.
+    pub fn key(self, point: (f64, f64)) -> (f64, f64) {
+        match self {
+            PackingAxis::X => point,
+            PackingAxis::Y => (point.1, point.0),
+        }
+    }
+
+    /// Whether `a` is strictly earlier than `b` along the packing order, with
+    /// `eps` tolerance on each coordinate.
+    pub fn precedes(self, a: (f64, f64), b: (f64, f64), eps: f64) -> bool {
+        let (a0, a1) = self.key(a);
+        let (b0, b1) = self.key(b);
+        a0 < b0 - eps || (a0 < b0 + eps && a1 < b1 - eps)
+    }
+}
+
 /// Finds the optimal placement point that minimizes strip length.
 ///
 /// The valid region is defined as points that are:
@@ -1018,6 +1065,7 @@ fn point_on_polygon_boundary(point: (f64, f64), polygon: &[(f64, f64)]) -> bool 
 /// * `ifp` - The inner-fit polygon (valid positions within boundary)
 /// * `nfps` - List of NFPs with already placed pieces
 /// * `sample_step` - Grid sampling step size (smaller = more accurate but slower)
+/// * `axis` - The boundary's length axis ([`PackingAxis::of`])
 ///
 /// # Returns
 /// The optimal valid point, or None if no valid position exists.
@@ -1025,6 +1073,7 @@ pub fn find_bottom_left_placement(
     ifp: &Nfp,
     nfps: &[&Nfp],
     sample_step: f64,
+    axis: PackingAxis,
 ) -> Option<(f64, f64)> {
     if ifp.is_empty() {
         return None;
@@ -1078,12 +1127,14 @@ pub fn find_bottom_left_placement(
         y += sample_step;
     }
 
-    // The first valid candidate in (x, y) order is the answer: minimise X first
-    // (strip length), then Y (pack tightly) — shorter strips than the traditional
-    // "bottom-left" order, which puts Y first. Checking in that order stops at
-    // the answer instead of validating every candidate.
+    // The first valid candidate in packing order is the answer: least along the
+    // length axis, then least across it. Checking in that order stops at the
+    // answer instead of validating every candidate.
     candidates.retain(|p| p.0.is_finite() && p.1.is_finite());
-    candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    candidates.sort_by(|a, b| {
+        let (a, b) = (axis.key(*a), axis.key(*b));
+        a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
+    });
 
     // A point outside a polygon's bounding box is outside the polygon; most NFPs
     // are nowhere near a given candidate.

@@ -20,7 +20,7 @@ use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
     compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
-    verify_no_overlap_mirrored, Nfp, PlacedGeometry,
+    verify_no_overlap_mirrored, Nfp, PackingAxis, PlacedGeometry,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -236,7 +236,12 @@ impl BrkgaNestingProblem {
                 margin,
             ));
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-            if let Some((x, y)) = find_bottom_left_placement(&ifp, &nfp_refs, sample_step) {
+            if let Some((x, y)) = find_bottom_left_placement(
+                &ifp,
+                &nfp_refs,
+                sample_step,
+                PackingAxis::of(&self.boundary),
+            ) {
                 // Clamp position to keep geometry within boundary
                 // (mirror-aware — an unmirrored AABB has the wrong local
                 // extents for a mirrored candidate, see `aabb_at_rotation_mirrored`).

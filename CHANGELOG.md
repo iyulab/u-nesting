@@ -63,6 +63,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the solve was cancelled. The runners now watch the caller's cancellation flag
   directly, which also makes cancellation work on WebAssembly, where that thread
   was never started.
+- **Layouts ignored which way the sheet runs.** Placement by no-fit polygons
+  always filled along `x` first and bottom-left fill always filled rows along
+  `x`, so one of the two orientations used several times the length it needed:
+  40 L-shaped parts took 1560 on a 500 × 5000 sheet with `nfp` (229 with rows),
+  and 2040 on a 5000 × 500 sheet with `blf`. Both now fill across the sheet and
+  advance along its longer side — the axis the search strategies already
+  measured layouts by — so `nfp` and the search strategies built on it produce
+  shorter layouts than bottom-left fill on either orientation.
 - **3D extreme-point packing lost boxes whenever `spacing` was positive.** New
   candidate corners were created flush against the last box, where a neighbour
   may not start once a gap is required, so eight 40-unit boxes that fit a
@@ -82,6 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `shrink_ifp`, because the inner-fit polygon is no longer shrunk by `spacing`.
   `placement_utils::inset_boundary` is the one place a boundary is inset by
   `margin`.
+- **Breaking:** `nfp::find_bottom_left_placement` takes the packing axis to
+  order candidates by (`nfp::PackingAxis::of(&boundary)`).
 - **Breaking:** `is_placement_within_bounds` and `validate_and_filter_placements`
   take the `margin` to enforce (`is_placement_within_bounds(placement, geometry,
   boundary, margin, tolerance)`); pass `0.0` for the previous check.
