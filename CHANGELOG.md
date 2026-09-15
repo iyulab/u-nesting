@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the no-fit polygons cross.
 - `compute_ifp_with_margin` on a non-rectangular boundary pulled its vertices
   toward the vertex centroid instead of moving its edges inward by `margin`.
+- **3D extreme-point packing lost boxes whenever `spacing` was positive.** New
+  candidate corners were created flush against the last box, where a neighbour
+  may not start once a gap is required, so eight 40-unit boxes that fit a
+  100-unit container with a 5-unit gap placed one. Candidates now start
+  `spacing` past each face.
 
 ### Changed
 

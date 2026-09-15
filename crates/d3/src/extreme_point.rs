@@ -268,34 +268,36 @@ impl ExtremePointSet {
 
     /// Generates new extreme points after placing a box.
     ///
-    /// Each placed box exposes three new candidate corners — one past each of its +X,
-    /// +Y and +Z faces, anchored at the box's own min coordinates on the other two axes.
+    /// Each placed box exposes three new candidate corners — one `spacing` past each of
+    /// its +X, +Y and +Z faces, anchored at the box's own min coordinates on the other two axes.
     /// `add_ep_if_valid` drops any that fall outside the container or land strictly
     /// inside an existing box; whether a future box actually fits is decided later by
     /// [`Self::fits_at`], so no per-axis free-space estimate is needed here.
     fn generate_new_eps(&mut self, placed: &PlacedBox) {
-        let box_max = placed.max_corner();
+        // A neighbour must start `spacing` past a face, so that is where the new
+        // corner goes; a corner flush with the face would always fail `fits_at`.
+        let past = placed.max_corner() + Vector3::new(self.spacing, self.spacing, self.spacing);
         let container_max = self.container - Vector3::new(self.margin, self.margin, self.margin);
 
-        if box_max.x < container_max.x - 1e-9 {
+        if past.x < container_max.x - 1e-9 {
             self.add_ep_if_valid(ExtremePoint::new(
-                box_max.x,
+                past.x,
                 placed.position.y,
                 placed.position.z,
             ));
         }
-        if box_max.y < container_max.y - 1e-9 {
+        if past.y < container_max.y - 1e-9 {
             self.add_ep_if_valid(ExtremePoint::new(
                 placed.position.x,
-                box_max.y,
+                past.y,
                 placed.position.z,
             ));
         }
-        if box_max.z < container_max.z - 1e-9 {
+        if past.z < container_max.z - 1e-9 {
             self.add_ep_if_valid(ExtremePoint::new(
                 placed.position.x,
                 placed.position.y,
-                box_max.z,
+                past.z,
             ));
         }
     }
@@ -583,14 +585,15 @@ mod tests {
 
     #[test]
     fn test_ep_packing_with_spacing() {
-        let geometries = vec![Geometry3D::new("B1", 40.0, 40.0, 40.0).with_quantity(4)];
+        let geometries = vec![Geometry3D::new("B1", 40.0, 40.0, 40.0).with_quantity(8)];
         let boundary = Boundary3D::new(100.0, 100.0, 100.0);
 
         let (placements_no_spacing, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
         let (placements_with_spacing, _) = run_ep_packing(&geometries, &boundary, 0.0, 5.0, None);
 
-        // With spacing, fewer boxes might fit
-        assert!(placements_with_spacing.len() <= placements_no_spacing.len());
+        // 40 + 5 + 40 = 85 fits 100 on every axis: the gap costs no boxes.
+        assert_eq!(placements_no_spacing.len(), 8);
+        assert_eq!(placements_with_spacing.len(), 8);
     }
 
     #[test]
