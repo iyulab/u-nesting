@@ -155,8 +155,8 @@ println!("Utilization: {:.1}%", result.utilization * 100.0);
 | **Geometry** | Shape to be placed | Polygon | Box |
 | **Boundary** | Containing region | Rectangle, Polygon | Box |
 | **Placement** | Position + orientation | x, y, θ | x, y, z, rotation |
-| **Spacing** | Gap between geometries | Float | Float |
-| **Margin** | Offset from boundary edge | Float | Float |
+| **Spacing** | Minimum distance between two placed geometries | Float | Float |
+| **Margin** | Minimum distance from a geometry to the boundary edge | Float | Float |
 | **Constraint** | Placement rules | Rotation, Direction | Orientation, Stability |
 
 ## Module Structure
@@ -216,8 +216,8 @@ u-nesting/
 ```rust
 let config = Config2D {
     // Spacing
-    spacing: 3.0,            // Gap between geometries
-    margin: 10.0,            // Boundary edge offset
+    spacing: 3.0,            // Minimum distance between geometries
+    margin: 10.0,            // Minimum distance to the boundary edge
     
     // Rotation
     rotation_steps: 4,       // Number of rotation angles

@@ -18,7 +18,7 @@ use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::{Placement, SolveResult};
 
-use crate::placement_utils::{expand_nfp, nesting_fitness, shrink_ifp, InstanceInfo};
+use crate::placement_utils::{inset_boundary_rect, nesting_fitness, offset_nfp, InstanceInfo};
 
 /// Nesting chromosome representing a placement order and rotations.
 #[derive(Debug, Clone)]
@@ -315,7 +315,10 @@ impl NestingProblem {
         let spacing = self.config.spacing;
 
         // Get boundary polygon with margin
-        let boundary_polygon = self.get_boundary_polygon_with_margin(margin);
+        let boundary_polygon = {
+            let (b_min, b_max) = self.boundary.aabb();
+            inset_boundary_rect(b_min, b_max, margin)
+        };
 
         // Sampling step for grid search
         let sample_step = self.compute_sample_step();
@@ -381,18 +384,18 @@ impl NestingProblem {
                 if let Ok(nfp) =
                     compute_nfp_mirrored(&placed_geom, geom, rotation_angle, false, mirror)
                 {
-                    let expanded = self.expand_nfp(&nfp, spacing);
+                    let expanded = offset_nfp(&nfp, spacing);
                     nfps.push(expanded);
                 }
             }
 
-            // Shrink IFP by spacing
-            let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
+            // `spacing` separates pieces from each other, not from the boundary —
+            // clearance to the edge is `margin`, already applied to the boundary.
 
             // Find the bottom-left valid placement
             // IFP returns positions where the geometry's origin should be placed.
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-            let placement_result = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step);
+            let placement_result = find_bottom_left_placement(&ifp, &nfp_refs, sample_step);
             if let Some((x, y)) = placement_result {
                 // Clamp position to keep geometry within boundary
                 // (mirror-aware — an unmirrored AABB has the wrong local
@@ -443,17 +446,6 @@ impl NestingProblem {
         (placements, utilization, placed_count)
     }
 
-    /// Gets the boundary polygon with margin applied.
-    fn get_boundary_polygon_with_margin(&self, margin: f64) -> Vec<(f64, f64)> {
-        let (b_min, b_max) = self.boundary.aabb();
-        vec![
-            (b_min[0] + margin, b_min[1] + margin),
-            (b_max[0] - margin, b_min[1] + margin),
-            (b_max[0] - margin, b_max[1] - margin),
-            (b_min[0] + margin, b_max[1] - margin),
-        ]
-    }
-
     /// Computes an adaptive sample step based on geometry sizes.
     fn compute_sample_step(&self) -> f64 {
         if self.geometries.is_empty() {
@@ -469,16 +461,6 @@ impl NestingProblem {
         }
 
         (min_dim / 4.0).clamp(0.5, 10.0)
-    }
-
-    /// Expands an NFP by the given spacing amount.
-    fn expand_nfp(&self, nfp: &Nfp, spacing: f64) -> Nfp {
-        expand_nfp(nfp, spacing)
-    }
-
-    /// Shrinks an IFP by the given spacing amount.
-    fn shrink_ifp(&self, ifp: &Nfp, spacing: f64) -> Nfp {
-        shrink_ifp(ifp, spacing)
     }
 }
 

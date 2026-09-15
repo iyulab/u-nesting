@@ -65,10 +65,11 @@ pub struct Config {
     /// Optimization strategy.
     pub strategy: Strategy,
 
-    /// Minimum spacing between geometries.
+    /// Minimum distance between any two placed geometries. It does not apply
+    /// between a geometry and the boundary — that is `margin`.
     pub spacing: f64,
 
-    /// Margin from boundary edges.
+    /// Minimum distance between any placed geometry and the boundary edge.
     pub margin: f64,
 
     /// Maximum computation time in milliseconds (0 = unlimited).

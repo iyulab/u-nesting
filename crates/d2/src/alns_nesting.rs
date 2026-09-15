@@ -35,7 +35,7 @@ use u_nesting_core::solver::Config;
 use u_nesting_core::timing::Timer;
 use u_nesting_core::{Placement, SolveResult};
 
-use crate::placement_utils::{expand_nfp, shrink_ifp, InstanceInfo};
+use crate::placement_utils::{inset_boundary_rect, offset_nfp, InstanceInfo};
 use rand::prelude::*;
 
 /// A placed item in the ALNS solution.
@@ -186,17 +186,6 @@ impl AlnsNestingProblem {
         self.instances.len()
     }
 
-    /// Get boundary polygon with margin.
-    fn get_boundary_polygon_with_margin(&self, margin: f64) -> Vec<(f64, f64)> {
-        let (min, max) = self.boundary.aabb();
-        vec![
-            (min[0] + margin, min[1] + margin),
-            (max[0] - margin, min[1] + margin),
-            (max[0] - margin, max[1] - margin),
-            (min[0] + margin, max[1] - margin),
-        ]
-    }
-
     /// Compute sample step for grid search.
     fn compute_sample_step(&self) -> f64 {
         let (min, max) = self.boundary.aabb();
@@ -256,19 +245,18 @@ impl AlnsNestingProblem {
                     if let Ok(nfp) =
                         compute_nfp_mirrored(&placed_geom, geom, rotation, false, mirror)
                     {
-                        let expanded = expand_nfp(&nfp, spacing);
+                        let expanded = offset_nfp(&nfp, spacing);
                         nfps.push(expanded);
                     }
                 }
 
-                let ifp_shrunk = shrink_ifp(&ifp, spacing);
+                // `spacing` separates pieces from each other, not from the boundary —
+                // clearance to the edge is `margin`, already applied to the boundary.
                 let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
                 // IFP returns positions where the geometry's origin should be placed.
                 // Clamp to ensure placement keeps geometry within boundary.
-                if let Some((x, y)) =
-                    find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
-                {
+                if let Some((x, y)) = find_bottom_left_placement(&ifp, &nfp_refs, sample_step) {
                     // Clamp position to keep geometry within boundary
                     // (mirror-aware — an unmirrored AABB has the wrong local
                     // extents for a mirrored candidate, see `aabb_at_rotation_mirrored`).
@@ -317,7 +305,10 @@ impl AlnsNestingProblem {
     /// Place items using BLF heuristic.
     fn place_items_blf(&self, items: &[usize], solution: &mut AlnsNestingSolution) {
         let margin = self.config.margin;
-        let boundary_polygon = self.get_boundary_polygon_with_margin(margin);
+        let boundary_polygon = {
+            let (b_min, b_max) = self.boundary.aabb();
+            inset_boundary_rect(b_min, b_max, margin)
+        };
         let sample_step = self.compute_sample_step();
 
         let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
@@ -867,7 +858,10 @@ mod tests {
         );
 
         let margin = problem.config.margin;
-        let boundary_polygon = problem.get_boundary_polygon_with_margin(margin);
+        let boundary_polygon = {
+            let (b_min, b_max) = problem.boundary.aabb();
+            inset_boundary_rect(b_min, b_max, margin)
+        };
         let sample_step = problem.compute_sample_step();
 
         let placement0 = problem
@@ -919,7 +913,10 @@ mod tests {
         );
 
         let margin = problem.config.margin;
-        let boundary_polygon = problem.get_boundary_polygon_with_margin(margin);
+        let boundary_polygon = {
+            let (b_min, b_max) = problem.boundary.aabb();
+            inset_boundary_rect(b_min, b_max, margin)
+        };
         let sample_step = problem.compute_sample_step();
 
         let placement = problem

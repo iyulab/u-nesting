@@ -27,7 +27,7 @@ use u_nesting_core::sa::{
 use u_nesting_core::solver::Config;
 use u_nesting_core::{Placement, SolveResult};
 
-use crate::placement_utils::{expand_nfp, nesting_fitness, shrink_ifp, InstanceInfo};
+use crate::placement_utils::{inset_boundary_rect, nesting_fitness, offset_nfp, InstanceInfo};
 
 /// SA problem definition for 2D nesting.
 pub struct SaNestingProblem {
@@ -115,7 +115,10 @@ impl SaNestingProblem {
         let spacing = self.config.spacing;
 
         // Get boundary polygon with margin
-        let boundary_polygon = self.get_boundary_polygon_with_margin(margin);
+        let boundary_polygon = {
+            let (b_min, b_max) = self.boundary.aabb();
+            inset_boundary_rect(b_min, b_max, margin)
+        };
 
         // Sampling step for grid search
         let sample_step = self.compute_sample_step();
@@ -182,19 +185,19 @@ impl SaNestingProblem {
                 if let Ok(nfp) =
                     compute_nfp_mirrored(&placed_geom, geom, rotation_angle, false, mirror)
                 {
-                    let expanded = expand_nfp(&nfp, spacing);
+                    let expanded = offset_nfp(&nfp, spacing);
                     nfps.push(expanded);
                 }
             }
 
-            // Shrink IFP by spacing
-            let ifp_shrunk = shrink_ifp(&ifp, spacing);
+            // `spacing` separates pieces from each other, not from the boundary —
+            // clearance to the edge is `margin`, already applied to the boundary.
 
             // Find the bottom-left valid placement
             // IFP returns positions where the geometry's origin should be placed.
             // Clamp to ensure placement keeps geometry within boundary.
             let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-            if let Some((x, y)) = find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step) {
+            if let Some((x, y)) = find_bottom_left_placement(&ifp, &nfp_refs, sample_step) {
                 // Clamp position to keep geometry within boundary
                 // (mirror-aware — an unmirrored AABB has the wrong local
                 // extents for a mirrored candidate, see `aabb_at_rotation_mirrored`).
@@ -242,17 +245,6 @@ impl SaNestingProblem {
 
         let utilization = total_placed_area / self.boundary.measure();
         (placements, utilization, placed_count)
-    }
-
-    /// Gets the boundary polygon with margin applied.
-    fn get_boundary_polygon_with_margin(&self, margin: f64) -> Vec<(f64, f64)> {
-        let (b_min, b_max) = self.boundary.aabb();
-        vec![
-            (b_min[0] + margin, b_min[1] + margin),
-            (b_max[0] - margin, b_min[1] + margin),
-            (b_max[0] - margin, b_max[1] - margin),
-            (b_min[0] + margin, b_max[1] - margin),
-        ]
     }
 
     /// Computes an adaptive sample step based on geometry sizes.

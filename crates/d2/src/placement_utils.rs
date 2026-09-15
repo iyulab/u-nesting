@@ -34,84 +34,37 @@ pub fn polygon_centroid(polygon: &[(f64, f64)]) -> (f64, f64) {
     (sum.0 / n, sum.1 / n)
 }
 
-/// Expands an NFP outward by the given spacing amount.
+/// Grows an NFP by `spacing`, so that a reference point outside the result
+/// keeps the two pieces at least `spacing` apart.
 ///
-/// Each vertex of each polygon is moved away from its polygon's centroid
-/// by `spacing` units. This approximates a Minkowski sum with a circle
-/// of radius `spacing`.
-///
-/// Returns the original NFP unchanged if `spacing <= 0.0`.
-pub fn expand_nfp(nfp: &Nfp, spacing: f64) -> Nfp {
+/// The NFP of pieces grown by `spacing / 2` each is the NFP grown by `spacing`
+/// (the disc is symmetric), so this is the exact clearance region, computed as
+/// a true polygon offset — see `polygon_ops::offset_polygon` for the accuracy
+/// bound. Returns the NFP unchanged if `spacing <= 0.0`.
+pub fn offset_nfp(nfp: &Nfp, spacing: f64) -> Nfp {
     if spacing <= 0.0 {
         return nfp.clone();
     }
-
-    let expanded_polygons: Vec<Vec<(f64, f64)>> = nfp
-        .polygons
-        .iter()
-        .map(|polygon| {
-            let (cx, cy) = polygon_centroid(polygon);
-            polygon
-                .iter()
-                .map(|&(x, y)| {
-                    let dx = x - cx;
-                    let dy = y - cy;
-                    let dist = (dx * dx + dy * dy).sqrt();
-                    if dist > 1e-10 {
-                        let scale = (dist + spacing) / dist;
-                        (cx + dx * scale, cy + dy * scale)
-                    } else {
-                        (x, y)
-                    }
-                })
-                .collect()
-        })
-        .collect();
-
-    Nfp::from_polygons(expanded_polygons)
+    Nfp::from_polygons(
+        nfp.polygons
+            .iter()
+            .flat_map(|polygon| crate::polygon_ops::offset_polygon(polygon, spacing))
+            .collect(),
+    )
 }
 
-/// Shrinks an IFP (Inner-Fit Polygon) inward by the given spacing amount.
+/// The rectangle `[b_min + margin, b_max - margin]`, counter-clockwise — the
+/// area pieces may occupy inside a boundary's bounding box.
 ///
-/// Each vertex of each polygon is moved toward its polygon's centroid
-/// by `spacing` units. Polygons that collapse to fewer than 3 vertices
-/// are discarded.
-///
-/// Returns the original IFP unchanged if `spacing <= 0.0`.
-pub fn shrink_ifp(ifp: &Nfp, spacing: f64) -> Nfp {
-    if spacing <= 0.0 {
-        return ifp.clone();
-    }
-
-    let shrunk_polygons: Vec<Vec<(f64, f64)>> = ifp
-        .polygons
-        .iter()
-        .filter_map(|polygon| {
-            let (cx, cy) = polygon_centroid(polygon);
-            let shrunk: Vec<(f64, f64)> = polygon
-                .iter()
-                .map(|&(x, y)| {
-                    let dx = x - cx;
-                    let dy = y - cy;
-                    let dist = (dx * dx + dy * dy).sqrt();
-                    if dist > spacing + 1e-10 {
-                        let scale = (dist - spacing) / dist;
-                        (cx + dx * scale, cy + dy * scale)
-                    } else {
-                        (cx, cy)
-                    }
-                })
-                .collect();
-
-            if shrunk.len() >= 3 {
-                Some(shrunk)
-            } else {
-                None
-            }
-        })
-        .collect();
-
-    Nfp::from_polygons(shrunk_polygons)
+/// Placement code insets the boundary with this once and then computes the
+/// inner-fit polygon with no further margin.
+pub fn inset_boundary_rect(b_min: [f64; 2], b_max: [f64; 2], margin: f64) -> Vec<(f64, f64)> {
+    vec![
+        (b_min[0] + margin, b_min[1] + margin),
+        (b_max[0] - margin, b_min[1] + margin),
+        (b_max[0] - margin, b_max[1] - margin),
+        (b_min[0] + margin, b_max[1] - margin),
+    ]
 }
 
 /// Computes the nesting fitness score from placement results.
@@ -152,78 +105,42 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_nfp_zero_spacing() {
+    fn offset_nfp_with_no_spacing_is_the_nfp() {
         let nfp = Nfp::from_polygons(vec![vec![
             (0.0, 0.0),
             (10.0, 0.0),
             (10.0, 10.0),
             (0.0, 10.0),
         ]]);
-        let expanded = expand_nfp(&nfp, 0.0);
-        assert_eq!(expanded.polygons.len(), nfp.polygons.len());
-        assert_eq!(expanded.polygons[0], nfp.polygons[0]);
+        assert_eq!(offset_nfp(&nfp, 0.0).polygons, nfp.polygons);
     }
 
     #[test]
-    fn test_expand_nfp_positive_spacing() {
+    fn offset_nfp_moves_every_edge_by_the_spacing() {
+        // An NFP whose corners sit on the diagonals: moving vertices away from
+        // the centre shifted its edges by only 0.71 × spacing.
         let nfp = Nfp::from_polygons(vec![vec![
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (10.0, 10.0),
-            (0.0, 10.0),
+            (-300.0, -300.0),
+            (300.0, -300.0),
+            (300.0, 300.0),
+            (-300.0, 300.0),
         ]]);
-        let expanded = expand_nfp(&nfp, 1.0);
-        // All vertices should move outward from centroid (5,5)
-        for &(x, y) in &expanded.polygons[0] {
-            let dx = x - 5.0;
-            let dy = y - 5.0;
-            let dist = (dx * dx + dy * dy).sqrt();
-            // Original distance was ~7.07, expanded should be ~8.07
-            assert!(dist > 7.0);
-        }
+        let grown = offset_nfp(&nfp, 50.0);
+        assert_eq!(grown.polygons.len(), 1);
+        let ring = &grown.polygons[0];
+        let max_x = ring.iter().map(|p| p.0).fold(f64::MIN, f64::max);
+        let max_y = ring.iter().map(|p| p.1).fold(f64::MIN, f64::max);
+        assert!((350.0..350.1).contains(&max_x), "right edge at {max_x}");
+        assert!((350.0..350.1).contains(&max_y), "top edge at {max_y}");
     }
 
     #[test]
-    fn test_shrink_ifp_zero_spacing() {
-        let ifp = Nfp::from_polygons(vec![vec![
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (10.0, 10.0),
-            (0.0, 10.0),
-        ]]);
-        let shrunk = shrink_ifp(&ifp, 0.0);
-        assert_eq!(shrunk.polygons.len(), ifp.polygons.len());
-        assert_eq!(shrunk.polygons[0], ifp.polygons[0]);
-    }
-
-    #[test]
-    fn test_shrink_ifp_positive_spacing() {
-        let ifp = Nfp::from_polygons(vec![vec![
-            (0.0, 0.0),
-            (10.0, 0.0),
-            (10.0, 10.0),
-            (0.0, 10.0),
-        ]]);
-        let shrunk = shrink_ifp(&ifp, 1.0);
-        // All vertices should move inward toward centroid (5,5)
-        for &(x, y) in &shrunk.polygons[0] {
-            let dx = x - 5.0;
-            let dy = y - 5.0;
-            let dist = (dx * dx + dy * dy).sqrt();
-            // Original distance was ~7.07, shrunk should be ~6.07
-            assert!(dist < 7.0);
-        }
-    }
-
-    #[test]
-    fn test_shrink_ifp_collapse() {
-        // Very small polygon that collapses with spacing
-        let ifp = Nfp::from_polygons(vec![vec![(0.0, 0.0), (1.0, 0.0), (0.5, 0.5)]]);
-        let shrunk = shrink_ifp(&ifp, 10.0);
-        // Should collapse to empty (all vertices become centroid, < 3 unique)
-        // The shrunk polygon may still have 3 points (all at centroid)
-        // but the logic preserves polygons with >= 3 vertices
-        assert!(shrunk.polygons.is_empty() || shrunk.polygons[0].len() >= 3);
+    fn inset_boundary_rect_applies_the_margin_once() {
+        let rect = inset_boundary_rect([0.0, 0.0], [1000.0, 500.0], 50.0);
+        assert_eq!(
+            rect,
+            vec![(50.0, 50.0), (950.0, 50.0), (950.0, 450.0), (50.0, 450.0)]
+        );
     }
 
     #[test]

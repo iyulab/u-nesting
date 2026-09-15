@@ -35,8 +35,6 @@ use u_nesting_core::geometry::Geometry2DExt;
 use u_nesting_core::robust::{orient2d_filtered, Orientation};
 use u_nesting_core::{Error, Result};
 
-use crate::placement_utils::polygon_centroid;
-
 /// Rotates an NFP around the origin by the given angle (in radians).
 ///
 /// This is used when computing NFP with relative rotation and then
@@ -573,7 +571,8 @@ fn compute_minkowski_erosion_general(
 /// Shrinks a polygon by moving all edges inward by the given offset.
 ///
 /// For axis-aligned rectangles (the common case for boundaries), this shrinks
-/// each edge inward. For general polygons, it uses a vertex-based approach.
+/// each edge inward exactly. Any other polygon is offset inward by at least
+/// `offset` everywhere (see `polygon_ops::offset_polygon`).
 fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>> {
     if polygon.len() < 3 {
         return Err(Error::InvalidGeometry(
@@ -612,39 +611,19 @@ fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>
         }
     }
 
-    // General polygon shrink using centroid-based approach
-    let (cx, cy) = polygon_centroid(polygon);
-
-    let result: Vec<(f64, f64)> = polygon
-        .iter()
-        .filter_map(|&(x, y)| {
-            let dx = x - cx;
-            let dy = y - cy;
-            let dist = (dx * dx + dy * dy).sqrt();
-
-            if dist < offset + 1e-10 {
-                // Vertex too close to centroid
-                return None;
-            }
-
-            // Move vertex toward centroid by offset
-            let factor = (dist - offset) / dist;
-            Some((cx + dx * factor, cy + dy * factor))
+    // Any other polygon: a true inward offset. If the offset splits the
+    // polygon, keep the largest piece — the inner-fit polygon is built from a
+    // single boundary ring, and dropping a smaller piece only forgoes positions.
+    crate::polygon_ops::offset_polygon(polygon, -offset)
+        .into_iter()
+        .max_by(|p, q| {
+            signed_area(p)
+                .abs()
+                .partial_cmp(&signed_area(q).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
         })
-        .collect();
-
-    // Validate result polygon has reasonable size
-    if result.len() < 3 {
-        return Err(Error::InvalidGeometry("Offset polygon collapsed".into()));
-    }
-
-    // Check if the polygon has positive area (not self-intersecting)
-    let area = signed_area(&result).abs();
-    if area <= 1e-10 {
-        return Err(Error::InvalidGeometry("Offset polygon collapsed".into()));
-    }
-
-    Ok(result)
+        .filter(|ring| signed_area(ring).abs() > 1e-10)
+        .ok_or_else(|| Error::InvalidGeometry("Offset polygon collapsed".into()))
 }
 
 /// Computes bounding box of a polygon.
@@ -979,20 +958,6 @@ pub fn point_outside_all_nfps(point: (f64, f64), nfps: &[&Nfp]) -> bool {
     true
 }
 
-/// Checks if a point is strictly outside all NFPs (boundary points are considered outside).
-/// This allows pieces to touch but not overlap.
-fn point_outside_all_nfps_strict(point: (f64, f64), nfps: &[&Nfp]) -> bool {
-    for nfp in nfps {
-        for polygon in &nfp.polygons {
-            // Point must be strictly outside (interior = overlapping)
-            if point_in_polygon(point, polygon) {
-                return false;
-            }
-        }
-    }
-    true
-}
-
 /// Checks if a point is on the boundary of a polygon (not strictly inside or outside).
 fn point_on_polygon_boundary(point: (f64, f64), polygon: &[(f64, f64)]) -> bool {
     let (px, py) = point;
@@ -1079,6 +1044,26 @@ pub fn find_bottom_left_placement(
         }
     }
 
+    // Where an NFP edge crosses an IFP edge or another NFP edge is a corner of
+    // the feasible region — the position where a piece touches both. Without
+    // these, a piece that must sit against a boundary edge and a placed piece
+    // at once can only land on the next grid point, leaving a gap up to
+    // `sample_step` wider than required.
+    for nfp in nfps {
+        for polygon in &nfp.polygons {
+            for ifp_polygon in &ifp.polygons {
+                push_edge_crossings(ifp_polygon, polygon, &mut candidates);
+            }
+        }
+    }
+    let nfp_polygons: Vec<&Vec<(f64, f64)>> =
+        nfps.iter().flat_map(|nfp| nfp.polygons.iter()).collect();
+    for (i, a) in nfp_polygons.iter().enumerate() {
+        for b in &nfp_polygons[i + 1..] {
+            push_edge_crossings(a, b, &mut candidates);
+        }
+    }
+
     // Find the bounding box of the IFP for grid sampling
     let (min_x, min_y, max_x, max_y) = ifp_bounding_box(ifp);
 
@@ -1093,35 +1078,67 @@ pub fn find_bottom_left_placement(
         y += sample_step;
     }
 
-    // Filter candidates to those inside IFP (including boundary) and outside all NFPs
-    let valid_candidates: Vec<(f64, f64)> = candidates
-        .into_iter()
-        .filter(|&point| {
-            // Must be inside IFP (including boundary points)
-            let in_ifp = ifp
-                .polygons
-                .iter()
-                .any(|p| point_in_polygon(point, p) || point_on_polygon_boundary(point, p));
-            if !in_ifp {
-                return false;
-            }
-            // Must be outside all NFPs (boundary points OK - touching but not overlapping)
-            point_outside_all_nfps_strict(point, nfps)
-        })
+    // The first valid candidate in (x, y) order is the answer: minimise X first
+    // (strip length), then Y (pack tightly) — shorter strips than the traditional
+    // "bottom-left" order, which puts Y first. Checking in that order stops at
+    // the answer instead of validating every candidate.
+    candidates.retain(|p| p.0.is_finite() && p.1.is_finite());
+    candidates.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+
+    // A point outside a polygon's bounding box is outside the polygon; most NFPs
+    // are nowhere near a given candidate.
+    let boxes: Vec<(f64, f64, f64, f64)> = nfp_polygons
+        .iter()
+        .map(|polygon| bounding_box(polygon))
         .collect();
 
-    // Find optimal point: minimize X first (strip length), then Y (pack tightly)
-    // This produces shorter strip lengths than the traditional "bottom-left" approach
-    valid_candidates.into_iter().min_by(|a, b| {
-        // Compare X first (left = shorter strip), then Y (bottom)
-        match a.0.partial_cmp(&b.0) {
-            Some(std::cmp::Ordering::Equal) => {
-                a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
-            }
-            Some(ord) => ord,
-            None => std::cmp::Ordering::Equal,
-        }
+    candidates.into_iter().find(|&point| {
+        // Must be inside IFP (including boundary points)
+        let in_ifp = ifp
+            .polygons
+            .iter()
+            .any(|p| point_in_polygon(point, p) || point_on_polygon_boundary(point, p));
+        // Must be strictly outside every NFP (touching is allowed, overlapping is not)
+        in_ifp
+            && nfp_polygons
+                .iter()
+                .zip(&boxes)
+                .all(|(polygon, &(min_x, min_y, max_x, max_y))| {
+                    point.0 <= min_x
+                        || point.0 >= max_x
+                        || point.1 <= min_y
+                        || point.1 >= max_y
+                        || !point_in_polygon(point, polygon)
+                })
     })
+}
+
+/// Appends every point where an edge of ring `a` properly crosses an edge of
+/// ring `b`. Rings whose bounding boxes are disjoint are skipped outright.
+fn push_edge_crossings(a: &[(f64, f64)], b: &[(f64, f64)], out: &mut Vec<(f64, f64)>) {
+    let (a_min_x, a_min_y, a_max_x, a_max_y) = bounding_box(a);
+    let (b_min_x, b_min_y, b_max_x, b_max_y) = bounding_box(b);
+    if a_max_x < b_min_x || b_max_x < a_min_x || a_max_y < b_min_y || b_max_y < a_min_y {
+        return;
+    }
+    for i in 0..a.len() {
+        let (p, p2) = (a[i], a[(i + 1) % a.len()]);
+        let (rx, ry) = (p2.0 - p.0, p2.1 - p.1);
+        for j in 0..b.len() {
+            let (q, q2) = (b[j], b[(j + 1) % b.len()]);
+            let (sx, sy) = (q2.0 - q.0, q2.1 - q.1);
+            let denom = rx * sy - ry * sx;
+            if denom.abs() < 1e-12 {
+                continue; // parallel: no single crossing point
+            }
+            let (qpx, qpy) = (q.0 - p.0, q.1 - p.1);
+            let t = (qpx * sy - qpy * sx) / denom;
+            let u = (qpx * ry - qpy * rx) / denom;
+            if (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u) {
+                out.push((p.0 + t * rx, p.1 + t * ry));
+            }
+        }
+    }
 }
 
 /// Computes the bounding box of an NFP.
@@ -1822,6 +1839,45 @@ mod tests {
             width_margin,
             width_no
         );
+    }
+
+    #[test]
+    fn shrinking_a_non_rectangular_boundary_moves_every_edge_inward_by_the_offset() {
+        // An L-shaped boundary: its reflex corner and diagonal-free edges were
+        // pulled toward the vertex centroid, not offset.
+        let l_boundary = vec![
+            (0.0, 0.0),
+            (100.0, 0.0),
+            (100.0, 40.0),
+            (40.0, 40.0),
+            (40.0, 100.0),
+            (0.0, 100.0),
+        ];
+        let shrunk = shrink_polygon(&l_boundary, 10.0).unwrap();
+        let n = l_boundary.len();
+        let dist = |p: (f64, f64)| {
+            (0..n)
+                .map(|i| {
+                    let (a, b) = (l_boundary[i], l_boundary[(i + 1) % n]);
+                    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+                    let t = (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / (dx * dx + dy * dy))
+                        .clamp(0.0, 1.0);
+                    ((p.0 - a.0 - t * dx).powi(2) + (p.1 - a.1 - t * dy).powi(2)).sqrt()
+                })
+                .fold(f64::INFINITY, f64::min)
+        };
+        for &v in &shrunk {
+            assert!(
+                dist(v) >= 10.0 - 1e-6,
+                "vertex {v:?} is {} from the boundary",
+                dist(v)
+            );
+        }
+        // The leg edges sit exactly 10 in (up to the arc allowance).
+        let min_x = shrunk.iter().map(|p| p.0).fold(f64::MAX, f64::min);
+        let min_y = shrunk.iter().map(|p| p.1).fold(f64::MAX, f64::min);
+        assert!((10.0..10.02).contains(&min_x), "left edge at {min_x}");
+        assert!((10.0..10.02).contains(&min_y), "bottom edge at {min_y}");
     }
 
     #[test]

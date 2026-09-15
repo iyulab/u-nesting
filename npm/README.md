@@ -165,8 +165,8 @@ interface Request2D {
     polygon?: [number, number][];      // Or custom polygon boundary
   };
   config?: {
-    spacing?: number;                  // Part spacing (default: 0)
-    margin?: number;                   // Boundary margin (default: 0)
+    spacing?: number;                  // Minimum distance between parts (default: 0)
+    margin?: number;                   // Minimum distance from a part to the boundary edge (default: 0)
     strategy?: string;                 // See available strategies
     population_size?: number;          // GA/BRKGA population (default: 50)
     max_generations?: number;          // GA/BRKGA generations (default: 100)

@@ -26,7 +26,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 use u_nesting_core::{Placement, Result, SolveResult};
 
-use crate::placement_utils::{expand_nfp, shrink_ifp};
+use crate::placement_utils::{inset_boundary_rect, offset_nfp};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
@@ -328,7 +328,10 @@ impl Nester2D {
         let spacing = self.config.spacing;
 
         // Get boundary polygon with margin applied
-        let boundary_polygon = self.get_boundary_polygon_with_margin(boundary, margin);
+        let boundary_polygon = {
+            let (b_min, b_max) = boundary.aabb();
+            inset_boundary_rect(b_min, b_max, margin)
+        };
 
         let mut total_placed_area = 0.0;
 
@@ -374,7 +377,8 @@ impl Nester2D {
                             &boundary_polygon,
                             geom,
                             rotation,
-                            margin,
+                            // The boundary polygon is already inset by `margin`.
+                            0.0,
                             mirror,
                         ) {
                             Ok(ifp) => ifp,
@@ -412,6 +416,10 @@ impl Nester2D {
                                         placed.mirrored,
                                         mirror,
                                     )
+                                    // Grown by `spacing` before caching: an offset commutes with the
+                                    // rotation and translation below, and `config` never changes for
+                                    // this nester, so the cache never holds an NFP for another spacing.
+                                    .map(|nfp| offset_nfp(&nfp, spacing))
                                 }) {
                                     Ok(nfp) => nfp,
                                     Err(_) => continue,
@@ -421,17 +429,16 @@ impl Nester2D {
                             // This correctly accounts for the placed geometry's actual orientation
                             let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
                             let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
-                            let expanded = self.expand_nfp(&translated_nfp, spacing);
-                            nfps.push(expanded);
+                            nfps.push(translated_nfp);
                         }
 
-                        // Shrink IFP by spacing from boundary
-                        let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
+                        // `spacing` separates pieces from each other, not from the boundary —
+                        // clearance to the edge is `margin`, already applied to the boundary.
 
                         // Find the optimal valid placement (minimize X for shorter strip)
                         let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
                         if let Some((x, y)) =
-                            find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
+                            find_bottom_left_placement(&ifp, &nfp_refs, sample_step)
                         {
                             // Compare with current best: prefer smaller X (shorter strip), then smaller Y
                             let is_better = match best_placement {
@@ -499,23 +506,6 @@ impl Nester2D {
         Ok(result)
     }
 
-    /// Gets the boundary polygon with margin applied.
-    fn get_boundary_polygon_with_margin(
-        &self,
-        boundary: &Boundary2D,
-        margin: f64,
-    ) -> Vec<(f64, f64)> {
-        let (b_min, b_max) = boundary.aabb();
-
-        // Create a rectangular boundary polygon with margin
-        vec![
-            (b_min[0] + margin, b_min[1] + margin),
-            (b_max[0] - margin, b_min[1] + margin),
-            (b_max[0] - margin, b_max[1] - margin),
-            (b_min[0] + margin, b_max[1] - margin),
-        ]
-    }
-
     /// Computes an adaptive sample step based on geometry sizes.
     fn compute_sample_step(&self, geometries: &[Geometry2D]) -> f64 {
         if geometries.is_empty() {
@@ -533,16 +523,6 @@ impl Nester2D {
 
         // Clamp sample step to reasonable range
         (min_dim / 4.0).clamp(0.5, 10.0)
-    }
-
-    /// Expands an NFP by the given spacing amount.
-    fn expand_nfp(&self, nfp: &Nfp, spacing: f64) -> Nfp {
-        expand_nfp(nfp, spacing)
-    }
-
-    /// Shrinks an IFP by the given spacing amount.
-    fn shrink_ifp(&self, ifp: &Nfp, spacing: f64) -> Nfp {
-        shrink_ifp(ifp, spacing)
     }
 
     /// Returns whichever of `meta` (a metaheuristic result) and a fresh
@@ -1056,7 +1036,10 @@ impl Nester2D {
 
         let margin = self.config.margin;
         let spacing = self.config.spacing;
-        let boundary_polygon = self.get_boundary_polygon_with_margin(boundary, margin);
+        let boundary_polygon = {
+            let (b_min, b_max) = boundary.aabb();
+            inset_boundary_rect(b_min, b_max, margin)
+        };
 
         let mut total_placed_area = 0.0;
         let sample_step = self.compute_sample_step(geometries);
@@ -1123,7 +1106,8 @@ impl Nester2D {
                             &boundary_polygon,
                             geom,
                             rotation,
-                            margin,
+                            // The boundary polygon is already inset by `margin`.
+                            0.0,
                             mirror,
                         ) {
                             Ok(ifp) => ifp,
@@ -1157,6 +1141,10 @@ impl Nester2D {
                                         placed.mirrored,
                                         mirror,
                                     )
+                                    // Grown by `spacing` before caching: an offset commutes with the
+                                    // rotation and translation below, and `config` never changes for
+                                    // this nester, so the cache never holds an NFP for another spacing.
+                                    .map(|nfp| offset_nfp(&nfp, spacing))
                                 }) {
                                     Ok(nfp) => nfp,
                                     Err(_) => continue,
@@ -1165,15 +1153,15 @@ impl Nester2D {
                             // Transform NFP: first rotate by placed.rotation, then translate
                             let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
                             let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
-                            let expanded = self.expand_nfp(&translated_nfp, spacing);
-                            nfps.push(expanded);
+                            nfps.push(translated_nfp);
                         }
 
-                        let ifp_shrunk = self.shrink_ifp(&ifp, spacing);
+                        // `spacing` separates pieces from each other, not from the boundary —
+                        // clearance to the edge is `margin`, already applied to the boundary.
                         let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
 
                         if let Some((x, y)) =
-                            find_bottom_left_placement(&ifp_shrunk, &nfp_refs, sample_step)
+                            find_bottom_left_placement(&ifp, &nfp_refs, sample_step)
                         {
                             let is_better = match best_placement {
                                 None => true,
@@ -1747,7 +1735,7 @@ mod tests {
     #[test]
     fn test_mirror_aware_placement_avoids_overlap() {
         // Nonzero spacing, matching how `nfp_guided_blf` actually calls these
-        // primitives (`expand_nfp`/`shrink_ifp` by `self.config.spacing`) —
+        // primitives (`offset_nfp` by `self.config.spacing`) —
         // at zero spacing, BLF's own bottom-left search can legitimately
         // return pieces exactly edge-touching (a "kissing" placement is a
         // valid zero-gap packing, not an overlap), which would make this
@@ -1761,23 +1749,20 @@ mod tests {
         // Place the first instance unmirrored, at the boundary's IFP origin.
         let ifp1 =
             compute_ifp_with_margin_and_mirror(&boundary_polygon, &geom, 0.0, 0.0, false).unwrap();
-        let ifp1_shrunk = shrink_ifp(&ifp1, spacing);
-        let (x1, y1) =
-            find_bottom_left_placement(&ifp1_shrunk, &[], 1.0).expect("first piece must fit");
+        let (x1, y1) = find_bottom_left_placement(&ifp1, &[], 1.0).expect("first piece must fit");
         let placed1 = PlacedGeometry::new(geom.clone(), (x1, y1), 0.0).with_mirrored(false);
 
         // Place the second instance MIRRORED, avoiding the first.
         let ifp2 =
             compute_ifp_with_margin_and_mirror(&boundary_polygon, &geom, 0.0, 0.0, true).unwrap();
-        let ifp2_shrunk = shrink_ifp(&ifp2, spacing);
         let nfp_at_origin = cache
             .get_or_compute_mirrored(("L", "L", 0.0, false, true), || {
                 compute_nfp_mirrored(&placed1.geometry, &geom, 0.0, false, true)
             })
             .unwrap();
         let translated_nfp = translate_nfp(&nfp_at_origin, placed1.position);
-        let expanded_nfp = expand_nfp(&translated_nfp, spacing);
-        let (x2, y2) = find_bottom_left_placement(&ifp2_shrunk, &[&expanded_nfp], 1.0)
+        let expanded_nfp = offset_nfp(&translated_nfp, spacing);
+        let (x2, y2) = find_bottom_left_placement(&ifp2, &[&expanded_nfp], 1.0)
             .expect("mirrored second piece must fit avoiding the first");
         let placed2 = PlacedGeometry::new(geom.clone(), (x2, y2), 0.0).with_mirrored(true);
 

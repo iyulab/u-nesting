@@ -102,9 +102,151 @@ pub(crate) fn is_simple_polygon(vertices: &[(f64, f64)]) -> bool {
     true
 }
 
+/// Target angle subtended by one segment of a rounded offset corner.
+///
+/// The arc is drawn through points on the circle, so each chord dips inside it
+/// by `r·(1 − cos(δ / 2))` for a segment angle `δ`. The outline builder rounds
+/// the segment count down, so `δ` can reach `2·ARC_STEP` (and a corner turning
+/// by less than `ARC_STEP` is cut by a single chord). [`offset_polygon`]
+/// therefore enlarges the radius by `1 / cos(ARC_STEP)`, which keeps every point
+/// of the result at least the requested distance away and overshoots straight
+/// edges by at most `1 / cos(ARC_STEP) − 1` (about 0.12 %).
+const ARC_STEP: f64 = core::f64::consts::PI / 64.0;
+
+/// Twice the signed area of a ring: positive for counter-clockwise order.
+pub(crate) fn signed_area2(vertices: &[(f64, f64)]) -> f64 {
+    let n = vertices.len();
+    (0..n)
+        .map(|i| {
+            let (x0, y0) = vertices[i];
+            let (x1, y1) = vertices[(i + 1) % n];
+            x0 * y1 - x1 * y0
+        })
+        .sum()
+}
+
+/// Offsets a simple polygon by `distance` — outward when positive, inward when
+/// negative — as the Minkowski sum (or difference) with a disc of that radius.
+///
+/// Every point of the returned rings lies at least `|distance|` from the
+/// original boundary; straight edges move by exactly that much up to the
+/// [`ARC_STEP`] allowance, and convex corners (reflex ones, inward) become arcs.
+/// This is the operation a clearance needs: moving vertices along rays from a
+/// centre instead moves an edge only by the part of that displacement along its
+/// normal, which is less than `distance` whenever the ray is not the normal.
+///
+/// Input winding does not matter. Returns the outer rings of the result — an
+/// inward offset can split a polygon, and an outward one can enclose a pocket,
+/// whose hole ring is dropped (callers use the result as a forbidden region, so
+/// dropping a pocket only forgoes positions, never admits an unsafe one).
+/// `distance == 0.0` returns the polygon unchanged.
+pub(crate) fn offset_polygon(vertices: &[(f64, f64)], distance: f64) -> Vec<Vec<(f64, f64)>> {
+    use i_overlay::mesh::outline::offset::OutlineOffset;
+    use i_overlay::mesh::style::{LineJoin, OutlineStyle};
+
+    if vertices.len() < 3 {
+        return Vec::new();
+    }
+    if distance == 0.0 {
+        return vec![vertices.to_vec()];
+    }
+
+    // The outline builder treats a clockwise ring as a hole and returns nothing
+    // for it on its own.
+    let mut ring: Vec<[f64; 2]> = vertices.iter().map(|&(x, y)| [x, y]).collect();
+    if signed_area2(vertices) < 0.0 {
+        ring.reverse();
+    }
+
+    let radius = distance / ARC_STEP.cos();
+    let style = OutlineStyle::new(radius).line_join(LineJoin::Round(ARC_STEP));
+    ring.outline_as::<i64>(&style)
+        .into_iter()
+        .filter_map(|shape| shape.into_iter().next())
+        .filter(|outer| outer.len() >= 3)
+        .map(|outer| outer.into_iter().map(|[x, y]| (x, y)).collect())
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shortest distance from `p` to the ring's edges.
+    fn distance_to_ring(p: (f64, f64), ring: &[(f64, f64)]) -> f64 {
+        let n = ring.len();
+        (0..n)
+            .map(|i| {
+                let (a, b) = (ring[i], ring[(i + 1) % n]);
+                let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+                let t =
+                    (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+                ((p.0 - a.0 - t * dx).powi(2) + (p.1 - a.1 - t * dy).powi(2)).sqrt()
+            })
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    /// (min, max) distance from points sampled along `result` to `source`.
+    fn clearance_range(result: &[(f64, f64)], source: &[(f64, f64)]) -> (f64, f64) {
+        let m = result.len();
+        let mut lo = f64::INFINITY;
+        let mut hi: f64 = 0.0;
+        for i in 0..m {
+            let (a, b) = (result[i], result[(i + 1) % m]);
+            for k in 0..=8 {
+                let t = f64::from(k) / 8.0;
+                let d = distance_to_ring((a.0 + t * (b.0 - a.0), a.1 + t * (b.1 - a.1)), source);
+                lo = lo.min(d);
+                hi = hi.max(d);
+            }
+        }
+        (lo, hi)
+    }
+
+    #[test]
+    fn outward_offset_keeps_every_point_at_least_the_distance_away() {
+        let square = vec![(0.0, 0.0), (600.0, 0.0), (600.0, 600.0), (0.0, 600.0)];
+        let l_shape = vec![
+            (0.0, 0.0),
+            (300.0, 0.0),
+            (300.0, 100.0),
+            (100.0, 100.0),
+            (100.0, 300.0),
+            (0.0, 300.0),
+        ];
+        let sliver = vec![(0.0, 0.0), (100.0, 0.0), (0.0, 3.0)];
+        for (poly, d) in [(square, 50.0), (l_shape, 20.0), (sliver, 5.0)] {
+            let rings = offset_polygon(&poly, d);
+            assert_eq!(rings.len(), 1);
+            let (lo, hi) = clearance_range(&rings[0], &poly);
+            assert!(lo >= d - 1e-6, "closest point {lo} is nearer than {d}");
+            assert!(
+                hi <= d * 1.002,
+                "farthest point {hi} overshoots {d} by more than the arc allowance"
+            );
+        }
+    }
+
+    #[test]
+    fn winding_does_not_change_the_offset() {
+        let ccw = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let cw: Vec<_> = ccw.iter().rev().copied().collect();
+        let a = offset_polygon(&ccw, 2.0);
+        let b = offset_polygon(&cw, 2.0);
+        assert_eq!(a.len(), 1);
+        assert_eq!(b.len(), 1);
+        let area = |r: &[(f64, f64)]| signed_area2(r).abs() / 2.0;
+        assert!((area(&a[0]) - area(&b[0])).abs() < 1e-6);
+    }
+
+    #[test]
+    fn inward_offset_moves_edges_by_the_distance() {
+        let square = vec![(0.0, 0.0), (100.0, 0.0), (100.0, 100.0), (0.0, 100.0)];
+        let rings = offset_polygon(&square, -10.0);
+        assert_eq!(rings.len(), 1);
+        let (lo, hi) = clearance_range(&rings[0], &square);
+        assert!(lo >= 10.0 - 1e-6 && hi <= 10.0 * 1.002, "range {lo}..{hi}");
+    }
 
     #[test]
     fn crossing_segments_intersect() {

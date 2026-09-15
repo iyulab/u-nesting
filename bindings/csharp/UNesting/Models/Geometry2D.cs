@@ -97,14 +97,15 @@ public class Config2D
     public string? Strategy { get; set; }
 
     /// <summary>
-    /// Minimum spacing between parts.
+    /// Minimum distance between any two placed parts. Does not apply to the
+    /// boundary edge; that is <see cref="Margin"/>.
     /// </summary>
     [JsonPropertyName("spacing")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public double Spacing { get; set; }
 
     /// <summary>
-    /// Margin from boundary edges.
+    /// Minimum distance between any placed part and the boundary edge.
     /// </summary>
     [JsonPropertyName("margin")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]

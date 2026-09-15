@@ -7,8 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`spacing` was under-delivered by the NFP-based strategies** (`nfp`, `gdrr`,
+  `alns`, and `ga`/`brkga`/`sa` whenever their own layout was returned). The
+  no-fit polygon was grown by moving each vertex away from the polygon's
+  centroid, which moves an edge only by the part of that displacement along its
+  normal — two squares requested 50 apart were placed 40 apart, and L-shaped
+  parts could end up at under two thirds of the requested distance. It is now a
+  true polygon offset: every pair of placed parts is at least `spacing` apart,
+  exceeding it by at most 0.12 %.
+- **`margin` was applied twice by the `nfp` strategy**: a part was placed at
+  `2 × margin` from the edge, and a sheet with room for a part inside a single
+  margin placed nothing.
+- **The NFP-based strategies also kept `spacing` from the boundary edge**, which
+  the bottom-left-fill strategy never did; clearance to the edge is `margin`
+  alone for every strategy now.
+- **A part that must touch both a placed part and the boundary could only land
+  on the next sampling point**, leaving a gap up to the sampling step wider than
+  `spacing`. The placement search now also tries the points where the boundary
+  and the no-fit polygons cross.
+- `compute_ifp_with_margin` on a non-rectangular boundary pulled its vertices
+  toward the vertex centroid instead of moving its edges inward by `margin`.
+
 ### Changed
 
+- **Breaking:** `placement_utils::expand_nfp` and `placement_utils::shrink_ifp`
+  are removed — they implemented the incorrect growth above. Use
+  `placement_utils::offset_nfp` (same arguments); there is no replacement for
+  `shrink_ifp`, because the inner-fit polygon is no longer shrunk by `spacing`.
+  `placement_utils::inset_boundary_rect` is the one place a boundary is inset by
+  `margin`.
 - Dropped dependencies that no code used: `log` and `u-numflow` from
   `u-nesting-core`; `thiserror` and `rand` from `u-nesting-cutting`;
   `thiserror` from `u-nesting-d2`; `thiserror` and `rayon` from

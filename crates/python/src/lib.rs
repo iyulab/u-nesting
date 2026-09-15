@@ -199,8 +199,8 @@ fn build_config(input: Option<ConfigRequest>) -> Result<Config, String> {
 ///         - polygon: For arbitrary boundary shape
 ///     config: Optional configuration dictionary with keys:
 ///         - strategy: "blf", "nfp", "ga", "brkga", "sa"
-///         - spacing: Minimum spacing between geometries
-///         - margin: Margin from boundary edges
+///         - spacing: Minimum distance between two placed geometries
+///         - margin: Minimum distance from a geometry to the boundary edge
 ///         - time_limit_ms: Maximum computation time
 ///         - And GA-specific parameters
 ///
