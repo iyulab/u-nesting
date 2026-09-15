@@ -172,7 +172,7 @@ interface Request2D {
     max_generations?: number;          // GA/BRKGA generations (default: 100)
     crossover_rate?: number;           // Crossover rate (default: 0.8)
     mutation_rate?: number;            // Mutation rate (default: 0.1)
-    time_limit_ms?: number;            // Time limit in ms
+    time_limit_ms?: number;            // Time limit in ms for the whole solve
     target_utilization?: number;       // Stop early if reached
     multi_sheet?: boolean;             // Spill overflow onto extra sheets (default: false)
   };

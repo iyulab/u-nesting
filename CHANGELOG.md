@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-09-15
+
+A minor release because public functions change signature or are removed (see
+**Changed**). Most of it is fixes to what the solvers promise: the distances
+`spacing` and `margin` describe, the shape of the boundary, `time_limit_ms`, and
+the length of the layouts they return. Layout coordinates from the NFP-based and
+search strategies differ from 0.10.0.
+
 ### Fixed
 
 - **`spacing` was under-delivered by the NFP-based strategies** (`nfp`, `gdrr`,

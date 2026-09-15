@@ -78,6 +78,8 @@ Optimization results using different algorithms on the same dataset (50 pieces, 
 | **BLF** (Bottom-Left Fill) | <img src="assets/BLF.png" alt="BLF Result" width="300"> | 60.0% | 338ms |
 
 > **Note**: Higher utilization = better material efficiency. Results may vary depending on piece shapes, quantities, and constraints. Run your own benchmarks to find the best algorithm for your specific use case.
+>
+> These figures were captured before 0.11.0. Layouts and times differ from 0.11.0 on, which changed how placement follows the sheet's length, enforces `spacing` and `margin`, and honours `time_limit_ms`.
 
 ## Installation
 
@@ -85,15 +87,15 @@ Optimization results using different algorithms on the same dataset (50 pieces, 
 
 ```toml
 [dependencies]
-u-nesting = "0.1"                              # 2D only (default)
-u-nesting = { version = "0.1", features = ["3d"] }  # 2D + 3D
+u-nesting = "0.11"                             # 2D only (default)
+u-nesting = { version = "0.11", features = ["3d"] } # 2D + 3D
 ```
 
 ### From GitHub
 
 ```toml
 [dependencies]
-u-nesting = { git = "https://github.com/iyulab/U-Nesting" }
+u-nesting = { git = "https://github.com/iyulab/u-nesting" }
 ```
 
 ## Quick Start
@@ -200,6 +202,27 @@ u-nesting/
 | **SA** (Simulated Annealing) | Temperature-based neighborhood search | ★★★★☆ | ★★★☆☆ |
 | **GDRR** (Greedy Descent with Random Restarts) | Local search with restart diversification | ★★★★☆ | ★★★☆☆ |
 | **ALNS** (Adaptive Large Neighborhood Search) | Destroy-repair with operator selection | ★★★★★ | ★★☆☆☆ |
+
+### What the 2D heuristic and search strategies guarantee
+
+BLF, NFP, GA, BRKGA, SA, GDRR and ALNS (the optional exact MILP strategies are
+not covered here):
+
+- **`spacing`** is the minimum distance between any two placed parts (it may be
+  exceeded by at most 0.12 %, the allowance for rounded offsets). It does not
+  apply to the boundary.
+- **`margin`** is the minimum distance from any part to every boundary edge,
+  including slanted edges of a polygon boundary and the edges of holes.
+- Parts are placed inside the boundary polygon, never over a hole.
+- Layouts advance along the boundary's longer side (the strip's length) and
+  fill across the shorter one.
+- **`time_limit_ms`** bounds the whole solve: the search strategies return the
+  best layout found within it, plus the time of the bottom-left pass they are
+  compared against.
+- The search strategies (GA, BRKGA, SA, GDRR, ALNS) never return a layout that
+  places fewer parts, or uses more length, than bottom-left fill on the same
+  input — nor than greedy NFP placement, whenever that pass completes within
+  the time limit (it runs first, inside the limit).
 
 ### 3D Algorithms
 

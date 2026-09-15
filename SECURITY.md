@@ -8,7 +8,7 @@ support branches.
 
 | Version | Supported |
 | ------- | --------- |
-| 0.10.0 (latest) | :white_check_mark: |
+| 0.11.0 (latest) | :white_check_mark: |
 | anything older | :x: |
 
 If you are pinned to an older version, the fix will be to upgrade.
