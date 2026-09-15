@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-09-15
+## [0.11.0] - 2026-09-16
 
 A minor release because public functions change signature or are removed (see
 **Changed**). Most of it is fixes to what the solvers promise: the distances
