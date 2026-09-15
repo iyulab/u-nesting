@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 272376a7ed82f25da6bdbb34755dbdced109b58cd9fb87f37f9c1aefecda460a # shrinks to legs = [(30.0, 87.07434647881773, 8.0)], spacing = 5.848805769553489, margin = 12.284660950644053, concave = false, strategy = Gdrr
+cc 2298b1f58d07d598ae9fd22deee0679bb395a18996792c96833c4add058ab569 # shrinks to legs = [(62.0431424764649, 30.0, 8.0)], spacing = 0.5, margin = 24.256631262140914, concave = false, strategy = GeneticAlgorithm

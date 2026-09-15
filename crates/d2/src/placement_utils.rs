@@ -3,7 +3,9 @@
 //! This module consolidates common geometry operations used across
 //! multiple nesting strategy implementations (GA, SA, BRKGA, ALNS, GDRR).
 
+use crate::boundary::Boundary2D;
 use crate::nfp::Nfp;
+use u_nesting_core::geometry::Boundary;
 
 /// Instance information for decoding placement orders.
 ///
@@ -53,18 +55,41 @@ pub fn offset_nfp(nfp: &Nfp, spacing: f64) -> Nfp {
     )
 }
 
-/// The rectangle `[b_min + margin, b_max - margin]`, counter-clockwise — the
-/// area pieces may occupy inside a boundary's bounding box.
+/// The region pieces may occupy: the boundary moved inward by `margin`,
+/// counter-clockwise.
+///
+/// A rectangle (or strip) is inset exactly on its bounding box. Any other
+/// boundary is offset inward along its own edges — using its bounding box
+/// instead would let a piece sit in the box's empty corners, closer than
+/// `margin` to a slanted edge or outside the boundary altogether. If the
+/// offset splits the boundary the largest piece is kept; if nothing is left,
+/// the result is empty and nothing fits. Holes are not part of this region.
 ///
 /// Placement code insets the boundary with this once and then computes the
 /// inner-fit polygon with no further margin.
-pub fn inset_boundary_rect(b_min: [f64; 2], b_max: [f64; 2], margin: f64) -> Vec<(f64, f64)> {
-    vec![
-        (b_min[0] + margin, b_min[1] + margin),
-        (b_max[0] - margin, b_min[1] + margin),
-        (b_max[0] - margin, b_max[1] - margin),
-        (b_min[0] + margin, b_max[1] - margin),
-    ]
+pub fn inset_boundary(boundary: &Boundary2D, margin: f64) -> Vec<(f64, f64)> {
+    let rectangular =
+        boundary.is_infinite() || (boundary.width().is_some() && boundary.height().is_some());
+    if rectangular {
+        let (b_min, b_max) = boundary.aabb();
+        return vec![
+            (b_min[0] + margin, b_min[1] + margin),
+            (b_max[0] - margin, b_min[1] + margin),
+            (b_max[0] - margin, b_max[1] - margin),
+            (b_min[0] + margin, b_max[1] - margin),
+        ];
+    }
+    let mut ring = crate::polygon_ops::offset_polygon(boundary.exterior(), -margin)
+        .into_iter()
+        .max_by(|a, b| {
+            let area = |r: &[(f64, f64)]| crate::polygon_ops::signed_area2(r).abs();
+            area(a).total_cmp(&area(b))
+        })
+        .unwrap_or_default();
+    if crate::polygon_ops::signed_area2(&ring) < 0.0 {
+        ring.reverse();
+    }
+    ring
 }
 
 /// Computes the nesting fitness score from placement results.
@@ -135,12 +160,25 @@ mod tests {
     }
 
     #[test]
-    fn inset_boundary_rect_applies_the_margin_once() {
-        let rect = inset_boundary_rect([0.0, 0.0], [1000.0, 500.0], 50.0);
+    fn inset_boundary_applies_the_margin_once_to_a_rectangle() {
+        let rect = inset_boundary(&Boundary2D::rectangle(1000.0, 500.0), 50.0);
         assert_eq!(
             rect,
             vec![(50.0, 50.0), (950.0, 50.0), (950.0, 450.0), (50.0, 450.0)]
         );
+    }
+
+    #[test]
+    fn inset_boundary_follows_a_slanted_edge() {
+        // The bounding box of this triangle is 100 × 100; its hypotenuse is the
+        // edge a box inset would ignore.
+        let triangle = Boundary2D::new(vec![(0.0, 0.0), (100.0, 0.0), (0.0, 100.0)]);
+        let ring = inset_boundary(&triangle, 10.0);
+        assert!(ring.len() >= 3);
+        for &(x, y) in &ring {
+            let to_hypotenuse = (100.0 - x - y) / 2f64.sqrt();
+            assert!(x >= 10.0 - 1e-6 && y >= 10.0 - 1e-6 && to_hypotenuse >= 10.0 - 1e-6);
+        }
     }
 
     #[test]

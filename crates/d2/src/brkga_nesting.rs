@@ -29,7 +29,7 @@ use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::Config;
 use u_nesting_core::{Placement, SolveResult};
 
-use crate::placement_utils::{inset_boundary_rect, nesting_fitness, offset_nfp, InstanceInfo};
+use crate::placement_utils::{inset_boundary, nesting_fitness, offset_nfp, InstanceInfo};
 
 /// BRKGA problem definition for 2D nesting.
 pub struct BrkgaNestingProblem {
@@ -125,10 +125,7 @@ impl BrkgaNestingProblem {
         let spacing = self.config.spacing;
 
         // Get boundary polygon with margin
-        let boundary_polygon = {
-            let (b_min, b_max) = self.boundary.aabb();
-            inset_boundary_rect(b_min, b_max, margin)
-        };
+        let boundary_polygon = inset_boundary(&self.boundary, margin);
 
         // Sampling step for grid search
         let sample_step = self.compute_sample_step();

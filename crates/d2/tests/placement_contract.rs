@@ -284,3 +284,113 @@ proptest! {
         prop_assert!(edge >= margin - SHORTFALL_TOL, "{strategy:?}: edge {edge} < margin {margin}");
     }
 }
+
+/// Distance from a placed polygon to a boundary ring's edges, or `None` when
+/// the polygon is not inside the ring.
+fn clearance_inside(poly: &[Point], ring: &[Point]) -> Option<f64> {
+    let edges =
+        |r: &[Point]| -> Vec<Edge> { (0..r.len()).map(|i| (r[i], r[(i + 1) % r.len()])).collect() };
+    let (ep, er) = (edges(poly), edges(ring));
+    let crosses = ep
+        .iter()
+        .any(|&(p, q)| er.iter().any(|&(r, s)| segments_cross(p, q, r, s)));
+    if crosses || !point_inside(poly[0], ring) {
+        return None;
+    }
+    let one_way = |pts: &[Point], es: &[Edge]| {
+        pts.iter()
+            .flat_map(|&p| {
+                es.iter()
+                    .map(move |&(q, r)| point_segment_distance(p, q, r))
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    Some(one_way(poly, &er).min(one_way(ring, &ep)))
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(24))]
+
+    /// A non-rectangular boundary — slanted and concave — with mirrored and
+    /// rotated pieces: every piece inside it, at least `margin` from its edges,
+    /// and at least `spacing` from every other piece.
+    #[test]
+    fn a_polygon_boundary_keeps_pieces_inside_by_the_margin(
+        legs in prop::collection::vec((30.0f64..90.0, 30.0f64..90.0, 8.0f64..25.0), 1..3),
+        spacing in 0.5f64..15.0,
+        margin in 0.0f64..25.0,
+        concave in any::<bool>(),
+        strategy in prop::sample::select(STRATEGIES.to_vec()),
+    ) {
+        let ring: Vec<Point> = if concave {
+            vec![(0.0, 0.0), (400.0, 0.0), (400.0, 150.0), (150.0, 150.0), (150.0, 400.0), (0.0, 400.0)]
+        } else {
+            vec![(0.0, 0.0), (400.0, 0.0), (0.0, 400.0)]
+        };
+        let pieces: Vec<Geometry2D> = legs
+            .iter()
+            .enumerate()
+            .map(|(i, &(w, h, t))| {
+                l_piece(&format!("L{i}"), w, h, t)
+                    .with_quantity(8)
+                    .with_rotations_deg(vec![0.0, 90.0])
+                    .with_flip(true)
+            })
+            .collect();
+        let result = Nester2D::new(
+            config(strategy).with_spacing(spacing).with_margin(margin).with_time_limit(400),
+        )
+        .solve(&pieces, &Boundary2D::new(ring.clone()))
+        .unwrap();
+        let polys = world_polygons(&pieces, &result);
+        for (i, poly) in polys.iter().enumerate() {
+            let clearance = clearance_inside(poly, &ring);
+            prop_assert!(clearance.is_some(), "{strategy:?}: piece {i} is outside the boundary");
+            let clearance = clearance.unwrap_or_default();
+            prop_assert!(clearance >= margin - SHORTFALL_TOL, "{strategy:?}: piece {i} is {clearance} from the edge < margin {margin}");
+        }
+        let gap = min_gap(&polys);
+        prop_assert!(gap >= spacing - SHORTFALL_TOL, "{strategy:?}: gap {gap} < spacing {spacing}");
+    }
+}
+
+/// A triangular sheet filled until pieces reach the slanted edge: the margin
+/// holds along it, not only along the two axis-aligned edges.
+#[test]
+fn the_margin_holds_along_a_slanted_edge() {
+    let ring: Vec<Point> = vec![(0.0, 0.0), (600.0, 0.0), (0.0, 600.0)];
+    let pieces = [Geometry2D::rectangle("s", 70.0, 70.0)
+        .with_quantity(24)
+        .with_rotations(vec![0.0])];
+    for strategy in STRATEGIES {
+        // The greedy strategies get no time limit, so the count below measures
+        // the packing rather than how fast the build is.
+        let greedy = matches!(strategy, Strategy::BottomLeftFill | Strategy::NfpGuided);
+        let result = Nester2D::new(
+            config(strategy)
+                .with_spacing(10.0)
+                .with_margin(30.0)
+                .with_time_limit(if greedy { 0 } else { 1500 }),
+        )
+        .solve(&pieces, &Boundary2D::new(ring.clone()))
+        .unwrap();
+        let polys = world_polygons(&pieces, &result);
+        if strategy == Strategy::NfpGuided {
+            // Rows of five, four, three and two reach the slanted edge by 14 pieces.
+            assert!(
+                polys.len() >= 14,
+                "{strategy:?}: placed only {}",
+                polys.len()
+            );
+        }
+        for (i, poly) in polys.iter().enumerate() {
+            let clearance = clearance_inside(poly, &ring)
+                .unwrap_or_else(|| panic!("{strategy:?}: piece {i} is outside the boundary"));
+            assert!(
+                clearance >= 30.0 - SHORTFALL_TOL,
+                "{strategy:?}: piece {i} is {clearance} from the edge"
+            );
+        }
+        assert!(min_gap(&polys) >= 10.0 - SHORTFALL_TOL, "{strategy:?}");
+    }
+}

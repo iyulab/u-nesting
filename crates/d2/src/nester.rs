@@ -26,7 +26,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 use u_nesting_core::{Placement, Result, SolveResult};
 
-use crate::placement_utils::{inset_boundary_rect, offset_nfp};
+use crate::placement_utils::{inset_boundary, offset_nfp};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
@@ -328,10 +328,7 @@ impl Nester2D {
         let spacing = self.config.spacing;
 
         // Get boundary polygon with margin applied
-        let boundary_polygon = {
-            let (b_min, b_max) = boundary.aabb();
-            inset_boundary_rect(b_min, b_max, margin)
-        };
+        let boundary_polygon = inset_boundary(boundary, margin);
 
         let mut total_placed_area = 0.0;
 
@@ -1036,10 +1033,7 @@ impl Nester2D {
 
         let margin = self.config.margin;
         let spacing = self.config.spacing;
-        let boundary_polygon = {
-            let (b_min, b_max) = boundary.aabb();
-            inset_boundary_rect(b_min, b_max, margin)
-        };
+        let boundary_polygon = inset_boundary(boundary, margin);
 
         let mut total_placed_area = 0.0;
         let sample_step = self.compute_sample_step(geometries);
@@ -1307,8 +1301,12 @@ impl Nester2D {
             }?;
 
             // Validate and filter out-of-bounds placements for this strip
-            let strip_result =
-                validate_and_filter_placements(strip_result, &remaining_geometries, boundary);
+            let strip_result = validate_and_filter_placements(
+                strip_result,
+                &remaining_geometries,
+                boundary,
+                self.config.margin,
+            );
 
             if strip_result.placements.is_empty() {
                 // No progress: every remaining geometry is individually too large for
@@ -1473,7 +1471,12 @@ impl Solver for Nester2D {
         }?;
 
         // Validate all placements and remove any that are outside the boundary
-        let mut result = validate_and_filter_placements(initial_result, geometries, boundary);
+        let mut result = validate_and_filter_placements(
+            initial_result,
+            geometries,
+            boundary,
+            self.config.margin,
+        );
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();
@@ -1546,7 +1549,12 @@ impl Solver for Nester2D {
         };
 
         // Validate all placements and remove any that are outside the boundary
-        let mut result = validate_and_filter_placements(initial_result, geometries, boundary);
+        let mut result = validate_and_filter_placements(
+            initial_result,
+            geometries,
+            boundary,
+            self.config.margin,
+        );
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();

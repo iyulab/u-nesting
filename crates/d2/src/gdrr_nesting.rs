@@ -33,7 +33,7 @@ use u_nesting_core::solver::Config;
 use u_nesting_core::timing::Timer;
 use u_nesting_core::{Placement, SolveResult};
 
-use crate::placement_utils::{inset_boundary_rect, offset_nfp, InstanceInfo};
+use crate::placement_utils::{inset_boundary, offset_nfp, InstanceInfo};
 use rand::prelude::*;
 
 /// A placed item in the GDRR solution.
@@ -326,10 +326,7 @@ impl GdrrNestingProblem {
     /// Place items using BLF heuristic.
     fn place_items_blf(&self, items: &[usize], solution: &mut GdrrNestingSolution) {
         let margin = self.config.margin;
-        let boundary_polygon = {
-            let (b_min, b_max) = self.boundary.aabb();
-            inset_boundary_rect(b_min, b_max, margin)
-        };
+        let boundary_polygon = inset_boundary(&self.boundary, margin);
         let sample_step = self.compute_sample_step();
 
         // Build placed geometries from current solution
@@ -978,10 +975,7 @@ mod tests {
         );
 
         let margin = problem.config.margin;
-        let boundary_polygon = {
-            let (b_min, b_max) = problem.boundary.aabb();
-            inset_boundary_rect(b_min, b_max, margin)
-        };
+        let boundary_polygon = inset_boundary(&problem.boundary, margin);
         let sample_step = problem.compute_sample_step();
 
         // Place instance 0 first (no other placed pieces to avoid).
@@ -1043,10 +1037,7 @@ mod tests {
         );
 
         let margin = problem.config.margin;
-        let boundary_polygon = {
-            let (b_min, b_max) = problem.boundary.aabb();
-            inset_boundary_rect(b_min, b_max, margin)
-        };
+        let boundary_polygon = inset_boundary(&problem.boundary, margin);
         let sample_step = problem.compute_sample_step();
 
         let placement = problem

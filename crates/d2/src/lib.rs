@@ -157,53 +157,43 @@ pub fn clamp_placement_to_boundary_with_margin(
     Some((clamped_x, clamped_y))
 }
 
-/// Checks if a placement is within the boundary.
+/// Checks if a placement lies within the boundary, at least `margin` from its
+/// edges (exterior and holes).
 ///
-/// Returns `true` if the geometry at the given placement is fully within the boundary,
-/// `false` otherwise.
+/// Returns `true` if the geometry at the given placement — rotated, and
+/// mirrored when the placement says so — is fully within the boundary and no
+/// closer than `margin` to any boundary edge, `false` otherwise.
 ///
 /// # Arguments
-/// * `placement` - The placement to validate (contains position and rotation)
+/// * `placement` - The placement to validate (position, rotation, mirroring)
 /// * `geometry` - The geometry being placed
 /// * `boundary` - The boundary to check against
+/// * `margin` - Minimum distance from the piece to every boundary edge
 /// * `tolerance` - Small tolerance for floating point comparison (e.g., 1e-6)
 pub fn is_placement_within_bounds(
     placement: &Placement<f64>,
     geometry: &Geometry2D,
     boundary: &Boundary2D,
+    margin: f64,
     tolerance: f64,
 ) -> bool {
     use u_nesting_core::geometry::Boundary;
     use u_nesting_core::Boundary2DExt;
 
-    // Extract position (Vec<f64> with [x, y] for 2D)
     let x = placement.position.first().copied().unwrap_or(0.0);
     let y = placement.position.get(1).copied().unwrap_or(0.0);
-
-    // Extract rotation (Vec<f64> with [θ] for 2D)
     let rotation = placement.rotation.first().copied().unwrap_or(0.0);
 
-    // Get geometry AABB at the placement rotation
-    let (g_min, g_max) = geometry.aabb_at_rotation(rotation);
-
-    // Get boundary AABB
+    let (g_min, g_max) = geometry.aabb_at_rotation_mirrored(rotation, placement.mirrored);
     let (b_min, b_max) = boundary.aabb();
 
-    // Calculate the actual bounds of the placed geometry
-    let placed_min_x = x + g_min[0];
-    let placed_max_x = x + g_max[0];
-    let placed_min_y = y + g_min[1];
-    let placed_max_y = y + g_max[1];
+    // AABB containment within the margin — a necessary condition, and *exact*
+    // for a hole-free axis-aligned rectangular boundary.
+    let aabb_inside = x + g_min[0] >= b_min[0] + margin - tolerance
+        && x + g_max[0] <= b_max[0] - margin + tolerance
+        && y + g_min[1] >= b_min[1] + margin - tolerance
+        && y + g_max[1] <= b_max[1] - margin + tolerance;
 
-    // AABB containment — a necessary condition, and *exact* for a hole-free
-    // axis-aligned rectangular boundary.
-    let aabb_inside = placed_min_x >= b_min[0] - tolerance
-        && placed_max_x <= b_max[0] + tolerance
-        && placed_min_y >= b_min[1] - tolerance
-        && placed_max_y <= b_max[1] + tolerance;
-
-    // Fast reject and the exact-boundary shortcut.
-    //
     // For a plain rectangle (width & height set, no holes) the AABB check is the
     // exact answer. Infinite strips must also stay on the AABB path: their
     // exterior carries `f64::MAX` vertices, so ray-cast polygon containment is
@@ -220,8 +210,20 @@ pub fn is_placement_within_bounds(
         return false;
     }
 
-    let piece = geometry.transformed_exterior(x, y, rotation);
-    boundary.contains_polygon(&piece)
+    let base = if placement.mirrored {
+        Geometry2D::new(geometry.id().clone())
+            .with_polygon(polygon_ops::mirror_polygon(geometry.exterior()))
+    } else {
+        geometry.clone()
+    };
+    let piece = base.transformed_exterior(x, y, rotation);
+    if !boundary.contains_polygon(&piece) {
+        return false;
+    }
+    margin <= 0.0
+        || std::iter::once(boundary.exterior())
+            .chain(boundary.holes().iter().map(Vec::as_slice))
+            .all(|ring| polygon_ops::ring_distance(&piece, ring) >= margin - tolerance)
 }
 
 /// Validates all placements in a SolveResult and removes any that are outside the boundary.
@@ -233,10 +235,12 @@ pub fn is_placement_within_bounds(
 /// * `result` - The solve result to validate
 /// * `geometries` - The geometries that were being placed
 /// * `boundary` - The boundary to check against
+/// * `margin` - Minimum distance a placement must keep from the boundary edges
 pub fn validate_and_filter_placements(
     mut result: SolveResult<f64>,
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
+    margin: f64,
 ) -> SolveResult<f64> {
     use std::collections::HashMap;
     use u_nesting_core::geometry::{Boundary, Geometry};
@@ -272,9 +276,9 @@ pub fn validate_and_filter_placements(
             let py = placement.position.get(1).copied().unwrap_or(0.0);
             let rot = placement.rotation.first().copied().unwrap_or(0.0);
 
-            if is_placement_within_bounds(&placement, geom, boundary, TOLERANCE) {
+            if is_placement_within_bounds(&placement, geom, boundary, margin, TOLERANCE) {
                 total_valid_area += geom.measure();
-                let (pg_min, pg_max) = geom.aabb_at_rotation(rot);
+                let (pg_min, pg_max) = geom.aabb_at_rotation_mirrored(rot, placement.mirrored);
                 used_min_x = used_min_x.min(px + pg_min[0]);
                 used_min_y = used_min_y.min(py + pg_min[1]);
                 used_max_x = used_max_x.max(px + pg_max[0]);

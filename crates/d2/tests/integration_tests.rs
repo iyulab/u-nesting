@@ -648,14 +648,14 @@ mod bucket_b_tests {
         ]);
         let outside = Placement::new_2d("s".to_string(), 0, 500.0, 500.0, 0.0);
         assert!(
-            !is_placement_within_bounds(&outside, &sq, &boundary, 1e-6),
+            !is_placement_within_bounds(&outside, &sq, &boundary, 0.0, 1e-6),
             "piece past the hypotenuse must be rejected"
         );
 
         // A square snug in the corner (far corner at (160,160), x+y=320 < 1000).
         let inside = Placement::new_2d("s".to_string(), 0, 10.0, 10.0, 0.0);
         assert!(
-            is_placement_within_bounds(&inside, &sq, &boundary, 1e-6),
+            is_placement_within_bounds(&inside, &sq, &boundary, 0.0, 1e-6),
             "piece fully inside the triangle must be accepted"
         );
     }
@@ -685,7 +685,7 @@ mod bucket_b_tests {
         // escape the reporter saw would surface here as a containment failure.
         for placement in &result.placements {
             assert!(
-                is_placement_within_bounds(placement, &geometry, &boundary, 1e-6),
+                is_placement_within_bounds(placement, &geometry, &boundary, 0.0, 1e-6),
                 "solve returned a placement outside the triangular boundary: {placement:?}"
             );
         }
@@ -716,7 +716,9 @@ mod bucket_b_tests {
             (0.0, 100.0),
         ]);
         let flush = Placement::new_2d("s".to_string(), 0, 0.0, 0.0, 0.0);
-        assert!(is_placement_within_bounds(&flush, &sq, &boundary, 1e-6));
+        assert!(is_placement_within_bounds(
+            &flush, &sq, &boundary, 0.0, 1e-6
+        ));
     }
 
     #[test]

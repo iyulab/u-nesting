@@ -102,6 +102,33 @@ pub(crate) fn is_simple_polygon(vertices: &[(f64, f64)]) -> bool {
     true
 }
 
+/// Shortest distance from point `p` to segment `a`–`b`.
+fn point_segment_distance(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+    let len2 = dx * dx + dy * dy;
+    let t = if len2 == 0.0 {
+        0.0
+    } else {
+        (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+    };
+    ((p.0 - a.0 - t * dx).powi(2) + (p.1 - a.1 - t * dy).powi(2)).sqrt()
+}
+
+/// Shortest distance between the edges of two rings that do not cross: the
+/// nearest points of two non-crossing polygonal chains always include a vertex
+/// of one of them.
+pub(crate) fn ring_distance(a: &[(f64, f64)], b: &[(f64, f64)]) -> f64 {
+    let one_way = |pts: &[(f64, f64)], ring: &[(f64, f64)]| {
+        let n = ring.len();
+        pts.iter()
+            .flat_map(|&p| {
+                (0..n).map(move |i| point_segment_distance(p, ring[i], ring[(i + 1) % n]))
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    one_way(a, b).min(one_way(b, a))
+}
+
 /// Target angle subtended by one segment of a rounded offset corner.
 ///
 /// The arc is drawn through points on the circle, so each chord dips inside it
