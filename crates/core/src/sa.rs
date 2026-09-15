@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::timing::Timer;
+use crate::timing::{expired, Timer};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -277,6 +277,16 @@ impl<P: SaProblem> SaRunner<P> {
         }
     }
 
+    /// Creates a runner that stops when `cancelled` is set — the caller's own
+    /// flag, observed directly, so no thread is needed to forward it.
+    pub fn with_cancellation(config: SaConfig, problem: P, cancelled: Arc<AtomicBool>) -> Self {
+        Self {
+            config,
+            problem,
+            cancelled,
+        }
+    }
+
     /// Returns a handle to cancel the algorithm.
     pub fn cancel_handle(&self) -> Arc<AtomicBool> {
         self.cancelled.clone()
@@ -324,10 +334,8 @@ impl<P: SaProblem> SaRunner<P> {
             }
 
             // Check time limit
-            if let Some(limit) = self.config.time_limit {
-                if start.elapsed() > limit {
-                    break;
-                }
+            if expired(&start, self.config.time_limit) {
+                break;
             }
 
             // Check max iterations
@@ -345,8 +353,12 @@ impl<P: SaProblem> SaRunner<P> {
                 }
             }
 
-            // Iterations at this temperature
+            // Iterations at this temperature — each evaluation can be a full
+            // placement, so the time limit is checked per iteration, not per step
             for _ in 0..self.config.iterations_per_temp {
+                if expired(&start, self.config.time_limit) {
+                    break;
+                }
                 iteration += 1;
                 total_count += 1;
 

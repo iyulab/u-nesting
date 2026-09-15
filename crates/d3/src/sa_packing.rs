@@ -186,20 +186,7 @@ pub fn run_sa_packing(
         cancelled.clone(),
     );
 
-    let runner = SaRunner::new(sa_config, problem);
-
-    // Set cancellation (thread-based polling, not available on WASM)
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let cancel_handle = runner.cancel_handle();
-        let cancelled_clone = cancelled.clone();
-        std::thread::spawn(move || {
-            while !cancelled_clone.load(Ordering::Relaxed) {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            cancel_handle.store(true, Ordering::Relaxed);
-        });
-    }
+    let runner = SaRunner::with_cancellation(sa_config, problem, cancelled.clone());
 
     let sa_result = runner.run();
 

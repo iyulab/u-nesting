@@ -73,6 +73,10 @@ pub struct Config {
     pub margin: f64,
 
     /// Maximum computation time in milliseconds (0 = unlimited).
+    ///
+    /// The search strategies check it between individual placements, so a solve
+    /// returns within the limit plus the time of the greedy bottom-left pass it is
+    /// compared against. The layout returned is the best one found in that time.
     pub time_limit_ms: u64,
 
     /// Target utilization (0.0 - 1.0). Solver stops if reached.

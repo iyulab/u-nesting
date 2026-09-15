@@ -526,7 +526,8 @@ impl Nester2D {
     /// Returns whichever of `meta` (a metaheuristic result) and a fresh
     /// Bottom-Left-Fill solve packs better.
     ///
-    /// The stochastic strategies (GA/BRKGA/SA) can converge to a solution worse
+    /// The search strategies (GA/BRKGA/SA/GDRR/ALNS) can converge to — or, on a
+    /// short time limit, stop at — a solution worse
     /// than the deterministic greedy baseline. Guarding against this guarantees
     /// they never return a solution inferior to BLF: a metaheuristic that fails
     /// to beat the greedy floor simply returns the greedy solution. BLF is
@@ -713,7 +714,7 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(result)
+        Ok(self.not_worse_than_blf(result, geometries, boundary))
     }
 
     /// Adaptive Large Neighborhood Search (ALNS) optimization.
@@ -747,7 +748,7 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(result)
+        Ok(self.not_worse_than_blf(result, geometries, boundary))
     }
 
     /// MILP-based exact solver.

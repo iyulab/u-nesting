@@ -47,11 +47,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Holes were invisible to placement.** The NFP-based strategies placed parts
   over a hole and lost them to the boundary check; holes are now regions a
   part keeps `margin` away from, and the same sheet places all 64.
+- **`time_limit_ms` was overrun many times over by the search strategies.**
+  The genetic algorithm and BRKGA evaluated a whole population, and simulated
+  annealing a whole temperature step, before looking at the clock; each
+  evaluation is a full placement, and the best individual was placed once more
+  at the end. A one-second limit took 23 s for 80 parts. The clock is now checked
+  between evaluations and between the pieces of each placement, the best layout
+  found is returned directly, and every strategy finishes within its limit.
+- **GDRR and ALNS could return fewer parts than the greedy baseline** when their
+  time ran out mid-search (56 of 160 parts on a 2 s limit, where bottom-left fill
+  places all of them). Like the other search strategies, they now return the
+  greedy layout when it is better.
+- **Every genetic-algorithm and simulated-annealing solve left a thread behind**
+  (2D and 3D): a thread was started to forward cancellation and only exited when
+  the solve was cancelled. The runners now watch the caller's cancellation flag
+  directly, which also makes cancellation work on WebAssembly, where that thread
+  was never started.
 - **3D extreme-point packing lost boxes whenever `spacing` was positive.** New
   candidate corners were created flush against the last box, where a neighbour
   may not start once a gap is required, so eight 40-unit boxes that fit a
   100-unit container with a 5-unit gap placed one. Candidates now start
   `spacing` past each face.
+
+### Added
+
+- `GaRunner::with_cancellation` and `SaRunner::with_cancellation`, matching
+  `BrkgaRunner::with_cancellation`: the runner stops when the caller's flag is set.
 
 ### Changed
 

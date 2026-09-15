@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::timing::Timer;
+use crate::timing::{evaluate_within, expired, Timer};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -233,6 +233,16 @@ where
         }
     }
 
+    /// Creates a runner that stops when `cancelled` is set — the caller's own
+    /// flag, observed directly, so no thread is needed to forward it.
+    pub fn with_cancellation(config: GaConfig, problem: P, cancelled: Arc<AtomicBool>) -> Self {
+        Self {
+            config,
+            problem,
+            cancelled,
+        }
+    }
+
     /// Returns a handle to cancel the algorithm.
     pub fn cancel_handle(&self) -> Arc<AtomicBool> {
         self.cancelled.clone()
@@ -275,8 +285,10 @@ where
             .problem
             .initialize_population(self.config.population_size, rng);
 
-        // Evaluate initial population in parallel
-        self.problem.evaluate_parallel(&mut population);
+        // Evaluate the initial population — up to the time limit
+        evaluate_within(&mut population, &start, self.config.time_limit, |batch| {
+            self.problem.evaluate_parallel(batch)
+        });
 
         // Sort by fitness (descending - higher is better in u-nesting convention)
         population.sort_by(|a, b| {
@@ -298,10 +310,8 @@ where
             }
 
             // Check time limit
-            if let Some(limit) = self.config.time_limit {
-                if start.elapsed() > limit {
-                    break;
-                }
+            if expired(&start, self.config.time_limit) {
+                break;
             }
 
             // Check target fitness
@@ -350,8 +360,11 @@ where
                 children.push(child);
             }
 
-            // Evaluate all children in parallel
-            self.problem.evaluate_parallel(&mut children);
+            // Evaluate the children — up to the time limit; the loop ends on the
+            // next check if it was reached
+            evaluate_within(&mut children, &start, self.config.time_limit, |batch| {
+                self.problem.evaluate_parallel(batch)
+            });
 
             // Add evaluated children to new population
             new_population.extend(children);

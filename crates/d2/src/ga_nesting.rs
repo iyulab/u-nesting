@@ -19,7 +19,7 @@ use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
-    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, InstanceInfo,
+    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, take_best, InstanceInfo, SearchState,
 };
 
 /// Nesting chromosome representing a placement order and rotations.
@@ -253,6 +253,8 @@ pub struct NestingProblem {
     rotation_options: usize,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
+    /// Time limit and best layout, shared with the run.
+    search: SearchState,
 }
 
 impl NestingProblem {
@@ -293,7 +295,21 @@ impl NestingProblem {
             rotation_angles,
             rotation_options,
             cancelled,
+            search: SearchState::default(),
         }
+    }
+
+    /// A handle to the best layout decoded so far.
+    pub fn best_layout(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<Option<crate::placement_utils::BestLayout>>> {
+        self.search.best_handle()
+    }
+
+    /// Stops decoding once `limit` has passed and keeps the best decoded layout.
+    pub fn with_time_limit(mut self, limit: Option<std::time::Duration>) -> Self {
+        self.search = SearchState::with_time_limit(limit);
+        self
     }
 
     /// Returns the total number of instances.
@@ -324,7 +340,7 @@ impl NestingProblem {
 
         // Place geometries in the order specified by chromosome
         for &instance_idx in chromosome.order.iter() {
-            if self.cancelled.load(Ordering::Relaxed) {
+            if self.cancelled.load(Ordering::Relaxed) || self.search.out_of_time() {
                 break;
             }
 
@@ -474,8 +490,9 @@ impl GaProblem for NestingProblem {
     type Individual = NestingChromosome;
 
     fn evaluate(&self, individual: &mut Self::Individual) {
-        let (_, utilization, placed_count) = self.decode(individual);
+        let (placements, utilization, placed_count) = self.decode(individual);
         let fitness = nesting_fitness(placed_count, individual.total_count, utilization);
+        self.search.offer(fitness, &placements, utilization);
         individual.set_fitness(fitness, placed_count);
     }
 
@@ -520,22 +537,11 @@ pub fn run_ga_nesting(
         boundary.clone(),
         config.clone(),
         cancelled.clone(),
-    );
+    )
+    .with_time_limit(ga_config.time_limit);
+    let best_layout = problem.best_layout();
 
-    let runner = GaRunner::new(ga_config, problem);
-
-    // Connect cancellation (thread-based polling, not available on WASM)
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let cancel_handle = runner.cancel_handle();
-        let cancelled_clone = cancelled.clone();
-        std::thread::spawn(move || {
-            while !cancelled_clone.load(Ordering::Relaxed) {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            cancel_handle.store(true, Ordering::Relaxed);
-        });
-    }
+    let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone());
 
     // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
     // system entropy (non-deterministic).
@@ -552,7 +558,14 @@ pub fn run_ga_nesting(
         Arc::new(AtomicBool::new(false)),
     );
 
-    let (placements, utilization, _placed_count) = problem.decode(&ga_result.best);
+    // The search kept its best decoded layout; decode again only if it has none.
+    let (placements, utilization) = match take_best(&best_layout) {
+        Some(best) => (best.placements, best.utilization),
+        None => {
+            let (placements, utilization, _) = problem.decode(&ga_result.best);
+            (placements, utilization)
+        }
+    };
 
     // Build unplaced list
     let mut unplaced = Vec::new();
@@ -598,22 +611,11 @@ pub fn run_ga_nesting_with_progress(
         boundary.clone(),
         config.clone(),
         cancelled.clone(),
-    );
+    )
+    .with_time_limit(ga_config.time_limit);
+    let best_layout = problem.best_layout();
 
-    let runner = GaRunner::new(ga_config.clone(), problem);
-
-    // Connect cancellation (thread-based polling, not available on WASM)
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let cancel_handle = runner.cancel_handle();
-        let cancelled_clone = cancelled.clone();
-        std::thread::spawn(move || {
-            while !cancelled_clone.load(Ordering::Relaxed) {
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            cancel_handle.store(true, Ordering::Relaxed);
-        });
-    }
+    let runner = GaRunner::with_cancellation(ga_config.clone(), problem, cancelled.clone());
 
     // Run GA with progress callback adapter. Thread `config.seed` through so the
     // callback-driven path is as reproducible as the plain `run_ga_nesting` path
@@ -654,7 +656,14 @@ pub fn run_ga_nesting_with_progress(
         Arc::new(AtomicBool::new(false)),
     );
 
-    let (placements, utilization, _placed_count) = problem.decode(&ga_result.best);
+    // The search kept its best decoded layout; decode again only if it has none.
+    let (placements, utilization) = match take_best(&best_layout) {
+        Some(best) => (best.placements, best.utilization),
+        None => {
+            let (placements, utilization, _) = problem.decode(&ga_result.best);
+            (placements, utilization)
+        }
+    };
 
     // Build unplaced list
     let mut unplaced = Vec::new();

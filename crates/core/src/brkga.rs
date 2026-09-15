@@ -31,7 +31,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::timing::Timer;
+use crate::timing::{evaluate_within, expired, Timer};
 
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
@@ -370,8 +370,10 @@ impl<P: BrkgaProblem> BrkgaRunner<P> {
             .map(|_| RandomKeyChromosome::random(num_keys, rng))
             .collect();
 
-        // Evaluate initial population in parallel
-        self.problem.evaluate_parallel(&mut population);
+        // Evaluate the initial population — up to the time limit
+        evaluate_within(&mut population, &start, self.config.time_limit, |batch| {
+            self.problem.evaluate_parallel(batch)
+        });
 
         // Sort by fitness (descending - higher is better)
         population.sort_by(|a, b| {
@@ -396,10 +398,8 @@ impl<P: BrkgaProblem> BrkgaRunner<P> {
             }
 
             // Check time limit
-            if let Some(limit) = self.config.time_limit {
-                if start.elapsed() > limit {
-                    break;
-                }
+            if expired(&start, self.config.time_limit) {
+                break;
             }
 
             // Check target fitness
@@ -443,9 +443,17 @@ impl<P: BrkgaProblem> BrkgaRunner<P> {
                 })
                 .collect();
 
-            // Evaluate all new individuals (mutants + children) in parallel
-            self.problem.evaluate_parallel(&mut mutants);
-            self.problem.evaluate_parallel(&mut children);
+            // Evaluate the new individuals — up to the time limit; the loop ends on
+            // the next check if it was reached
+            evaluate_within(&mut mutants, &start, self.config.time_limit, |batch| {
+                self.problem.evaluate_parallel(batch)
+            });
+            if expired(&start, self.config.time_limit) {
+                children.clear();
+            }
+            evaluate_within(&mut children, &start, self.config.time_limit, |batch| {
+                self.problem.evaluate_parallel(batch)
+            });
 
             // Add to new population
             new_population.extend(mutants);

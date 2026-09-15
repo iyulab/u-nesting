@@ -30,7 +30,7 @@ use u_nesting_core::solver::Config;
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
-    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, InstanceInfo,
+    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, take_best, InstanceInfo, SearchState,
 };
 
 /// BRKGA problem definition for 2D nesting.
@@ -50,6 +50,8 @@ pub struct BrkgaNestingProblem {
     any_allow_flip: bool,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
+    /// Time limit and best layout, shared with the run.
+    search: SearchState,
 }
 
 impl BrkgaNestingProblem {
@@ -89,7 +91,21 @@ impl BrkgaNestingProblem {
             rotation_angles,
             any_allow_flip,
             cancelled,
+            search: SearchState::default(),
         }
+    }
+
+    /// A handle to the best layout decoded so far.
+    pub fn best_layout(
+        &self,
+    ) -> std::sync::Arc<std::sync::Mutex<Option<crate::placement_utils::BestLayout>>> {
+        self.search.best_handle()
+    }
+
+    /// Stops decoding once `limit` has passed and keeps the best decoded layout.
+    pub fn with_time_limit(mut self, limit: Option<std::time::Duration>) -> Self {
+        self.search = SearchState::with_time_limit(limit);
+        self
     }
 
     /// Returns the total number of instances.
@@ -134,7 +150,7 @@ impl BrkgaNestingProblem {
 
         // Place geometries in the decoded order
         for &instance_idx in &order {
-            if self.cancelled.load(Ordering::Relaxed) {
+            if self.cancelled.load(Ordering::Relaxed) || self.search.out_of_time() {
                 break;
             }
 
@@ -301,8 +317,9 @@ impl BrkgaProblem for BrkgaNestingProblem {
     }
 
     fn evaluate(&self, chromosome: &mut RandomKeyChromosome) {
-        let (_, utilization, placed_count) = self.decode(chromosome);
+        let (placements, utilization, placed_count) = self.decode(chromosome);
         let fitness = nesting_fitness(placed_count, self.instances.len(), utilization);
+        self.search.offer(fitness, &placements, utilization);
         chromosome.set_fitness(fitness);
     }
 
@@ -333,7 +350,9 @@ pub fn run_brkga_nesting(
         boundary.clone(),
         config.clone(),
         cancelled.clone(),
-    );
+    )
+    .with_time_limit(brkga_config.time_limit);
+    let best_layout = problem.best_layout();
 
     let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone());
 
@@ -355,7 +374,14 @@ pub fn run_brkga_nesting(
         Arc::new(AtomicBool::new(false)),
     );
 
-    let (placements, utilization, _placed_count) = problem.decode(&brkga_result.best);
+    // The search kept its best decoded layout; decode again only if it has none.
+    let (placements, utilization) = match take_best(&best_layout) {
+        Some(best) => (best.placements, best.utilization),
+        None => {
+            let (placements, utilization, _) = problem.decode(&brkga_result.best);
+            (placements, utilization)
+        }
+    };
 
     // Build unplaced list
     let mut unplaced = Vec::new();

@@ -6,7 +6,11 @@
 use crate::boundary::Boundary2D;
 use crate::geometry::Geometry2D;
 use crate::nfp::Nfp;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use u_nesting_core::geometry::Boundary;
+use u_nesting_core::timing::Timer;
+use u_nesting_core::Placement;
 
 /// Instance information for decoding placement orders.
 ///
@@ -116,6 +120,76 @@ pub fn hole_nfps(
         })
         .map(|nfp| offset_nfp(&nfp, margin))
         .collect()
+}
+
+/// The best layout a search has produced, kept as the search goes.
+#[derive(Debug, Clone)]
+pub struct BestLayout {
+    /// Fitness the layout scored.
+    pub fitness: f64,
+    /// The placements.
+    pub placements: Vec<Placement<f64>>,
+    /// Fraction of the boundary area the placements cover.
+    pub utilization: f64,
+}
+
+/// What a search-based decoder shares with the run that owns it: when to stop
+/// and the best layout seen so far.
+///
+/// A decoder that only watches the cancellation flag keeps placing past the
+/// time limit until the whole layout is built, and a run that re-decodes its
+/// best individual at the end pays for one more full layout after the limit.
+/// Checking the deadline per placed piece and keeping the best decoded layout
+/// removes both.
+#[derive(Debug, Default)]
+pub struct SearchState {
+    budget: Option<(Timer, Duration)>,
+    best: Arc<Mutex<Option<BestLayout>>>,
+}
+
+impl SearchState {
+    /// Starts the clock for a search limited to `limit` (none = unlimited).
+    pub fn with_time_limit(limit: Option<Duration>) -> Self {
+        Self {
+            budget: limit.map(|limit| (Timer::now(), limit)),
+            best: Arc::default(),
+        }
+    }
+
+    /// Whether the time limit has passed.
+    pub fn out_of_time(&self) -> bool {
+        self.budget
+            .as_ref()
+            .is_some_and(|(start, limit)| start.elapsed() > *limit)
+    }
+
+    /// Records a decoded layout if it beats the best one so far.
+    pub fn offer(&self, fitness: f64, placements: &[Placement<f64>], utilization: f64) {
+        let mut best = self
+            .best
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if best.as_ref().is_none_or(|b| fitness > b.fitness) {
+            *best = Some(BestLayout {
+                fitness,
+                placements: placements.to_vec(),
+                utilization,
+            });
+        }
+    }
+
+    /// A handle to the best layout, readable after the decoder is moved into a runner.
+    pub fn best_handle(&self) -> Arc<Mutex<Option<BestLayout>>> {
+        Arc::clone(&self.best)
+    }
+}
+
+/// Takes the best layout out of a handle from [`SearchState::best_handle`].
+pub fn take_best(handle: &Mutex<Option<BestLayout>>) -> Option<BestLayout> {
+    handle
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
 }
 
 /// Computes the nesting fitness score from placement results.
