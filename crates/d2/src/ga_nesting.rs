@@ -19,7 +19,8 @@ use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
-    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, take_best, InstanceInfo, SearchState,
+    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, seed_genes, take_best, InstanceInfo,
+    SearchState,
 };
 
 /// Nesting chromosome representing a placement order and rotations.
@@ -255,6 +256,8 @@ pub struct NestingProblem {
     cancelled: Arc<AtomicBool>,
     /// Time limit and best layout, shared with the run.
     search: SearchState,
+    /// Genes of a layout to start the search from (rotation index, mirror flag per instance).
+    seed: Option<(Vec<usize>, Vec<bool>)>,
 }
 
 impl NestingProblem {
@@ -296,6 +299,7 @@ impl NestingProblem {
             rotation_options,
             cancelled,
             search: SearchState::default(),
+            seed: None,
         }
     }
 
@@ -304,6 +308,13 @@ impl NestingProblem {
         &self,
     ) -> std::sync::Arc<std::sync::Mutex<Option<crate::placement_utils::BestLayout>>> {
         self.search.best_handle()
+    }
+
+    /// Starts the search from `placements` — typically the greedy layout —
+    /// placed in input order, so the search never has to rediscover it.
+    pub fn with_seed_layout(mut self, placements: Option<&[Placement<f64>]>) -> Self {
+        self.seed = placements.map(|p| seed_genes(&self.geometries, p));
+        self
     }
 
     /// Stops decoding once `limit` has passed and keeps the best decoded layout.
@@ -503,12 +514,20 @@ impl GaProblem for NestingProblem {
 
     fn initialize_population<R: Rng>(&self, size: usize, rng: &mut R) -> Vec<Self::Individual> {
         (0..size)
-            .map(|_| {
-                NestingChromosome::random_with_options(
+            .map(|i| match (&self.seed, i) {
+                // The first individual is the seed layout, when there is one.
+                (Some((rotations, mirrors)), 0) => {
+                    let mut seeded =
+                        NestingChromosome::new(self.num_instances(), self.rotation_options());
+                    seeded.rotations = rotations.clone();
+                    seeded.mirrors = mirrors.clone();
+                    seeded
+                }
+                _ => NestingChromosome::random_with_options(
                     self.num_instances(),
                     self.rotation_options(),
                     rng,
-                )
+                ),
             })
             .collect()
     }
@@ -536,6 +555,7 @@ pub fn run_ga_nesting(
     config: &Config,
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
+    seed_layout: Option<&[Placement<f64>]>,
 ) -> SolveResult<f64> {
     let problem = NestingProblem::new(
         geometries.to_vec(),
@@ -543,7 +563,8 @@ pub fn run_ga_nesting(
         config.clone(),
         cancelled.clone(),
     )
-    .with_time_limit(ga_config.time_limit);
+    .with_time_limit(ga_config.time_limit)
+    .with_seed_layout(seed_layout);
     let best_layout = problem.best_layout();
 
     let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone());
@@ -608,6 +629,7 @@ pub fn run_ga_nesting_with_progress(
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
     progress_callback: ProgressCallback,
+    seed_layout: Option<&[Placement<f64>]>,
 ) -> SolveResult<f64> {
     let total_items = geometries.iter().map(|g| g.quantity()).sum::<usize>();
 
@@ -617,7 +639,8 @@ pub fn run_ga_nesting_with_progress(
         config.clone(),
         cancelled.clone(),
     )
-    .with_time_limit(ga_config.time_limit);
+    .with_time_limit(ga_config.time_limit)
+    .with_seed_layout(seed_layout);
     let best_layout = problem.best_layout();
 
     let runner = GaRunner::with_cancellation(ga_config.clone(), problem, cancelled.clone());
@@ -896,6 +919,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         assert!(result.utilization > 0.0);
@@ -918,6 +942,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         // All 4 pieces should fit easily
@@ -944,6 +969,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         assert!(result.utilization > 0.0);

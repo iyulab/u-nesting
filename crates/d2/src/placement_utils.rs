@@ -8,7 +8,7 @@ use crate::geometry::Geometry2D;
 use crate::nfp::Nfp;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use u_nesting_core::geometry::Boundary;
+use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::timing::Timer;
 use u_nesting_core::Placement;
 
@@ -190,6 +190,48 @@ pub fn take_best(handle: &Mutex<Option<BestLayout>>) -> Option<BestLayout> {
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .take()
+}
+
+/// Per-instance rotation index and mirror flag that reproduce `placements`
+/// when pieces are placed in input order (each geometry's instances in turn).
+///
+/// This is how a search starts from the greedy layout: placing the instances
+/// in that order with these genes makes the same choices the greedy pass made.
+/// An instance the layout does not contain gets rotation 0, unmirrored.
+pub fn seed_genes(
+    geometries: &[Geometry2D],
+    placements: &[Placement<f64>],
+) -> (Vec<usize>, Vec<bool>) {
+    let mut rotations = Vec::new();
+    let mut mirrors = Vec::new();
+    for geometry in geometries {
+        let angles = geometry.rotations();
+        for instance in 0..geometry.quantity() {
+            let placed = placements
+                .iter()
+                .find(|p| &p.geometry_id == geometry.id() && p.instance == instance);
+            let (rotation, mirrored) = placed.map_or((0, false), |p| {
+                let angle = p.rotation.first().copied().unwrap_or(0.0);
+                let turn = std::f64::consts::TAU;
+                let index = angles
+                    .iter()
+                    .enumerate()
+                    .min_by(|(_, a), (_, b)| {
+                        let gap = |x: f64| {
+                            (x - angle)
+                                .rem_euclid(turn)
+                                .min((angle - x).rem_euclid(turn))
+                        };
+                        gap(**a).total_cmp(&gap(**b))
+                    })
+                    .map_or(0, |(i, _)| i);
+                (index, p.mirrored)
+            });
+            rotations.push(rotation);
+            mirrors.push(mirrored);
+        }
+    }
+    (rotations, mirrors)
 }
 
 /// Computes the nesting fitness score from placement results.

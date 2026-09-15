@@ -506,6 +506,14 @@ mod metaheuristic_quality_tests {
     }
 
     fn solve(strategy: Strategy, rotations: Vec<f64>) -> (Vec<Geometry2D>, f64) {
+        solve_within(strategy, rotations, 800)
+    }
+
+    fn solve_within(
+        strategy: Strategy,
+        rotations: Vec<f64>,
+        limit_ms: u64,
+    ) -> (Vec<Geometry2D>, f64) {
         let (geoms, boundary) = l_instance(rotations);
         // A short budget is enough: `not_worse_than_blf` always computes BLF and
         // floors the stochastic result to it, so the outcome is deterministic in
@@ -514,7 +522,7 @@ mod metaheuristic_quality_tests {
             .with_strategy(strategy)
             .with_spacing(2.0)
             .with_seed(42)
-            .with_time_limit(800);
+            .with_time_limit(limit_ms);
         let r = Nester2D::new(config).solve(&geoms, &boundary).unwrap();
         let len = strip_length(&r, &geoms);
         (geoms, len)
@@ -543,28 +551,35 @@ mod metaheuristic_quality_tests {
 
     /// Enlarging the allowed rotation set must never *worsen* the result
     /// (issue #3 expectation 2). Bottom-left fill searches a superset of
-    /// rotations, so it is monotonic outright. A time-limited search is not — it
-    /// has more to explore in the same time — but it is floored at bottom-left
-    /// fill with the rotations it was given, which is never longer than bottom-left
-    /// fill with fewer: the search with more rotations never loses to the greedy
-    /// layout with fewer.
-    ///
-    /// (Until the no-fit placement followed the strip direction, the searches
-    /// never beat bottom-left fill on this tall strip, so they always returned
-    /// it and looked monotonic too.)
+    /// rotations, and so does the greedy no-fit placement at every step. A
+    /// time-limited search starts from, and is floored at, that greedy layout,
+    /// so it can only improve on it — with any rotation set. That holds when the
+    /// greedy pass fits in the limit, so the searches get a limit it always fits
+    /// in, even in a debug build running beside the other tests.
     #[test]
     fn larger_rotation_set_never_worsens_strip_length() {
-        let (_, blf_small) = solve(Strategy::BottomLeftFill, vec![0.0]);
-        let (_, blf_big) = solve(Strategy::BottomLeftFill, vec![0.0, 90.0, 180.0, 270.0]);
-        assert!(
-            blf_big <= blf_small + 1e-3,
-            "BottomLeftFill: larger rotation set worsened strip length {blf_big} > {blf_small}"
-        );
-        for strat in [Strategy::GeneticAlgorithm, Strategy::Brkga] {
-            let (_, big) = solve(strat, vec![0.0, 90.0, 180.0, 270.0]);
+        let small = vec![0.0];
+        let big = vec![0.0, 90.0, 180.0, 270.0];
+        for greedy in [Strategy::BottomLeftFill, Strategy::NfpGuided] {
+            let (_, with_small) = solve(greedy, small.clone());
+            let (_, with_big) = solve(greedy, big.clone());
             assert!(
-                big <= blf_small + 1e-3,
-                "{strat:?}: with more rotations {big} is longer than bottom-left fill with fewer {blf_small}"
+                with_big <= with_small + 1e-3,
+                "{greedy:?}: larger rotation set worsened strip length {with_big} > {with_small}"
+            );
+        }
+        let (_, greedy_small) = solve(Strategy::NfpGuided, small);
+        for strat in [
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+            Strategy::SimulatedAnnealing,
+            Strategy::Gdrr,
+            Strategy::Alns,
+        ] {
+            let (_, searched) = solve_within(strat, big.clone(), 5000);
+            assert!(
+                searched <= greedy_small + 1e-3,
+                "{strat:?}: with more rotations {searched} is longer than greedy placement with fewer {greedy_small}"
             );
         }
     }

@@ -28,7 +28,8 @@ use u_nesting_core::solver::Config;
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
-    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, take_best, InstanceInfo, SearchState,
+    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, seed_genes, take_best, InstanceInfo,
+    SearchState,
 };
 
 /// SA problem definition for 2D nesting.
@@ -53,6 +54,8 @@ pub struct SaNestingProblem {
     cancelled: Arc<AtomicBool>,
     /// Time limit and best layout, shared with the run.
     search: SearchState,
+    /// Genes of a layout to start the search from (rotation index, mirror flag per instance).
+    seed: Option<(Vec<usize>, Vec<bool>)>,
 }
 
 impl SaNestingProblem {
@@ -96,6 +99,7 @@ impl SaNestingProblem {
             any_allow_flip,
             cancelled,
             search: SearchState::default(),
+            seed: None,
         }
     }
 
@@ -104,6 +108,13 @@ impl SaNestingProblem {
         &self,
     ) -> std::sync::Arc<std::sync::Mutex<Option<crate::placement_utils::BestLayout>>> {
         self.search.best_handle()
+    }
+
+    /// Starts the search from `placements` — typically the greedy layout —
+    /// placed in input order, so the search never has to rediscover it.
+    pub fn with_seed_layout(mut self, placements: Option<&[Placement<f64>]>) -> Self {
+        self.seed = placements.map(|p| seed_genes(&self.geometries, p));
+        self
     }
 
     /// Stops decoding once `limit` has passed and keeps the best decoded layout.
@@ -296,7 +307,19 @@ impl SaProblem for SaNestingProblem {
     type Solution = PermutationSolution;
 
     fn initial_solution<R: rand::Rng>(&self, rng: &mut R) -> Self::Solution {
-        PermutationSolution::random(self.instances.len(), self.max_rotation_options, rng)
+        match &self.seed {
+            // Start from the seed layout, when there is one.
+            Some((rotations, mirrors)) => {
+                let mut seeded =
+                    PermutationSolution::new(self.instances.len(), self.max_rotation_options);
+                seeded.rotations = rotations.clone();
+                seeded.mirrors = mirrors.clone();
+                seeded
+            }
+            None => {
+                PermutationSolution::random(self.instances.len(), self.max_rotation_options, rng)
+            }
+        }
     }
 
     fn neighbor<R: rand::Rng>(
@@ -361,6 +384,7 @@ pub fn run_sa_nesting(
     config: &Config,
     sa_config: SaConfig,
     cancelled: Arc<AtomicBool>,
+    seed_layout: Option<&[Placement<f64>]>,
 ) -> SolveResult<f64> {
     let problem = SaNestingProblem::new(
         geometries.to_vec(),
@@ -368,7 +392,8 @@ pub fn run_sa_nesting(
         config.clone(),
         cancelled.clone(),
     )
-    .with_time_limit(sa_config.time_limit);
+    .with_time_limit(sa_config.time_limit)
+    .with_seed_layout(seed_layout);
     let best_layout = problem.best_layout();
 
     let runner = SaRunner::with_cancellation(sa_config, problem, cancelled.clone());
@@ -454,6 +479,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         assert!(result.utilization > 0.0);
@@ -478,6 +504,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         // All 4 pieces should fit easily
@@ -504,6 +531,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         assert!(result.utilization > 0.0);

@@ -366,36 +366,88 @@ impl Nester2D {
     /// they never return a solution inferior to BLF: a metaheuristic that fails
     /// to beat the greedy floor simply returns the greedy solution. BLF is
     /// effectively free relative to a metaheuristic run.
-    fn not_worse_than_blf(
+    fn not_worse_than_baselines(
         &self,
         meta: SolveResult<f64>,
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
+        greedy: Option<SolveResult<f64>>,
     ) -> SolveResult<f64> {
-        let blf = match self.bottom_left_fill(geometries, boundary) {
-            Ok(b) => b,
-            Err(_) => return meta,
-        };
-        let (meta_placed, meta_len) = solution_quality(&meta, geometries, boundary);
-        let (blf_placed, blf_len) = solution_quality(&blf, geometries, boundary);
-        // BLF wins if it places strictly more pieces, or ties on count while
-        // consuming a strictly shorter strip length.
-        if blf_placed > meta_placed || (blf_placed == meta_placed && blf_len < meta_len - 1e-6) {
-            // The greedy layout is better, so its placements are returned — but the
-            // metaheuristic *did* run. Preserve its search diagnostics (strategy
-            // label, generation/fitness history) so a caller inspecting the result
-            // still sees which strategy executed and how it converged, rather than a
-            // bare BLF. Only the placements are floored, not the provenance.
-            let mut floored = blf;
-            floored.strategy = meta.strategy;
-            floored.generations = meta.generations;
-            floored.best_fitness = meta.best_fitness;
-            floored.fitness_history = meta.fitness_history;
-            floored.target_reached = meta.target_reached;
-            floored
-        } else {
-            meta
+        let baselines = self
+            .bottom_left_fill(geometries, boundary)
+            .ok()
+            .into_iter()
+            .chain(greedy);
+        let quality = |r: &SolveResult<f64>| solution_quality(r, geometries, boundary);
+        // A baseline wins if it places strictly more pieces, or ties on count
+        // while consuming a strictly shorter strip length.
+        let beats =
+            |a: (usize, f64), b: (usize, f64)| a.0 > b.0 || (a.0 == b.0 && a.1 < b.1 - 1e-6);
+        let mut best: Option<SolveResult<f64>> = None;
+        for baseline in baselines {
+            let current = best.as_ref().map_or(quality(&meta), quality);
+            if beats(quality(&baseline), current) {
+                best = Some(baseline);
+            }
         }
+        match best {
+            // A baseline layout is better, so its placements are returned — but
+            // the search *did* run. Preserve its diagnostics (strategy label,
+            // generation/fitness history) so a caller inspecting the result still
+            // sees which strategy executed and how it converged. Only the
+            // placements are floored, not the provenance.
+            Some(mut floored) => {
+                floored.strategy = meta.strategy;
+                floored.generations = meta.generations;
+                floored.best_fitness = meta.best_fitness;
+                floored.fitness_history = meta.fitness_history;
+                floored.target_reached = meta.target_reached;
+                floored
+            }
+            None => meta,
+        }
+    }
+
+    /// The time a search strategy may spend on one strip: a quarter of the
+    /// limit (assuming up to about four strips), at least 5 s, never more than
+    /// the limit itself; `default_ms` when there is no limit.
+    fn search_budget_ms(&self, default_ms: u64) -> u64 {
+        if self.config.time_limit_ms > 0 {
+            (self.config.time_limit_ms / 4)
+                .max(5000)
+                .min(self.config.time_limit_ms)
+        } else {
+            default_ms
+        }
+    }
+
+    /// Runs greedy no-fit-polygon placement within `budget_ms` as the starting
+    /// point of a search, and returns it with the time left for the search.
+    ///
+    /// Searching from a random start can end, on a short limit or a large
+    /// rotation set, with a layout the one greedy pass would have beaten. The
+    /// search is seeded with this layout where it can be, and floored at it.
+    fn greedy_start(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        budget_ms: u64,
+    ) -> (Option<SolveResult<f64>>, u64) {
+        let started = Timer::now();
+        let greedy = Nester2D {
+            config: Config {
+                time_limit_ms: budget_ms,
+                ..self.config.clone()
+            },
+            cancelled: self.cancelled.clone(),
+            nfp_cache: NfpCache::new(),
+        }
+        .nfp_guided_blf(geometries, boundary)
+        .ok();
+        (
+            greedy,
+            budget_ms.saturating_sub(started.elapsed_ms()).max(1),
+        )
     }
 
     /// Genetic Algorithm based nesting optimization.
@@ -407,17 +459,10 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
-        // Configure GA with time limit for multi-strip scenarios
-        let time_limit_ms = if self.config.time_limit_ms > 0 {
-            // Use 1/4 of total time limit per strip to allow for multiple strips
-            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
-            // never exceed the user's total limit: a single-strip solve must honor an
-            // explicit short budget instead of being floored up to 5s.
-            (self.config.time_limit_ms / 4)
-                .max(5000)
-                .min(self.config.time_limit_ms)
-        } else {
-            15000 // 15 seconds default per strip
+        let (time_limit_ms, greedy) = {
+            let budget = self.search_budget_ms(15000);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            (remaining, greedy)
         };
 
         let ga_config = GaConfig::default()
@@ -433,26 +478,20 @@ impl Nester2D {
             &self.config,
             ga_config,
             self.cancelled.clone(),
+            greedy.as_ref().map(|g| g.placements.as_slice()),
         );
 
-        Ok(self.not_worse_than_blf(result, geometries, boundary))
+        Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
 
     /// BRKGA (Biased Random-Key Genetic Algorithm) based nesting optimization.
     ///
     /// Uses random-key encoding and biased crossover for robust optimization.
     fn brkga(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        // Configure BRKGA with time limit for multi-strip scenarios
-        let time_limit_ms = if self.config.time_limit_ms > 0 {
-            // Use 1/4 of total time limit per strip to allow for multiple strips
-            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
-            // never exceed the user's total limit: a single-strip solve must honor an
-            // explicit short budget instead of being floored up to 5s.
-            (self.config.time_limit_ms / 4)
-                .max(5000)
-                .min(self.config.time_limit_ms)
-        } else {
-            15000 // 15 seconds default per strip
+        let (time_limit_ms, greedy) = {
+            let budget = self.search_budget_ms(15000);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            (remaining, greedy)
         };
 
         let brkga_config = BrkgaConfig::default()
@@ -474,7 +513,7 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(self.not_worse_than_blf(result, geometries, boundary))
+        Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
 
     /// Simulated Annealing based nesting optimization.
@@ -486,18 +525,10 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
-        // Configure SA with faster defaults for multi-strip scenarios
-        // Note: Each decode() call is O(N²) NFP computations, so we need fewer iterations
-        let time_limit_ms = if self.config.time_limit_ms > 0 {
-            // Use 1/4 of total time limit per strip to allow for multiple strips
-            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
-            // never exceed the user's total limit: a single-strip solve must honor an
-            // explicit short budget instead of being floored up to 5s.
-            (self.config.time_limit_ms / 4)
-                .max(5000)
-                .min(self.config.time_limit_ms)
-        } else {
-            10000 // 10 seconds default per strip
+        let (time_limit_ms, greedy) = {
+            let budget = self.search_budget_ms(10000);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            (remaining, greedy)
         };
 
         let sa_config = SaConfig::default()
@@ -514,25 +545,18 @@ impl Nester2D {
             &self.config,
             sa_config,
             self.cancelled.clone(),
+            greedy.as_ref().map(|g| g.placements.as_slice()),
         );
 
-        Ok(self.not_worse_than_blf(result, geometries, boundary))
+        Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
 
     /// Goal-Driven Ruin and Recreate (GDRR) optimization.
     fn gdrr(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        // Configure GDRR with faster defaults for multi-strip scenarios
-        // Use user's time limit, default to 10s per strip if not specified
-        let time_limit = if self.config.time_limit_ms > 0 {
-            // Use 1/4 of total time limit per strip to allow for multiple strips
-            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
-            // never exceed the user's total limit: a single-strip solve must honor an
-            // explicit short budget instead of being floored up to 5s.
-            (self.config.time_limit_ms / 4)
-                .max(5000)
-                .min(self.config.time_limit_ms)
-        } else {
-            10000 // 10 seconds default per strip
+        let (time_limit, greedy) = {
+            let budget = self.search_budget_ms(10000);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            (remaining, greedy)
         };
         let gdrr_config = GdrrConfig::default()
             .with_max_iterations(1000) // Reduced from 5000 for faster execution
@@ -548,23 +572,15 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(self.not_worse_than_blf(result, geometries, boundary))
+        Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
 
     /// Adaptive Large Neighborhood Search (ALNS) optimization.
     fn alns(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        // Configure ALNS with faster defaults for multi-strip scenarios
-        // Use user's time limit, default to 10s per strip if not specified
-        let time_limit = if self.config.time_limit_ms > 0 {
-            // Use 1/4 of total time limit per strip to allow for multiple strips
-            // Budget a quarter of the total per strip (assuming up to ~4 strips), but
-            // never exceed the user's total limit: a single-strip solve must honor an
-            // explicit short budget instead of being floored up to 5s.
-            (self.config.time_limit_ms / 4)
-                .max(5000)
-                .min(self.config.time_limit_ms)
-        } else {
-            10000 // 10 seconds default per strip
+        let (time_limit, greedy) = {
+            let budget = self.search_budget_ms(10000);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            (remaining, greedy)
         };
         let alns_config = AlnsConfig::default()
             .with_max_iterations(1000) // Reduced from 5000 for faster execution
@@ -582,7 +598,7 @@ impl Nester2D {
             self.cancelled.clone(),
         );
 
-        Ok(self.not_worse_than_blf(result, geometries, boundary))
+        Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
 
     /// MILP-based exact solver.
@@ -1374,6 +1390,9 @@ impl Solver for Nester2D {
                 // full default 500 generations × 100 population (vs 50 × 30),
                 // making a progress-driven solve dramatically slower for no quality
                 // gain and letting it overrun a modest time budget.
+                // Same greedy start as the non-progress path, inside the limit.
+                let (greedy, remaining) =
+                    self.greedy_start(geometries, boundary, self.config.time_limit_ms);
                 let mut ga_config = GaConfig::default()
                     .with_population_size(self.config.population_size.min(30))
                     .with_max_generations(self.config.max_generations.min(50))
@@ -1382,9 +1401,8 @@ impl Solver for Nester2D {
 
                 // Apply time limit if specified
                 if self.config.time_limit_ms > 0 {
-                    ga_config = ga_config.with_time_limit(std::time::Duration::from_millis(
-                        self.config.time_limit_ms,
-                    ));
+                    ga_config =
+                        ga_config.with_time_limit(std::time::Duration::from_millis(remaining));
                 }
 
                 let ga_result = run_ga_nesting_with_progress(
@@ -1394,12 +1412,13 @@ impl Solver for Nester2D {
                     ga_config,
                     self.cancelled.clone(),
                     callback,
+                    greedy.as_ref().map(|g| g.placements.as_slice()),
                 );
                 // Same BLF floor as the non-progress path: never return a
                 // layout worse than deterministic bottom-left-fill. The
                 // callback-driven entry points (FFI `solve_2d_with_callback`,
                 // WASM/demo) route through here, so the guard must apply here too.
-                self.not_worse_than_blf(ga_result, geometries, boundary)
+                self.not_worse_than_baselines(ga_result, geometries, boundary, greedy)
             }
             // For other strategies, use basic progress reporting
             _ => {

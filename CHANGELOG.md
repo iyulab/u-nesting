@@ -71,6 +71,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   advance along its longer side — the axis the search strategies already
   measured layouts by — so `nfp` and the search strategies built on it produce
   shorter layouts than bottom-left fill on either orientation.
+- **A search strategy could return a longer layout than the one greedy pass it
+  is built on.** Starting from random orders, a time-limited genetic algorithm or
+  simulated annealing with four rotations ended at 328 where greedy no-fit
+  placement reached 286, and adding rotations made results worse. Every search
+  strategy now runs greedy no-fit placement first, inside its time limit, and
+  never returns anything worse than it; the genetic algorithm and simulated
+  annealing also start their search from that layout.
 - **3D extreme-point packing lost boxes whenever `spacing` was positive.** New
   candidate corners were created flush against the last box, where a neighbour
   may not start once a gap is required, so eight 40-unit boxes that fit a
@@ -90,6 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `shrink_ifp`, because the inner-fit polygon is no longer shrunk by `spacing`.
   `placement_utils::inset_boundary` is the one place a boundary is inset by
   `margin`.
+- **Breaking:** `ga_nesting::run_ga_nesting`, `run_ga_nesting_with_progress` and
+  `sa_nesting::run_sa_nesting` take a final `seed_layout` (pass `None` to start
+  from random solutions as before); `placement_utils::seed_genes` turns a layout
+  into the genes that reproduce it.
 - **Breaking:** `nfp::find_bottom_left_placement` takes the packing axis to
   order candidates by (`nfp::PackingAxis::of(&boundary)`).
 - **Breaking:** `is_placement_within_bounds` and `validate_and_filter_placements`
