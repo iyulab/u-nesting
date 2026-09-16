@@ -109,6 +109,19 @@ pub struct Nester2D {
     nfp_cache: NfpCache,
 }
 
+/// One rotation's landing spot in a Bottom-Left-Fill row, before the best of
+/// them is chosen.
+#[derive(Debug, Clone, Copy)]
+struct BlfCandidate {
+    rotation: f64,
+    extent_across: f64,
+    extent_along: f64,
+    place_across: f64,
+    place_along: f64,
+    /// The candidate had to start a new row to fit.
+    opened_row: bool,
+}
+
 impl Nester2D {
     /// Creates a new nester with the given configuration.
     pub fn new(config: Config) -> Self {
@@ -722,6 +735,46 @@ impl Nester2D {
         let (min_across, min_along) = to_ca(b_min[0] + margin, b_min[1] + margin);
         let (max_across, max_along) = to_ca(b_max[0] - margin, b_max[1] - margin);
 
+        // A hole is taken as its own AABB grown by `margin`, in (across, along).
+        // This packer already reads the boundary as an AABB, so reading holes
+        // the same way keeps it one kind of packer; it is conservative for a
+        // non-rectangular hole, which blocks a little more than it occupies.
+        // The alternative is what this replaces: placing over a hole and having
+        // the placement filter drop the piece, which loses the position.
+        let hole_boxes: Vec<(f64, f64, f64, f64)> = boundary
+            .holes()
+            .iter()
+            .filter(|hole| !hole.is_empty())
+            .map(|hole| {
+                let (mut x0, mut y0) = (f64::INFINITY, f64::INFINITY);
+                let (mut x1, mut y1) = (f64::NEG_INFINITY, f64::NEG_INFINITY);
+                for &(x, y) in hole {
+                    x0 = x0.min(x);
+                    y0 = y0.min(y);
+                    x1 = x1.max(x);
+                    y1 = y1.max(y);
+                }
+                let (a0, l0) = to_ca(x0 - margin, y0 - margin);
+                let (a1, l1) = to_ca(x1 + margin, y1 + margin);
+                (a0.min(a1), l0.min(l1), a0.max(a1), l0.max(l1))
+            })
+            .collect();
+
+        // The far edge of the hole a footprint runs into, if it runs into one.
+        // Overlap is measured on open intervals: touching a hole's margin ring
+        // exactly is clear, which is what `margin` means everywhere else.
+        let blocking_hole_edge = |across: f64, along: f64, ea: f64, el: f64| -> Option<f64> {
+            hole_boxes
+                .iter()
+                .filter(|(a0, l0, a1, l1)| {
+                    across < *a1 && across + ea > *a0 && along < *l1 && along + el > *l0
+                })
+                .map(|(_, _, a1, _)| *a1)
+                .fold(None, |far: Option<f64>, a1| {
+                    Some(far.map_or(a1, |f| f.max(a1)))
+                })
+        };
+
         let mut cursor_across = min_across;
         let mut cursor_along = min_along;
         let mut row_depth = 0.0_f64;
@@ -778,8 +831,7 @@ impl Nester2D {
 
                 // The rotation that advances least: along the row if it still fits
                 // there, otherwise along the length when it opens a new row.
-                // (rotation, across extent, along extent, place across, place along)
-                let mut best_fit: Option<(f64, f64, f64, f64, f64)> = None;
+                let mut best_fit: Option<BlfCandidate> = None;
 
                 for &rotation in &rotation_angles {
                     let (g_min, g_max) = geom.aabb_at_rotation(rotation);
@@ -794,12 +846,42 @@ impl Nester2D {
 
                     let mut place_across = cursor_across;
                     let mut place_along = cursor_along;
-                    let new_row = place_across + extent_across > max_across;
-                    if new_row {
-                        place_across = min_across;
-                        place_along += row_depth + spacing;
-                    }
-                    if place_along + extent_along > max_along {
+                    // Depth of the row the candidate currently sits in. Once it
+                    // opens a row, that row holds only this piece so far.
+                    let mut depth = row_depth;
+                    let mut opened_row = false;
+                    // Each turn either opens a row (advancing `along` by at
+                    // least the piece's own length once a row has been opened,
+                    // so `max_along` ends it) or steps past one hole's far edge.
+                    // The guard covers degenerate geometry rather than the
+                    // normal case.
+                    let mut turns = 0usize;
+                    let max_turns = 4 * (hole_boxes.len() + 1) * (hole_boxes.len() + 2) + 16;
+                    let fits = loop {
+                        if place_across + extent_across > max_across {
+                            place_across = min_across;
+                            place_along += depth + spacing;
+                            depth = extent_along;
+                            opened_row = true;
+                        }
+                        if place_along + extent_along > max_along {
+                            break false;
+                        }
+                        match blocking_hole_edge(
+                            place_across,
+                            place_along,
+                            extent_across,
+                            extent_along,
+                        ) {
+                            None => break true,
+                            Some(past) => place_across = past + spacing,
+                        }
+                        turns += 1;
+                        if turns > max_turns {
+                            break false;
+                        }
+                    };
+                    if !fits {
                         continue;
                     }
 
@@ -807,34 +889,42 @@ impl Nester2D {
                     // opens a row, across the row otherwise. A candidate is
                     // measured against the best so far with its own extents, so
                     // within one row the first rotation that fits is kept.
-                    let advance = |across: f64, along: f64| {
-                        if across == min_across && along > cursor_along {
-                            along - min_along + extent_along
+                    let cost = |c: &BlfCandidate| {
+                        if c.opened_row {
+                            c.place_along - min_along + c.extent_along
                         } else {
-                            across - min_across + extent_across
+                            c.place_across - min_across + c.extent_across
                         }
                     };
-                    let better = best_fit.is_none_or(|best| {
-                        advance(place_across, place_along) < advance(best.3, best.4) - 1e-6
-                    });
+                    let candidate = BlfCandidate {
+                        rotation,
+                        extent_across,
+                        extent_along,
+                        place_across,
+                        place_along,
+                        opened_row,
+                    };
+                    let better = best_fit
+                        .as_ref()
+                        .is_none_or(|best| cost(&candidate) < cost(best) - 1e-6);
                     if better {
-                        best_fit = Some((
-                            rotation,
-                            extent_across,
-                            extent_along,
-                            place_across,
-                            place_along,
-                        ));
+                        best_fit = Some(candidate);
                     }
                 }
 
-                let Some((rotation, extent_across, extent_along, place_across, place_along)) =
-                    best_fit
+                let Some(BlfCandidate {
+                    rotation,
+                    extent_across,
+                    extent_along,
+                    place_across,
+                    place_along,
+                    opened_row,
+                }) = best_fit
                 else {
                     result.unplaced.push(geom.id().clone());
                     continue;
                 };
-                if place_across == min_across && place_along > cursor_along {
+                if opened_row {
                     row_depth = 0.0;
                 }
 

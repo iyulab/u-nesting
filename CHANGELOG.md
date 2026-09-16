@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-09-16
+
+### Fixed
+
+- **A sheet with a hole came back a third empty on six of the seven
+  strategies.** Bottom-Left-Fill reads the sheet as an axis-aligned box and
+  laid its rows straight across a hole; the placement filter then dropped every
+  piece that landed on one, so the position was lost rather than skipped. The
+  search strategies seed from that layout, so they inherited it. On a 1000x1000
+  sheet with a 600x600 hole and 100x100 pieces, the ring holds 64 and the
+  strategies returned **44** -- `nfp` alone returned 64. All seven now return
+  64.
+
+  Bottom-Left-Fill now slides a candidate past the holes it runs into, taking
+  each hole as its own box grown by `margin`, which is the same way it already
+  reads the sheet. For a hole that is not a rectangle this blocks slightly more
+  than the hole occupies; the strategies that follow the hole's actual outline
+  (`nfp` and the searches, since 0.11.0) are unaffected and remain the ones to
+  use when that matters.
+
+  Layout coordinates on sheets with holes differ from 0.11.0. Sheets without
+  holes are unchanged.
+
 ## [0.11.0] - 2026-09-16
 
 A minor release because public functions change signature or are removed (see

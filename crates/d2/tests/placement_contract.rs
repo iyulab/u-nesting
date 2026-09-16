@@ -410,10 +410,21 @@ fn the_ring_around_a_hole_is_filled() {
     let pieces = [Geometry2D::rectangle("s", 100.0, 100.0)
         .with_quantity(80)
         .with_rotations(vec![0.0])];
-    let result = Nester2D::new(config(Strategy::NfpGuided).with_time_limit(0))
-        .solve(&pieces, &boundary)
-        .unwrap();
-    assert_eq!(result.placements.len(), 64);
+    // 100 cells of a 10x10 grid less the 6x6 the hole covers. Every strategy
+    // has to reach it: a packer that reads only the sheet's outline lays
+    // pieces over the hole and the placement filter drops them, so the ring
+    // comes back part-empty while the layout looks successful.
+    for strategy in STRATEGIES {
+        let result = Nester2D::new(config(strategy).with_time_limit(0))
+            .solve(&pieces, &boundary)
+            .unwrap();
+        assert_eq!(
+            result.placements.len(),
+            64,
+            "{strategy:?} filled {} of the 64 cells around the hole",
+            result.placements.len()
+        );
+    }
 }
 
 proptest! {
