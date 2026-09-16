@@ -109,6 +109,49 @@ pub struct Nester2D {
     nfp_cache: NfpCache,
 }
 
+/// The spacing of the candidate grid the exact solver enumerates.
+///
+/// Every pair of candidates of two pieces becomes a conflict constraint, so the
+/// model grows with the square of the candidate count. A fixed 1-unit grid put
+/// roughly a thousand candidates on each piece -- a million constraints for two
+/// pieces -- and the search returned nothing at all for anything past a single
+/// piece, however long it was given. Deriving the step from the pieces keeps
+/// the model at a size the search can actually finish: a quarter of the
+/// smallest side any piece has, so a piece still has several distinct
+/// positions along its own width.
+#[cfg(feature = "milp")]
+fn milp_grid_step(geometries: &[Geometry2D], boundary: &Boundary2D) -> f64 {
+    let smallest_side = geometries
+        .iter()
+        .map(|g| {
+            let (g_min, g_max) = g.aabb_at_rotation(0.0);
+            (g_max[0] - g_min[0]).min(g_max[1] - g_min[1])
+        })
+        .fold(f64::INFINITY, f64::min);
+    if !smallest_side.is_finite() || smallest_side <= 0.0 {
+        return 1.0;
+    }
+    let (b_min, b_max) = boundary.aabb();
+    let longest_side = (b_max[0] - b_min[0]).max(b_max[1] - b_min[1]);
+    // Never finer than a unit, and never so fine that the sheet alone would
+    // carry more than a few hundred steps in either direction.
+    (smallest_side / 4.0).max(1.0).max(longest_side / 256.0)
+}
+
+/// The time budget the exact solver runs under.
+///
+/// `Config::time_limit_ms` of 0 means unlimited throughout this crate, but the
+/// MIP search needs a number, so unlimited becomes a bound no real instance
+/// reaches rather than a silent minute.
+#[cfg(feature = "milp")]
+fn milp_time_limit(requested_ms: u64) -> u64 {
+    if requested_ms == 0 {
+        u64::MAX / 2
+    } else {
+        requested_ms
+    }
+}
+
 /// One rotation's landing spot in a Bottom-Left-Fill row, before the best of
 /// them is chosen.
 #[derive(Debug, Clone, Copy)]
@@ -632,11 +675,15 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
+        // The caller's limit is the limit. It used to be raised to a minute,
+        // so a request for a second ran for minutes -- the same shape as the
+        // time contract the other strategies keep. 0 means unlimited here as
+        // it does everywhere else in this crate.
         let exact_config = ExactConfig::default()
-            .with_time_limit_ms(self.config.time_limit_ms.max(60000))
+            .with_time_limit_ms(milp_time_limit(self.config.time_limit_ms))
             .with_max_items(15)
             .with_rotation_steps(4)
-            .with_grid_step(1.0);
+            .with_grid_step(milp_grid_step(geometries, boundary));
 
         let result = run_nfp_cm_nesting(
             geometries,
@@ -661,8 +708,11 @@ impl Nester2D {
 
         // If small enough, try exact
         if total_instances <= 15 {
+            // Half the caller's budget for the exact attempt, leaving the
+            // rest for the heuristic this falls back to. No floor: see
+            // `milp_time_limit`.
             let exact_config = ExactConfig::default()
-                .with_time_limit_ms((self.config.time_limit_ms / 2).max(30000))
+                .with_time_limit_ms(milp_time_limit(self.config.time_limit_ms / 2))
                 .with_max_items(15);
 
             let exact_result = run_nfp_cm_nesting(
@@ -1543,6 +1593,58 @@ impl Solver for Nester2D {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "milp")]
+    mod milp_budget {
+        use super::super::{milp_grid_step, milp_time_limit};
+        use crate::{Boundary2D, Geometry2D};
+
+        /// 0 means unlimited everywhere else in this crate, and the exact
+        /// solver has to spell that as a number rather than as a minute.
+        #[test]
+        fn an_unlimited_request_does_not_become_a_minute() {
+            assert_eq!(milp_time_limit(0), u64::MAX / 2);
+        }
+
+        /// The floor this replaces turned a one-second request into a
+        /// one-minute run.
+        #[test]
+        fn a_short_request_is_kept_short() {
+            assert_eq!(milp_time_limit(1_000), 1_000);
+            assert_eq!(milp_time_limit(250), 250);
+        }
+
+        /// Candidates are enumerated on this grid and every pair of them
+        /// becomes a constraint, so the step has to come from the pieces --
+        /// a fixed unit grid is what made the model unsolvable.
+        #[test]
+        fn the_grid_step_follows_the_smallest_piece() {
+            let boundary = Boundary2D::rectangle(400.0, 100.0);
+            let pieces = [
+                Geometry2D::rectangle("wide", 80.0, 40.0),
+                Geometry2D::rectangle("small", 20.0, 60.0),
+            ];
+            // The smallest side across both pieces is 20, so a quarter of it.
+            assert_eq!(milp_grid_step(&pieces, &boundary), 5.0);
+        }
+
+        /// A sheet far larger than its pieces would still carry an unbounded
+        /// number of steps, so the sheet sets a floor of its own.
+        #[test]
+        fn a_huge_sheet_keeps_the_step_from_getting_too_fine() {
+            let boundary = Boundary2D::rectangle(100_000.0, 100.0);
+            let pieces = [Geometry2D::rectangle("small", 4.0, 4.0)];
+            assert_eq!(milp_grid_step(&pieces, &boundary), 100_000.0 / 256.0);
+        }
+
+        /// Never finer than a unit, whatever the pieces are.
+        #[test]
+        fn the_step_never_goes_below_a_unit() {
+            let boundary = Boundary2D::rectangle(10.0, 10.0);
+            let pieces = [Geometry2D::rectangle("tiny", 0.5, 0.5)];
+            assert_eq!(milp_grid_step(&pieces, &boundary), 1.0);
+        }
+    }
+
     use super::*;
     use crate::placement_utils::polygon_centroid;
 

@@ -11,6 +11,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Strategy::MilpExact` ignored `spacing`, and could place pieces on top of
+  each other.** Two 20x20 pieces asked to stay 10 apart came back touching.
+  The no-fit polygons that decide which pairs of positions conflict were being
+  grown by moving each vertex as `v - spacing.copysign(v)` -- towards the
+  coordinate origin, which *shrinks* the polygon rather than growing it, and
+  does so relative to a point that has nothing to do with the polygon. A
+  shrunken no-fit polygon reports no conflict for positions that really do
+  clash, so the model permitted them. The crate's own polygon offset is now
+  used, applied once per cached no-fit polygon. The coarser fallback used when
+  conflict computation runs long kept no spacing at all; it now does.
+
+- **`Strategy::MilpExact` returned an empty layout whenever the pieces did not
+  all fit.** The model required every piece to be placed and minimised the
+  strip length, which is a strip-packing formulation applied to a bounded
+  sheet: three 50x50 pieces offered a 60x60 sheet were infeasible rather than
+  one placed and two reported. It now places what fits and reports the rest in
+  `unplaced`, like every other strategy, preferring the shortest strip among
+  layouts that place the same pieces. `utilization` counts the pieces that were
+  placed; it used to sum every piece handed in, reporting the number the layout
+  would have had if all of them had fitted.
+
+- **`Strategy::MilpExact` ran for minutes on a request for a second, and placed
+  nothing past a single piece.** Two things, in the strategy's setup rather
+  than in the model:
+
+  Its time limit was raised to a minute whatever the caller asked for, so a
+  1-second request on four rectangles took over three minutes. The caller's
+  limit is now the limit, and 0 means unlimited as it does everywhere else in
+  this crate. The same request now returns in about two seconds.
+
+  Its candidate positions came from a fixed one-unit grid, so each piece
+  carried about a thousand of them and every pair of candidates from two
+  pieces becomes a constraint -- a million for two pieces, which the search
+  never finished. The grid now comes from the pieces: a quarter of the
+  smallest side any of them has, never finer than a unit and never fine
+  enough for the sheet alone to carry more than a few hundred steps. Two
+  50x50 pieces on a 200x100 sheet now come back placed; they used to come
+  back as an empty layout however long the search was given.
+
+  This strategy is still not usable for more than about two pieces: four
+  rectangles still return an empty layout. The candidate model is what needs
+  replacing, and the README's placement guarantees continue to exclude it.
+
 - **A sheet with a hole came back a third empty on six of the seven
   strategies.** Bottom-Left-Fill reads the sheet as an axis-aligned box and
   laid its rows straight across a hole; the placement filter then dropped every

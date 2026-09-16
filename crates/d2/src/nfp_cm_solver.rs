@@ -34,6 +34,7 @@ use crate::boundary::Boundary2D;
 use crate::geometry::Geometry2D;
 #[cfg(feature = "milp")]
 use crate::nfp::{compute_nfp_mirrored, rotate_nfp, translate_nfp, Nfp};
+use crate::placement_utils::offset_nfp;
 #[cfg(feature = "milp")]
 use u_nesting_core::exact::{ExactConfig, ExactResult};
 use u_nesting_core::geometry::{Boundary, Geometry};
@@ -212,8 +213,29 @@ pub fn run_nfp_cm_nesting(
             }
 
             result.boundaries_used = if result.placements.is_empty() { 0 } else { 1 };
-            result.utilization =
-                pieces.iter().map(|p| p.area).sum::<f64>() / (bound_width * bound_height);
+            // Area of the pieces that were placed. It used to sum every piece
+            // handed in, so a layout reported the utilization it would have
+            // had if all of them had fitted.
+            let placed_area: f64 = solution
+                .assignments
+                .iter()
+                .map(|(piece_idx, _)| pieces[*piece_idx].area)
+                .sum();
+            result.utilization = placed_area / (bound_width * bound_height);
+
+            // The model may now leave a piece out, so the ones left out are
+            // said rather than silently missing from a layout that looks
+            // complete.
+            let placed: std::collections::HashSet<usize> = solution
+                .assignments
+                .iter()
+                .map(|(piece_idx, _)| *piece_idx)
+                .collect();
+            for (idx, piece) in pieces.iter().enumerate() {
+                if !placed.contains(&idx) {
+                    result.unplaced.push(piece.id.clone());
+                }
+            }
             result.best_fitness = Some(solution.objective);
             result.strategy = Some("NfpCm".to_string());
             result.iterations = Some(solution.exact_result.iterations);
@@ -383,8 +405,11 @@ fn compute_conflicts(
             // Time limit check
             if start.elapsed().as_millis() as u64 > time_limit_ms / 4 {
                 log::warn!("Conflict computation taking too long, using simplified model");
-                // Use simple AABB overlap check instead
-                return compute_aabb_conflicts(pieces);
+                // Use simple AABB overlap check instead. It is coarser than the
+                // no-fit polygon -- it refuses placements the real shapes would
+                // allow -- but it has to keep `spacing`, or the fallback would
+                // permit what the caller asked to be kept apart.
+                return compute_aabb_conflicts(pieces, spacing);
             }
 
             let geom_i = &geometries[pieces[i].geometry_idx];
@@ -402,6 +427,10 @@ fn compute_conflicts(
                         cand_j.mirror,
                     );
 
+                    // Grown by `spacing` here, once per cache entry, with the
+                    // crate's own offset. Growing commutes with the rigid
+                    // motion applied below, so doing it on the cached local
+                    // NFP is the same as doing it on the absolute one.
                     let nfp_opt = nfp_cache.entry(cache_key).or_insert_with(|| {
                         compute_nfp_mirrored(
                             geom_i,
@@ -411,6 +440,7 @@ fn compute_conflicts(
                             cand_j.mirror,
                         )
                         .ok()
+                        .map(|nfp| offset_nfp(&nfp, spacing))
                     });
 
                     let overlaps = if let Some(nfp) = nfp_opt {
@@ -434,13 +464,7 @@ fn compute_conflicts(
                             (cand_i.origin_x, cand_i.origin_y),
                         );
 
-                        // Point-in-polygon test with spacing buffer
-                        point_in_nfp_with_spacing(
-                            &absolute_nfp,
-                            cand_j.origin_x,
-                            cand_j.origin_y,
-                            spacing,
-                        )
+                        point_in_nfp(&absolute_nfp, cand_j.origin_x, cand_j.origin_y)
                     } else {
                         // Fallback to AABB check
                         aabb_overlap(
@@ -468,7 +492,7 @@ fn compute_conflicts(
 }
 
 /// Simplified AABB-based conflict computation.
-fn compute_aabb_conflicts(pieces: &[PieceInfo]) -> Vec<Conflict> {
+fn compute_aabb_conflicts(pieces: &[PieceInfo], spacing: f64) -> Vec<Conflict> {
     let mut conflicts = Vec::new();
 
     for i in 0..pieces.len() {
@@ -484,7 +508,7 @@ fn compute_aabb_conflicts(pieces: &[PieceInfo]) -> Vec<Conflict> {
                         cand_j.y,
                         pieces[j].widths[cand_j.rotation_idx],
                         pieces[j].heights[cand_j.rotation_idx],
-                        0.0,
+                        spacing,
                     ) {
                         conflicts.push(((i, ci), (j, cj)));
                     }
@@ -514,18 +538,22 @@ fn aabb_overlap(
 }
 
 /// Check if point is inside NFP with spacing buffer.
-fn point_in_nfp_with_spacing(nfp: &Nfp, x: f64, y: f64, spacing: f64) -> bool {
-    // Simple check: if any NFP polygon contains the point
-    for polygon in &nfp.polygons {
-        if point_in_polygon(x, y, polygon, spacing) {
-            return true;
-        }
-    }
-    false
+fn point_in_nfp(nfp: &Nfp, x: f64, y: f64) -> bool {
+    nfp.polygons
+        .iter()
+        .any(|polygon| point_in_polygon(x, y, polygon))
 }
 
-/// Point-in-polygon test with buffer.
-fn point_in_polygon(x: f64, y: f64, polygon: &[(f64, f64)], buffer: f64) -> bool {
+/// Point-in-polygon test.
+///
+/// `spacing` is not a parameter here: it is applied to the no-fit polygon
+/// itself, with the crate's own offset, before this runs. It used to be a
+/// per-vertex "buffer" applied as `v - buffer.copysign(v)`, which moves every
+/// vertex *towards the coordinate origin* -- it shrank the polygon instead of
+/// growing it, and did so relative to a point that has nothing to do with the
+/// polygon. A shrunken no-fit polygon reports no conflict for placements that
+/// really do overlap.
+fn point_in_polygon(x: f64, y: f64, polygon: &[(f64, f64)]) -> bool {
     if polygon.len() < 3 {
         return false;
     }
@@ -538,12 +566,6 @@ fn point_in_polygon(x: f64, y: f64, polygon: &[(f64, f64)], buffer: f64) -> bool
         let j = (i + 1) % n;
         let (xi, yi) = polygon[i];
         let (xj, yj) = polygon[j];
-
-        // Expand polygon outward by buffer (simplified)
-        let xi = xi - buffer.copysign(xi);
-        let xj = xj - buffer.copysign(xj);
-        let yi = yi - buffer.copysign(yi);
-        let yj = yj - buffer.copysign(yj);
 
         if ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi) {
             inside = !inside;
@@ -594,19 +616,44 @@ fn solve_nfp_cm_milp(
     // conflict-precomputation heuristic below — without this, a hard
     // instance could run the underlying MIP search indefinitely regardless
     // of what the caller configured.
+    // Objective: place as much as fits, and among the layouts that place the
+    // same pieces prefer the shortest strip.
+    //
+    // It used to minimise the strip length alone while requiring every piece
+    // to be placed. That is a strip-packing model, and this solver is given a
+    // bounded sheet: whenever the pieces did not all fit -- or the search hit
+    // its limit without an incumbent -- the model was infeasible and the
+    // caller got an empty layout, rather than the pieces that did fit. Every
+    // other strategy in this crate places what fits and reports the rest.
+    //
+    // The tie-break weight is small enough that no layout ever trades a placed
+    // piece for a shorter strip: the whole strip term is worth less than the
+    // smallest piece.
+    let min_area = pieces
+        .iter()
+        .map(|p| p.area)
+        .fold(f64::INFINITY, f64::min)
+        .max(f64::MIN_POSITIVE);
+    let compactness = 0.5 * min_area / (bound_width + 1.0);
+    let placed_area: Expression = pieces
+        .iter()
+        .enumerate()
+        .flat_map(|(i, piece)| z[i].iter().map(move |&v| piece.area * v))
+        .sum();
     let mut problem = vars
-        .minimise(strip_length)
+        .maximise(placed_area - compactness * strip_length)
         .using(default_solver)
         .with_time_limit(config.time_limit_ms as f64 / 1000.0);
 
-    // Constraint: each piece must be assigned exactly one position
+    // Constraint: a piece takes at most one position. Not exactly one -- a
+    // piece that cannot be placed is reported, not made infeasible.
     for (i, _piece) in pieces.iter().enumerate() {
         if cancelled.load(Ordering::Relaxed) {
             return None;
         }
 
         let sum: Expression = z[i].iter().map(|&v| Expression::from(v)).sum();
-        problem = problem.with(constraint!(sum == 1.0));
+        problem = problem.with(constraint!(sum <= 1.0));
     }
 
     // Constraint: strip length must accommodate all placements
@@ -715,10 +762,128 @@ mod tests {
         let square = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
 
         // Inside
-        assert!(point_in_polygon(5.0, 5.0, &square, 0.0));
+        assert!(point_in_polygon(5.0, 5.0, &square));
 
         // Outside
-        assert!(!point_in_polygon(15.0, 5.0, &square, 0.0));
+        assert!(!point_in_polygon(15.0, 5.0, &square));
+    }
+
+    /// Two pieces on a sheet that holds them, at the grid the strategy now
+    /// derives from the pieces. With the fixed one-unit grid this used to run
+    /// on, each piece carried about a thousand candidates and every pair of
+    /// them became a constraint, so the search returned an empty layout for
+    /// anything past a single piece however long it was given.
+    #[test]
+    #[cfg(feature = "milp")]
+    fn two_pieces_that_fit_land_on_the_grid_the_pieces_imply() {
+        let geometries = vec![Geometry2D::rectangle("R", 50.0, 50.0).with_quantity(2)];
+        let boundary = Boundary2D::rectangle(200.0, 100.0);
+        let exact_config = ExactConfig::default()
+            .with_time_limit_ms(60_000)
+            .with_rotation_steps(1)
+            // A quarter of the pieces' smallest side, as `milp_grid_step` gives.
+            .with_grid_step(12.5);
+
+        let result = run_nfp_cm_nesting(
+            &geometries,
+            &boundary,
+            &Config::default(),
+            &exact_config,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(
+            result.placements.len(),
+            2,
+            "unplaced: {:?}",
+            result.unplaced
+        );
+    }
+
+    /// Three pieces offered a sheet that holds one. The model used to require
+    /// every piece to be placed, so this was infeasible and the caller got an
+    /// empty layout; it now places the one that fits and says which did not.
+    /// Utilization counts what was placed -- it used to sum every piece handed
+    /// in, reporting the number the layout would have had if all had fitted.
+    #[test]
+    #[cfg(feature = "milp")]
+    fn what_does_not_fit_is_reported_rather_than_making_the_model_infeasible() {
+        let geometries = vec![Geometry2D::rectangle("R", 50.0, 50.0).with_quantity(3)];
+        let boundary = Boundary2D::rectangle(60.0, 60.0);
+        let exact_config = ExactConfig::default()
+            .with_time_limit_ms(60_000)
+            .with_rotation_steps(1)
+            .with_grid_step(5.0);
+
+        let result = run_nfp_cm_nesting(
+            &geometries,
+            &boundary,
+            &Config::default(),
+            &exact_config,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(
+            result.placements.len(),
+            1,
+            "unplaced: {:?}",
+            result.unplaced
+        );
+        assert!(
+            !result.unplaced.is_empty(),
+            "the pieces that did not fit are not reported"
+        );
+        let expected = 2500.0 / (60.0 * 60.0);
+        assert!(
+            (result.utilization - expected).abs() < 1e-9,
+            "utilization {} should be the one placed piece, {expected}",
+            result.utilization
+        );
+    }
+
+    /// `spacing` reaches the conflicts. It used to be applied by moving each
+    /// no-fit-polygon vertex *towards the coordinate origin*, which shrinks the
+    /// polygon rather than growing it, so placements that overlapped were not
+    /// reported as conflicts at all.
+    #[test]
+    #[cfg(feature = "milp")]
+    fn spacing_is_kept_between_placed_pieces() {
+        let spacing = 10.0;
+        let geometries = vec![Geometry2D::rectangle("R", 20.0, 20.0).with_quantity(2)];
+        let boundary = Boundary2D::rectangle(100.0, 40.0);
+        let exact_config = ExactConfig::default()
+            .with_time_limit_ms(60_000)
+            .with_rotation_steps(1)
+            .with_grid_step(5.0);
+
+        let result = run_nfp_cm_nesting(
+            &geometries,
+            &boundary,
+            &Config::default().with_spacing(spacing),
+            &exact_config,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(
+            result.placements.len(),
+            2,
+            "unplaced: {:?}",
+            result.unplaced
+        );
+        let a = &result.placements[0];
+        let b = &result.placements[1];
+        // Axis-aligned 20x20 squares: the gap along the axis they are apart on.
+        let gap_x = (a.x() - b.x()).abs() - 20.0;
+        let gap_y = (a.y() - b.y()).abs() - 20.0;
+        let gap = gap_x.max(gap_y);
+        assert!(
+            gap >= spacing - 1e-6,
+            "pieces at ({}, {}) and ({}, {}) are {gap} apart, less than the {spacing} asked for",
+            a.x(),
+            a.y(),
+            b.x(),
+            b.y()
+        );
     }
 
     #[test]
