@@ -11,6 +11,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Strategy::Brkga` never considered about half the pieces.** Its chromosome
+  holds one key block for placement order and one or two more for rotation and
+  mirroring, and the order was read by ranking *every* key it held and taking
+  the first N of that ranking. With uniform keys, roughly half those N are
+  indices into the rotation or mirror block; they are not instances, so they
+  were skipped, and the instances they displaced were never attempted at all --
+  on every chromosome, in every generation. The order is now read from the
+  first N keys, as the encoding always said it was.
+
+  The effect was hidden because a search that fails to beat the greedy pass
+  falls back to it. On an irregular instance with a 160-second budget, this
+  strategy used to stop early and return the greedy layout of 18 pieces; it now
+  places 19.
+
+### Added
+
+- **`Strategy::Brkga` starts from the greedy layout.** The greedy pass that
+  runs before a search already produces a layout, and the other search
+  strategies are seeded with it; this one computed it only to floor its result
+  against it, then began from random keys. It is now encoded as a chromosome
+  and placed in the first generation, the same warm start the others get.
+  `BrkgaProblem` gained an `initial_population` method for this, defaulting to
+  the random population BRKGA assumes, so nothing else changes.
+
 - **`Strategy::MilpExact` placed nothing for more than about two pieces.** Four
   50x50 rectangles on a 400x100 sheet -- which holds sixteen -- came back as an
   empty layout after more than three minutes. Candidate positions were

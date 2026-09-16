@@ -821,7 +821,11 @@ mod tests {
     #[test]
     fn test_alns_runner_time_limit() {
         let config = AlnsConfig::new()
-            .with_max_iterations(1_000_000)
+            // High enough that no machine reaches it inside the limit below:
+            // a mock iteration is a few instructions, and a million of them take
+            // well under 100 ms in release, which used to end this run on the
+            // iteration cap and fail the assertion about the time limit.
+            .with_max_iterations(usize::MAX)
             .with_time_limit_ms(100)
             .with_seed(42);
 
@@ -833,7 +837,7 @@ mod tests {
         let result = runner.run(&mut problem, |_| {});
 
         // Should have terminated due to time limit
-        assert!(result.iterations < 1_000_000);
+        assert!(result.iterations < usize::MAX);
         assert!(result.elapsed_ms >= 100);
     }
 

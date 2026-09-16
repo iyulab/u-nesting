@@ -260,6 +260,20 @@ pub trait BrkgaProblem: Send + Sync {
         }
     }
 
+    /// The population the run starts from.
+    ///
+    /// The default is what BRKGA assumes: `size` chromosomes of random keys.
+    /// A problem that already has a solution -- one a cheap heuristic found,
+    /// or the answer to a previous run -- overrides this to put it in the
+    /// population, so the search improves on it instead of having to rediscover
+    /// it. This is the usual warm start; the rest of the algorithm is
+    /// unchanged, since a seeded chromosome competes on fitness like any other.
+    fn initial_population<R: Rng>(&self, size: usize, rng: &mut R) -> Vec<RandomKeyChromosome> {
+        (0..size)
+            .map(|_| RandomKeyChromosome::random(self.num_keys(), rng))
+            .collect()
+    }
+
     /// Called after each generation (for progress reporting).
     fn on_generation(
         &self,
@@ -365,10 +379,16 @@ impl<P: BrkgaProblem> BrkgaRunner<P> {
         let mut history = Vec::new();
         let num_keys = self.problem.num_keys();
 
-        // Initialize population with random chromosomes
-        let mut population: Vec<RandomKeyChromosome> = (0..self.config.population_size)
-            .map(|_| RandomKeyChromosome::random(num_keys, rng))
-            .collect();
+        // The problem decides what the run starts from; the default is random.
+        let mut population = self
+            .problem
+            .initial_population(self.config.population_size, rng);
+        // A problem that returns too few (or too many) does not get to change
+        // the population size the caller configured.
+        population.truncate(self.config.population_size);
+        while population.len() < self.config.population_size {
+            population.push(RandomKeyChromosome::random(num_keys, rng));
+        }
 
         // Evaluate the initial population — up to the time limit
         evaluate_within(&mut population, &start, self.config.time_limit, |batch| {

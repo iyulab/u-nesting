@@ -567,6 +567,7 @@ impl Nester2D {
             &self.config,
             brkga_config,
             self.cancelled.clone(),
+            greedy.as_ref().map(|g| g.placements.as_slice()),
         );
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))

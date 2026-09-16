@@ -22,6 +22,7 @@ use crate::nfp::{
     compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
     verify_no_overlap_mirrored, Nfp, PackingAxis, PlacedGeometry,
 };
+use rand::Rng;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::brkga::{BrkgaConfig, BrkgaProblem, BrkgaRunner, RandomKeyChromosome};
@@ -30,7 +31,8 @@ use u_nesting_core::solver::Config;
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
-    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, take_best, InstanceInfo, SearchState,
+    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, seed_genes, take_best, InstanceInfo,
+    SearchState,
 };
 
 /// BRKGA problem definition for 2D nesting.
@@ -48,6 +50,8 @@ pub struct BrkgaNestingProblem {
     /// Whether any geometry allows mirroring (`allow_flip` support) — gates
     /// whether the chromosome carries a third key block for mirror flags.
     any_allow_flip: bool,
+    /// A layout the search starts from, already encoded as random keys.
+    seed: Option<RandomKeyChromosome>,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
     /// Time limit and best layout, shared with the run.
@@ -90,6 +94,7 @@ impl BrkgaNestingProblem {
             instances,
             rotation_angles,
             any_allow_flip,
+            seed: None,
             cancelled,
             search: SearchState::default(),
         }
@@ -113,6 +118,81 @@ impl BrkgaNestingProblem {
         self.instances.len()
     }
 
+    /// Starts the search from `placements` instead of from random keys.
+    ///
+    /// The greedy pass that runs before a search already produces a layout, and
+    /// the other search strategies are seeded with it. This one used to compute
+    /// that layout only to floor its result against it, so its search began
+    /// from random keys and -- on the instances where the greedy order is
+    /// nearly right -- spent its whole budget getting back to where it started.
+    pub fn with_seed_layout(mut self, placements: Option<&[Placement<f64>]>) -> Self {
+        self.seed = placements.map(|p| self.encode(p));
+        self
+    }
+
+    /// A layout as the keys whose decoding reproduces it.
+    ///
+    /// Keys are read three ways (see `decode`), so each block is written the
+    /// way that block is read: the order block by rank, since the permutation
+    /// is the keys sorted ascending, and the two discrete blocks at the middle
+    /// of the interval that maps to the value, so rounding cannot land next
+    /// door.
+    fn encode(&self, placements: &[Placement<f64>]) -> RandomKeyChromosome {
+        let n = self.instances.len();
+        let mut chromosome = RandomKeyChromosome::new(self.num_keys());
+        if n == 0 {
+            return chromosome;
+        }
+
+        // Where each instance sits in the order the layout placed things.
+        // Instances the layout left out come after the ones it placed, keeping
+        // their own relative order -- they are the ones a search should be
+        // moving, and they start at the back.
+        let mut placed_rank: Vec<Option<usize>> = vec![None; n];
+        for (rank, placement) in placements.iter().enumerate() {
+            if let Some(idx) = self.instances.iter().position(|info| {
+                self.geometries[info.geometry_idx].id() == &placement.geometry_id
+                    && info.instance_num == placement.instance
+            }) {
+                if placed_rank[idx].is_none() {
+                    placed_rank[idx] = Some(rank);
+                }
+            }
+        }
+        let mut next_rank = placements.len();
+        for slot in placed_rank.iter_mut() {
+            if slot.is_none() {
+                *slot = Some(next_rank);
+                next_rank += 1;
+            }
+        }
+        let span = next_rank.max(1) as f64;
+        for (idx, rank) in placed_rank.iter().enumerate() {
+            let rank = rank.unwrap_or(idx) as f64;
+            chromosome.keys[idx] = ((rank + 0.5) / span).clamp(0.0, 0.9999999);
+        }
+
+        // Rotation and mirror, read with `decode_as_discrete`.
+        let (rotations, mirrors) = seed_genes(&self.geometries, placements);
+        for (idx, info) in self.instances.iter().enumerate() {
+            let options = self
+                .rotation_angles
+                .get(info.geometry_idx)
+                .map(|a| a.len())
+                .unwrap_or(1)
+                .max(1);
+            let choice = rotations.get(idx).copied().unwrap_or(0).min(options - 1);
+            chromosome.keys[n + idx] = midpoint_key(choice, options);
+
+            if self.any_allow_flip {
+                let mirrored = mirrors.get(idx).copied().unwrap_or(false);
+                chromosome.keys[2 * n + idx] = midpoint_key(usize::from(mirrored), 2);
+            }
+        }
+
+        chromosome
+    }
+
     /// Decodes a chromosome into placements using NFP-guided placement.
     ///
     /// The chromosome keys are interpreted as:
@@ -129,10 +209,22 @@ impl BrkgaNestingProblem {
             return (Vec::new(), 0.0, 0);
         }
 
-        // Decode placement order from first N keys
-        let order = chromosome.decode_as_permutation();
-        // Only take first N indices (in case chromosome has extra keys)
-        let order: Vec<usize> = order.into_iter().take(n).collect();
+        // Placement order: the first N keys, ranked.
+        //
+        // `decode_as_permutation` ranks *every* key it holds, and this
+        // chromosome holds 2N or 3N of them -- the rotation and mirror blocks
+        // too. Taking the first N of that ranking therefore took whichever
+        // indices happened to carry the smallest keys, rotation keys included;
+        // those are not instances, so they were dropped further down and the
+        // instances they displaced were never attempted at all. With uniform
+        // keys that is about half the pieces, on every chromosome, which is
+        // why this search could not reach a full layout however long it ran.
+        let mut order: Vec<usize> = (0..n).collect();
+        order.sort_by(|&a, &b| {
+            chromosome.keys[a]
+                .partial_cmp(&chromosome.keys[b])
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let mut placements = Vec::new();
         let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
@@ -310,6 +402,16 @@ impl BrkgaNestingProblem {
 }
 
 impl BrkgaProblem for BrkgaNestingProblem {
+    fn initial_population<R: Rng>(&self, size: usize, rng: &mut R) -> Vec<RandomKeyChromosome> {
+        (0..size)
+            .map(|i| match (&self.seed, i) {
+                // The first individual is the seed layout, when there is one.
+                (Some(seed), 0) => seed.clone(),
+                _ => RandomKeyChromosome::random(self.num_keys(), rng),
+            })
+            .collect()
+    }
+
     fn num_keys(&self) -> usize {
         // N keys for order + N keys for rotations + (if any_allow_flip) N
         // keys for mirror flags.
@@ -342,6 +444,19 @@ impl BrkgaProblem for BrkgaNestingProblem {
     }
 }
 
+/// The key in the middle of the interval `decode_as_discrete` maps to `choice`.
+///
+/// `decode_as_discrete` reads a key as `(key * options) as usize`, so the
+/// interval for `choice` is `[choice / options, (choice + 1) / options)`. Its
+/// midpoint is the furthest a key can be from either edge, which is what keeps
+/// a crossover that nudges it from decoding as the neighbour.
+fn midpoint_key(choice: usize, options: usize) -> f64 {
+    if options == 0 {
+        return 0.0;
+    }
+    (((choice as f64) + 0.5) / options as f64).clamp(0.0, 0.9999999)
+}
+
 /// Runs BRKGA-based nesting optimization.
 pub fn run_brkga_nesting(
     geometries: &[Geometry2D],
@@ -349,6 +464,7 @@ pub fn run_brkga_nesting(
     config: &Config,
     brkga_config: BrkgaConfig,
     cancelled: Arc<AtomicBool>,
+    seed_layout: Option<&[Placement<f64>]>,
 ) -> SolveResult<f64> {
     let problem = BrkgaNestingProblem::new(
         geometries.to_vec(),
@@ -356,6 +472,7 @@ pub fn run_brkga_nesting(
         config.clone(),
         cancelled.clone(),
     )
+    .with_seed_layout(seed_layout)
     .with_time_limit(brkga_config.time_limit);
     let best_layout = problem.best_layout();
 
@@ -439,6 +556,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         assert!(result.utilization > 0.0);
@@ -462,6 +580,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         // All 4 pieces should fit easily
@@ -487,6 +606,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         );
 
         assert!(result.utilization > 0.0);
@@ -658,5 +778,66 @@ mod tests {
             !placements[0].mirrored,
             "allow_flip=false must suppress mirroring"
         );
+    }
+
+    /// The seed has to survive the round trip: keys written from a layout,
+    /// read back by the decoder, give that layout again. A seed that decodes
+    /// to something else is not a warm start -- it is one more random
+    /// individual that happens to cost a greedy pass.
+    #[test]
+    fn the_seed_round_trips_through_the_decoder() {
+        let geometries = vec![
+            Geometry2D::rectangle("a", 40.0, 20.0)
+                .with_quantity(3)
+                .with_rotations(vec![0.0, 90.0]),
+            Geometry2D::rectangle("b", 25.0, 25.0)
+                .with_quantity(2)
+                .with_rotations(vec![0.0, 90.0]),
+        ];
+        let boundary = Boundary2D::rectangle(200.0, 100.0);
+        let config = Config::default();
+
+        // A layout to seed from: whatever the greedy NFP pass produces.
+        use crate::{Nester2D, Solver};
+        use u_nesting_core::solver::Strategy;
+        let greedy = Nester2D::new(
+            Config::default()
+                .with_strategy(Strategy::NfpGuided)
+                .with_time_limit(0),
+        )
+        .solve(&geometries, &boundary)
+        .expect("greedy solves");
+        assert!(!greedy.placements.is_empty(), "nothing to seed from");
+
+        let problem = BrkgaNestingProblem::new(
+            geometries.clone(),
+            boundary.clone(),
+            config,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .with_seed_layout(Some(&greedy.placements));
+
+        let seed = problem.seed.clone().expect("a seed was encoded");
+        let (placements, _utilization, placed) = problem.decode(&seed);
+
+        assert_eq!(
+            placed,
+            greedy.placements.len(),
+            "decoding the seed placed {placed}, the layout it was written from placed {}",
+            greedy.placements.len()
+        );
+        for original in &greedy.placements {
+            let same = placements.iter().any(|p| {
+                p.geometry_id == original.geometry_id
+                    && p.instance == original.instance
+                    && (p.x() - original.x()).abs() < 1e-6
+                    && (p.y() - original.y()).abs() < 1e-6
+            });
+            assert!(
+                same,
+                "{} #{} moved: seeded layout does not reproduce the original",
+                original.geometry_id, original.instance
+            );
+        }
     }
 }
