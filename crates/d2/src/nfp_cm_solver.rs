@@ -256,6 +256,90 @@ pub fn run_nfp_cm_nesting(
     result
 }
 
+/// How many positions one axis may carry before the reachable set is given up
+/// on in favour of a grid.
+const POSITION_CAP: usize = 64;
+
+/// The positions a piece may start at along one axis.
+///
+/// Every pair of candidates of two pieces becomes a constraint, so the model
+/// grows with the square of how many there are. A grid spends them evenly,
+/// most of them on positions no optimal layout ever uses: a piece that is not
+/// pushed up against the sheet edge or against another piece can always be
+/// pushed, without making the layout worse.
+///
+/// So the positions are the ones reachable by stacking pieces from the low
+/// edge -- `0`, then every extent, then every sum of two, and so on, bounded
+/// by how many pieces there are and by the room they have. These are the
+/// normal patterns of Herz (1972) and Christofides & Whitlock (1977), and for
+/// axis-aligned boxes an optimal layout is always among them.
+///
+/// `extents` are the pieces' sizes along this axis, at every rotation they may
+/// take. `span` is the room a piece of size `size` has: `0.0 ..= span`.
+/// Returns `None` when the set would grow past `cap`, in which case the caller
+/// falls back to a grid -- for shapes that interlock rather than stack, the
+/// reachable set is a restriction rather than a reduction, and a cap is how
+/// that stays bounded.
+fn stacking_positions(extents: &[f64], span: f64, depth: usize, cap: usize) -> Option<Vec<f64>> {
+    // Distinct extents only: two pieces of the same size reach the same places.
+    let mut distinct: Vec<f64> = Vec::new();
+    for &e in extents {
+        if e > 0.0 && !distinct.iter().any(|d: &f64| (d - e).abs() <= 1e-9) {
+            distinct.push(e);
+        }
+    }
+    if distinct.is_empty() {
+        return Some(vec![0.0]);
+    }
+
+    let mut positions = vec![0.0_f64];
+    let mut frontier = vec![0.0_f64];
+    for _ in 0..depth {
+        let mut next = Vec::new();
+        for &base in &frontier {
+            for &e in &distinct {
+                let p = base + e;
+                if p > span + 1e-9 {
+                    continue;
+                }
+                if !positions.iter().any(|q: &f64| (q - p).abs() <= 1e-9) {
+                    positions.push(p);
+                    next.push(p);
+                }
+            }
+        }
+        if positions.len() > cap {
+            return None;
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+
+    // The far edge: a piece pushed against the high side of the sheet is a
+    // position no stack of pieces from the low side reaches.
+    if span > 1e-9 && !positions.iter().any(|q| (q - span).abs() <= 1e-9) {
+        positions.push(span);
+    }
+    positions.sort_by(|a, b| a.partial_cmp(b).expect("finite positions"));
+    Some(positions)
+}
+
+/// Positions on a fixed grid, the fallback when the reachable set is too big.
+fn grid_positions(span: f64, step: f64) -> Vec<f64> {
+    let mut positions = Vec::new();
+    let mut p = 0.0_f64;
+    while p <= span + 1e-9 {
+        positions.push(p);
+        p += step;
+    }
+    if positions.is_empty() {
+        positions.push(0.0);
+    }
+    positions
+}
+
 /// Build piece info with candidate positions.
 fn build_piece_info(
     geometries: &[Geometry2D],
@@ -267,6 +351,24 @@ fn build_piece_info(
 ) -> Vec<PieceInfo> {
     let (b_min, b_max) = boundary.aabb();
     let margin = config.margin;
+
+    // Positions come from stacking pieces, so every piece's extents at every
+    // rotation are what any one piece can be pushed up against.
+    let mut all_widths = Vec::new();
+    let mut all_heights = Vec::new();
+    for geom in geometries {
+        for &angle in rotation_angles {
+            let (g_min, g_max) = geom.aabb_at_rotation(angle);
+            all_widths.push(g_max[0] - g_min[0]);
+            all_heights.push(g_max[1] - g_min[1]);
+        }
+    }
+    // No layout stacks more pieces along an axis than there are pieces.
+    let stack_depth: usize = geometries
+        .iter()
+        .map(|g| g.quantity())
+        .sum::<usize>()
+        .max(1);
 
     let mut pieces = Vec::new();
 
@@ -306,7 +408,7 @@ fn build_piece_info(
                 let w = widths[rot_idx];
                 let h = heights[rot_idx];
 
-                // Generate grid of positions where piece fits
+                // Generate positions where piece fits
                 let min_x = b_min[0] + margin;
                 let max_x = b_max[0] - margin - w;
                 let min_y = b_min[1] + margin;
@@ -327,11 +429,17 @@ fn build_piece_info(
                     })
                     .collect();
 
-                // Sample positions on grid
-                let mut x = min_x;
-                while x <= max_x {
-                    let mut y = min_y;
-                    while y <= max_y {
+                // The positions a stack of pieces reaches, or a grid when
+                // that set would be larger than the grid itself.
+                let xs = stacking_positions(&all_widths, max_x - min_x, stack_depth, POSITION_CAP)
+                    .unwrap_or_else(|| grid_positions(max_x - min_x, grid_step));
+                let ys = stacking_positions(&all_heights, max_y - min_y, stack_depth, POSITION_CAP)
+                    .unwrap_or_else(|| grid_positions(max_y - min_y, grid_step));
+
+                for &dx in &xs {
+                    let x = min_x + dx;
+                    for &dy in &ys {
+                        let y = min_y + dy;
                         for &(mirror, g_min) in &origin_offsets {
                             candidates.push(CandidatePosition {
                                 x,
@@ -343,9 +451,7 @@ fn build_piece_info(
                                 mirror,
                             });
                         }
-                        y += grid_step;
                     }
-                    x += grid_step;
                 }
             }
 
@@ -768,20 +874,18 @@ mod tests {
         assert!(!point_in_polygon(15.0, 5.0, &square));
     }
 
-    /// Two pieces on a sheet that holds them, at the grid the strategy now
-    /// derives from the pieces. With the fixed one-unit grid this used to run
-    /// on, each piece carried about a thousand candidates and every pair of
-    /// them became a constraint, so the search returned an empty layout for
-    /// anything past a single piece however long it was given.
+    /// Two pieces on a sheet that holds them. With the fixed one-unit grid
+    /// this used to run on, each piece carried about a thousand candidates and
+    /// every pair of them became a constraint, so the search returned an empty
+    /// layout for anything past a single piece however long it was given.
     #[test]
     #[cfg(feature = "milp")]
-    fn two_pieces_that_fit_land_on_the_grid_the_pieces_imply() {
+    fn two_pieces_that_fit_are_placed_rather_than_nothing() {
         let geometries = vec![Geometry2D::rectangle("R", 50.0, 50.0).with_quantity(2)];
         let boundary = Boundary2D::rectangle(200.0, 100.0);
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(60_000)
             .with_rotation_steps(1)
-            // A quarter of the pieces' smallest side, as `milp_grid_step` gives.
             .with_grid_step(12.5);
 
         let result = run_nfp_cm_nesting(
@@ -884,6 +988,68 @@ mod tests {
             b.x(),
             b.y()
         );
+    }
+
+    /// The positions reachable by stacking pieces from the low edge, plus the
+    /// far edge. Two 50-wide pieces in 150 of room reach 0, 50, 100 -- and 150
+    /// by being pushed against the high side.
+    #[test]
+    fn stacking_positions_are_the_sums_of_the_extents_that_fit() {
+        let positions = stacking_positions(&[50.0], 150.0, 2, 64).expect("within the cap");
+        assert_eq!(positions, vec![0.0, 50.0, 100.0, 150.0]);
+    }
+
+    /// Two different extents reach every sum of them that fits.
+    #[test]
+    fn stacking_positions_mix_the_extents() {
+        let positions = stacking_positions(&[20.0, 30.0], 60.0, 3, 64).expect("within the cap");
+        assert_eq!(positions, vec![0.0, 20.0, 30.0, 40.0, 50.0, 60.0]);
+    }
+
+    /// Depth is how many pieces there are: three pieces cannot stack four deep.
+    #[test]
+    fn stacking_positions_stop_at_the_number_of_pieces() {
+        let positions = stacking_positions(&[10.0], 100.0, 3, 64).expect("within the cap");
+        assert_eq!(positions, vec![0.0, 10.0, 20.0, 30.0, 100.0]);
+    }
+
+    /// Extents that interlock rather than stack reach too many places to
+    /// enumerate, and the caller falls back to a grid.
+    #[test]
+    fn stacking_positions_give_up_past_the_cap() {
+        let extents: Vec<f64> = (1..=9).map(|i| i as f64).collect();
+        assert!(stacking_positions(&extents, 1000.0, 9, 64).is_none());
+    }
+
+    /// Four 50x50 pieces on a 400x100 sheet: the case that used to run for
+    /// three minutes and place none of them. The sheet holds sixteen, so every
+    /// piece has somewhere to go; what stopped it was a candidate grid that
+    /// made the model too large to finish.
+    #[test]
+    #[cfg(feature = "milp")]
+    fn four_pieces_on_a_long_sheet_are_all_placed() {
+        let geometries = vec![Geometry2D::rectangle("R", 50.0, 50.0).with_quantity(4)];
+        let boundary = Boundary2D::rectangle(400.0, 100.0);
+        let exact_config = ExactConfig::default()
+            .with_time_limit_ms(60_000)
+            .with_rotation_steps(4)
+            .with_grid_step(12.5);
+
+        let result = run_nfp_cm_nesting(
+            &geometries,
+            &boundary,
+            &Config::default(),
+            &exact_config,
+            Arc::new(AtomicBool::new(false)),
+        );
+
+        assert_eq!(
+            result.placements.len(),
+            4,
+            "unplaced: {:?}",
+            result.unplaced
+        );
+        assert!(result.unplaced.is_empty(), "{:?}", result.unplaced);
     }
 
     #[test]

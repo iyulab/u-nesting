@@ -11,6 +11,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Strategy::MilpExact` placed nothing for more than about two pieces.** Four
+  50x50 rectangles on a 400x100 sheet -- which holds sixteen -- came back as an
+  empty layout after more than three minutes. Candidate positions were
+  enumerated on a grid, which spends them evenly and mostly on positions no
+  good layout ever uses; every pair of candidates from two pieces becomes a
+  constraint, so the model grew past what the search could finish.
+
+  Positions now come from stacking the pieces: `0`, then every piece extent,
+  then every sum of two, and so on, bounded by how many pieces there are and by
+  the room they have, plus the far edge of the sheet. These are the normal
+  patterns of Herz (1972) and Christofides & Whitlock (1977); for axis-aligned
+  boxes an optimal layout is always among them, and a piece that is pushed
+  against neither the sheet nor another piece can always be pushed without
+  making the layout worse. Shapes whose extents interlock rather than stack can
+  still reach more positions than are worth enumerating, and those fall back to
+  the grid.
+
+  The four rectangles above are now all placed, in about seven seconds. Eight
+  of them are placed too.
+
 - **`Strategy::MilpExact` ignored `spacing`, and could place pieces on top of
   each other.** Two 20x20 pieces asked to stay 10 apart came back touching.
   The no-fit polygons that decide which pairs of positions conflict were being
