@@ -5,7 +5,7 @@
 [![Crates.io](https://img.shields.io/crates/v/u-nesting.svg)](https://crates.io/crates/u-nesting)
 [![docs.rs](https://docs.rs/u-nesting/badge.svg)](https://docs.rs/u-nesting)
 [![Build Status](https://github.com/iyulab/U-Nesting/actions/workflows/ci.yml/badge.svg)](https://github.com/iyulab/U-Nesting/actions)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE-MIT)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.89+-orange.svg)](https://www.rust-lang.org/)
 
 <p align="center">
@@ -385,7 +385,7 @@ SolveResult {
 
 Licensed under either of:
 
-- MIT license ([LICENSE-MIT](LICENSE))
+- MIT license ([LICENSE](LICENSE))
 
 ## Contributing
 
