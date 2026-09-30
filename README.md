@@ -25,7 +25,7 @@ U-Nesting provides domain-agnostic spatial optimization algorithms for 2D nestin
 
 U-Nesting is a **pure computation engine** with no domain-specific logic. Industry context (manufacturing, textile, logistics, etc.) is determined by consuming applications.
 
-```
+```text
 ┌─────────────────────────────────────────┐
 │         Consuming Applications          │
 │  (Manufacturing, Textile, Logistics)    │
@@ -103,50 +103,55 @@ u-nesting = { git = "https://github.com/iyulab/u-nesting" }
 ### 2D Nesting
 
 ```rust
-use u_nesting::d2::{Geometry2D, Boundary2D, Nester2D, Config2D};
+use u_nesting::d2::{Boundary2D, Geometry2D, Nester2D};
+use u_nesting::{Config, Solver, Strategy};
 
 // Define geometries to place
 let geometries = vec![
     Geometry2D::new("G1")
-        .with_polygon(polygon![(0,0), (100,0), (100,50), (0,50)])
+        .with_polygon(vec![(0.0, 0.0), (100.0, 0.0), (100.0, 50.0), (0.0, 50.0)])
         .with_quantity(5)
-        .with_rotations(vec![0.0, 90.0, 180.0, 270.0]),
+        .with_rotations_deg(vec![0.0, 90.0, 180.0, 270.0]),
 ];
 
 // Define boundary
 let boundary = Boundary2D::rectangle(1000.0, 500.0);
 
 // Configure and run
-let config = Config2D::default()
+let config = Config::new()
+    .with_strategy(Strategy::NfpGuided)
     .with_spacing(3.0)
     .with_margin(10.0);
 
-let result = Nester2D::new(config).solve(&geometries, &boundary);
+let result = Nester2D::new(config).solve(&geometries, &boundary).unwrap();
+assert_eq!(result.placements.len(), 5);
 println!("Utilization: {:.1}%", result.utilization * 100.0);
 ```
 
 ### 3D Bin Packing
 
 ```rust
-use u_nesting::d3::{Geometry3D, Boundary3D, Packer3D, Config3D};
+use u_nesting::d3::{Boundary3D, Geometry3D, Packer3D};
+use u_nesting::{Config, Solver, Strategy};
 
 // Define geometries to place
 let geometries = vec![
-    Geometry3D::box_shape("G1", 30.0, 20.0, 15.0)
+    Geometry3D::new("G1", 30.0, 20.0, 15.0)
         .with_quantity(10)
         .with_mass(2.5),
 ];
 
-// Define boundary
-let boundary = Boundary3D::box_shape(120.0, 80.0, 100.0)
-    .with_max_mass(500.0);
-
-// Configure and run
-let config = Config3D::default()
+// Define boundary; gravity and stability are properties of the container
+let boundary = Boundary3D::new(120.0, 80.0, 100.0)
+    .with_max_mass(500.0)
     .with_gravity(true)
     .with_stability(true);
 
-let result = Packer3D::new(config).solve(&geometries, &boundary);
+// Configure and run
+let config = Config::new().with_strategy(Strategy::ExtremePoint);
+
+let result = Packer3D::new(config).solve(&geometries, &boundary).unwrap();
+assert_eq!(result.placements.len(), 10);
 println!("Utilization: {:.1}%", result.utilization * 100.0);
 ```
 
@@ -163,7 +168,7 @@ println!("Utilization: {:.1}%", result.utilization * 100.0);
 
 ## Module Structure
 
-```
+```text
 u-nesting/
 ├── core/           # Shared abstractions
 │   ├── traits.rs   # Geometry, Boundary, Solver
@@ -237,42 +242,39 @@ not covered here):
 ### 2D Configuration
 
 ```rust
-let config = Config2D {
-    // Spacing
-    spacing: 3.0,            // Minimum distance between geometries
-    margin: 10.0,            // Minimum distance to the boundary edge
-    
-    // Rotation
-    rotation_steps: 4,       // Number of rotation angles
-    allow_flip: false,       // Allow mirroring
-    
-    // Optimization
-    strategy: Strategy::GA,
-    time_limit_ms: 30000,
-    target_utilization: 0.90,
-};
+use u_nesting::{Config, Strategy};
+
+// One `Config` serves 2D and 3D; every setting has a builder method.
+let config = Config::new()
+    .with_spacing(3.0)            // Minimum distance between geometries
+    .with_margin(10.0)            // Minimum distance to the boundary edge
+    .with_strategy(Strategy::GeneticAlgorithm)
+    .with_time_limit(30_000)      // Whole solve, in milliseconds (0 = unlimited)
+    .with_target_utilization(0.90)
+    .with_seed(42);               // Reproducible runs
 ```
+
+Rotation and mirroring are per geometry (`Geometry2D::with_rotations_deg`,
+`with_flip`), not part of the configuration.
 
 ### 3D Configuration
 
 ```rust
-let config = Config3D {
-    // Spacing
-    spacing: 0.0,            // Gap between geometries
-    margin: 5.0,             // Boundary wall offset
-    
-    // Physics
-    gravity: true,
-    stability: true,
-    max_mass: None,
-    
-    // Orientation
-    orientations: OrientationSet::AXIS_ALIGNED,
-    
-    // Optimization
-    strategy: Strategy::ExtremePoint,
-    time_limit_ms: 30000,
-};
+use u_nesting::d3::geometry::OrientationConstraint;
+use u_nesting::d3::{Boundary3D, Geometry3D};
+use u_nesting::{Config, Strategy};
+
+let config = Config::new()
+    .with_margin(5.0)             // Boundary wall offset
+    .with_strategy(Strategy::ExtremePoint)
+    .with_time_limit(30_000);
+
+// Physics lives on the container, orientation on each geometry.
+let boundary = Boundary3D::new(120.0, 80.0, 100.0)
+    .with_gravity(true)
+    .with_stability(true);
+let item = Geometry3D::new("crate", 30.0, 20.0, 15.0)
+    .with_orientation(OrientationConstraint::Upright);
 ```
 
 ## FFI Interface
@@ -328,7 +330,7 @@ public static partial int unesting_solve(string request, out IntPtr result);
 
 ## Result Structure
 
-```rust
+```text
 SolveResult {
     placements: Vec<Placement>,   // Position + orientation for each placed instance
     boundaries_used: usize,       // Number of boundaries needed
@@ -359,7 +361,7 @@ SolveResult {
 
 ## Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────┐
 │              U-Nesting Engine                │
 ├──────────────────────────────────────────────┤

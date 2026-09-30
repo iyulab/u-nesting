@@ -24,7 +24,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   id, so one of them was checked against the other's shape. Input that used to
   be accepted is now refused. The check is `geometry::ensure_unique_ids` in
   `u-nesting-core`.
-
+- The README's Rust examples did not compile: they used `Config2D` and
+  `Config3D` types, a `polygon!` macro and a `box_shape` constructor that the
+  crate does not have, and `solve` without importing the `Solver` trait. They
+  now use `Config`, `Geometry2D::with_polygon`, `Geometry3D::new` and
+  `Boundary3D` for gravity and stability.
+  The README's Rust examples are now compiled and run with the doc-tests,
+  so an example that stops matching the API fails CI.
 
 ## [0.12.0] - 2026-09-16
 
