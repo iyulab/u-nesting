@@ -5,9 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.14.0] - 2026-09-30
 
 ### Changed
+
+- Depends on u-metaheur 0.5 and u-geometry 0.3. Their modules re-exported
+  here (`generic_ga`, `collision`, ...) are unchanged in Rust, but come from
+  the new versions, so types from them do not mix with u-metaheur 0.4 or
+  u-geometry 0.2 types a consumer depends on directly.
 
 - The README says a browser without a bundler is not supported (the package
   loads its `.wasm` through an ES module import, which browsers refuse), instead
