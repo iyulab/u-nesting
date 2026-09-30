@@ -209,3 +209,17 @@ jobs:
           merge-multiple: true
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
+
+  # The wheel artifacts only carry files to the publishing job. Once they are on
+  # PyPI they are storage nobody reads. A TestPyPI run keeps them for inspection
+  # until they expire.
+  cleanup-artifacts:
+    name: Delete intermediate artifacts
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: wheels-*

@@ -199,3 +199,21 @@ jobs:
             --api-key ${{ secrets.NUGET_API_KEY }} \
             --source https://api.nuget.org/v3/index.json \
             --skip-duplicate
+
+  # The artifacts above only carry files between jobs. Once the package is on
+  # NuGet they are storage nobody reads, so they go as soon as it is published.
+  # A run that does not publish keeps them for inspection until they expire.
+  # This job alone gets `actions: write`; the publishing job keeps its own scope.
+  cleanup-artifacts:
+    name: Delete intermediate artifacts
+    needs: pack-and-publish
+    if: github.event_name == 'push' || inputs.publish != false
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - uses: geekyeggo/delete-artifact@176a747ab7e287e3ff4787bf8a148716375ca118 # v6.0.0
+        with:
+          name: |
+            native-*
+            nuget-package
