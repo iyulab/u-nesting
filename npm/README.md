@@ -18,6 +18,11 @@ The package resolves per environment via a conditional `exports` map:
 | Bundlers (webpack, Vite, …) | ESM + WebAssembly ESM-integration (`default` condition) |
 | Node.js — `require()`, ESM `import`, CJS TS runners (`tsx`, `ts-node`) | CJS glue loading the wasm from the filesystem (`node` condition) — no loader hooks or flags |
 
+A browser **without** a bundler is not supported: the package loads its `.wasm`
+file with an ES module import, which browsers refuse (`application/wasm` is not a
+module script type), so `<script type="module">` from a CDN fails, and CDN
+re-bundling services fail on the same import. Use a bundler or Node.
+
 ## Functions
 
 | Function | Description |

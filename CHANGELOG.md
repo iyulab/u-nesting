@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The README says a browser without a bundler is not supported (the package
+  loads its `.wasm` through an ES module import, which browsers refuse), instead
+  of listing only the environments that work.
+
 ## [0.13.0] - 2026-09-30
 
 C# `UNesting` NuGet **0.13.0** (lockstep) · PyPI `u-nesting` 0.13.0 · npm `@iyulab/u-nesting` 0.13.0.
