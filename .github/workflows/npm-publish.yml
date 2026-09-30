@@ -86,6 +86,15 @@ jobs:
           node -e "const m = require('$PKG_NAME'); if (!Object.keys(m).length) throw new Error('empty CJS exports')"
           node --input-type=module -e "import('$PKG_NAME').then(m => { if (!Object.keys(m).length) throw new Error('empty ESM exports') })"
 
+      - name: README examples run against the built package
+        # An example written for another build target (`import init` + `await
+        # init()`) passes the import check above and fails on the first line a
+        # reader copies from the registry page.
+        run: |
+          PKG_NAME=$(node -p "require('./crates/wasm/pkg/package.json').name")
+          cd "$RUNNER_TEMP/smoke"
+          node "$GITHUB_WORKSPACE/scripts/check-readme-snippets.mjs" "$PKG_NAME"
+
       - name: Publish to npm
         run: |
           cd crates/wasm/pkg

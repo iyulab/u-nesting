@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Depends on `u-geometry` 0.2 (0.1 before). No change in behaviour: the new
   minor changes only the TypeScript declarations of its WebAssembly binding.
+- The publishing workflow runs the README's JavaScript examples against the
+  built package before it publishes, so an example that throws is caught
+  before a reader copies it.
 
 ## [0.12.0] - 2026-09-16
 
