@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-09-30
+
+C# `UNesting` NuGet **0.13.0** (lockstep) · PyPI `u-nesting` 0.13.0 · npm `@iyulab/u-nesting` 0.13.0.
+
 ### Changed
 
 - Depends on `u-geometry` 0.2 (0.1 before). No change in behaviour: the new
