@@ -1269,7 +1269,7 @@ impl Nester2D {
         for geom in geometries {
             geom.validate()?;
         }
-        Ok(())
+        u_nesting_core::geometry::ensure_unique_ids(geometries)
     }
 
     /// Positions are adjusted so that strip N items have x offset of N * strip_width.
@@ -1648,6 +1648,34 @@ mod tests {
 
     use super::*;
     use crate::placement_utils::polygon_centroid;
+
+    /// The result names placements by geometry id (and instance), and the
+    /// placement check looks each geometry up by id -- two geometries with one
+    /// id would be told apart by neither.
+    #[test]
+    fn a_geometry_id_given_twice_is_refused_by_every_entry_point() {
+        let geometries = [
+            Geometry2D::rectangle("P", 10.0, 10.0),
+            Geometry2D::rectangle("Q", 10.0, 10.0),
+            Geometry2D::rectangle("P", 30.0, 5.0),
+        ];
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let nester = Nester2D::default_config();
+        let errors = [
+            nester.solve(&geometries, &boundary).expect_err("solve"),
+            nester
+                .solve_multi_strip(&geometries, &boundary)
+                .expect_err("solve_multi_strip"),
+            nester
+                .solve_with_progress(&geometries, &boundary, Box::new(|_| {}))
+                .expect_err("solve_with_progress"),
+        ];
+        for err in errors {
+            let msg = err.to_string();
+            assert!(msg.contains("'P'"), "{msg}");
+            assert!(msg.contains("positions 0 and 2"), "{msg}");
+        }
+    }
 
     #[test]
     fn test_simple_nesting() {

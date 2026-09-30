@@ -704,6 +704,7 @@ impl Solver for Packer3D {
         boundary: &Self::Boundary,
     ) -> Result<SolveResult<f64>> {
         boundary.validate()?;
+        u_nesting_core::geometry::ensure_unique_ids(geometries)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
@@ -744,6 +745,7 @@ impl Solver for Packer3D {
         callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
         boundary.validate()?;
+        u_nesting_core::geometry::ensure_unique_ids(geometries)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
@@ -786,6 +788,27 @@ impl Solver for Packer3D {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_geometry_id_given_twice_is_refused_by_every_entry_point() {
+        let geometries = [
+            Geometry3D::new("B", 10.0, 10.0, 10.0),
+            Geometry3D::new("B", 50.0, 50.0, 50.0),
+        ];
+        let boundary = Boundary3D::new(100.0, 100.0, 100.0);
+        let packer = Packer3D::default_config();
+        let errors = [
+            packer.solve(&geometries, &boundary).expect_err("solve"),
+            packer
+                .solve_with_progress(&geometries, &boundary, Box::new(|_| {}))
+                .expect_err("solve_with_progress"),
+        ];
+        for err in errors {
+            let msg = err.to_string();
+            assert!(msg.contains("'B'"), "{msg}");
+            assert!(msg.contains("positions 0 and 1"), "{msg}");
+        }
+    }
 
     #[test]
     fn test_simple_packing() {

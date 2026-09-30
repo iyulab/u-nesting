@@ -247,6 +247,33 @@ impl Orientation3D {
     }
 }
 
+/// Refuses a geometry id given to two geometries.
+///
+/// [`Geometry::id`] is the geometry's identity: a result names each placement
+/// by it (and an instance index within it), and placement checks look the
+/// shape up by it. Two geometries sharing one id would come back as
+/// placements nobody can tell apart, and one of them would be checked against
+/// the other's shape.
+///
+/// # Errors
+///
+/// [`Error::InvalidGeometry`](crate::Error::InvalidGeometry) naming the id
+/// and the two positions (counting from 0) where it appears.
+pub fn ensure_unique_ids<G: Geometry>(geometries: &[G]) -> Result<()> {
+    let mut first_at = std::collections::HashMap::with_capacity(geometries.len());
+    for (position, geometry) in geometries.iter().enumerate() {
+        if let Some(first) = first_at.insert(geometry.id(), position) {
+            return Err(crate::Error::InvalidGeometry(format!(
+                "the id '{}' is given twice, at positions {first} and {position} of \
+                 geometries (counting from 0); placements name geometries by id, so \
+                 every geometry needs its own",
+                geometry.id()
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

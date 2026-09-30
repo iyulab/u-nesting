@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built package before it publishes, so an example that throws is caught
   before a reader copies it.
 
+### Fixed
+
+- **A geometry id given to two geometries is refused** by every 2D and 3D
+  solve entry point, naming the id and both positions. Placements are named by
+  geometry id and instance, so two such geometries came back as placements
+  nobody could tell apart -- and the 2D placement check looked the shape up by
+  id, so one of them was checked against the other's shape. Input that used to
+  be accepted is now refused. The check is `geometry::ensure_unique_ids` in
+  `u-nesting-core`.
+
+
 ## [0.12.0] - 2026-09-16
 
 ### Fixed
