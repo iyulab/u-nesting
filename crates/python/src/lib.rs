@@ -43,7 +43,7 @@ use u_nesting_core::api_types::{
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver, Strategy};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
-use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
+use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
 
 // Inputs use the canonical request types from `u-nesting-core::api_types`, the
 // same contract the C and WebAssembly bindings deserialize. Sharing them means a
@@ -271,16 +271,21 @@ fn solve_2d<'py>(
         })
         .collect();
 
-    let rust_boundary = if let (Some(w), Some(h)) = (boundary_input.width, boundary_input.height) {
-        Boundary2D::rectangle(w, h)
-    } else if let Some(polygon) = boundary_input.polygon {
-        let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-        Boundary2D::new(vertices)
-    } else {
-        return Err(PyValueError::new_err(
-            "Boundary must have width/height or polygon",
-        ));
-    };
+    let rust_boundary =
+        match (
+            boundary_input.width,
+            boundary_input.height,
+            boundary_input.polygon,
+        ) {
+            (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
+            (None, None, Some(polygon)) => {
+                let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
+                Boundary2D::new(vertices)
+            }
+            _ => return Err(PyValueError::new_err(
+                "Boundary must give either width and height, or polygon -- not both, not one half",
+            )),
+        };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
     let multi_sheet = config_input
@@ -424,10 +429,18 @@ fn solve_3d<'py>(
             if let Some(mass) = g.mass {
                 geom = geom.with_mass(mass);
             }
+            if let Some(name) = g.orientation {
+                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
+                    PyValueError::new_err(format!(
+                        "unknown orientation '{name}'; expected any, upright or fixed"
+                    ))
+                })?;
+                geom = geom.with_orientation(constraint);
+            }
 
-            geom
+            Ok(geom)
         })
-        .collect();
+        .collect::<PyResult<_>>()?;
 
     let mut rust_boundary = Boundary3D::new(
         boundary_input.dimensions[0],
