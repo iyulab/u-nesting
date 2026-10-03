@@ -937,35 +937,13 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     let request: CuttingRequest = match serde_json::from_str(json_str) {
         Ok(r) => r,
         Err(e) => {
-            return CuttingResponse {
-                version: API_VERSION.to_string(),
-                success: false,
-                error: Some(format!("Invalid JSON: {}", e)),
-                sequence: Vec::new(),
-                total_cut_distance: 0.0,
-                total_rapid_distance: 0.0,
-                total_pierces: 0,
-                estimated_time_seconds: None,
-                efficiency: 0.0,
-                computation_time_ms: 0,
-            };
+            return CuttingResponse::error(format!("Invalid JSON: {}", e));
         }
     };
 
     // Validate the solve result
     if !request.solve_result.success {
-        return CuttingResponse {
-            version: API_VERSION.to_string(),
-            success: false,
-            error: Some("Solve result indicates failure".to_string()),
-            sequence: Vec::new(),
-            total_cut_distance: 0.0,
-            total_rapid_distance: 0.0,
-            total_pierces: 0,
-            estimated_time_seconds: None,
-            efficiency: 0.0,
-            computation_time_ms: 0,
-        };
+        return CuttingResponse::error("Solve result indicates failure");
     }
 
     // Convert geometries
@@ -1021,41 +999,7 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
             Err(e) => return CuttingResponse::error(e),
         };
 
-    // Convert result to response
-    let sequence: Vec<CutStepResponse> = result
-        .sequence
-        .iter()
-        .map(|step| CutStepResponse {
-            contour_id: step.contour_id,
-            geometry_id: step.geometry_id.clone(),
-            instance: step.instance,
-            contour_type: match step.contour_type {
-                u_nesting_cutting::ContourType::Exterior => "exterior".to_string(),
-                u_nesting_cutting::ContourType::Interior => "interior".to_string(),
-            },
-            pierce_point: [step.pierce_point.0, step.pierce_point.1],
-            cut_direction: match step.cut_direction {
-                u_nesting_cutting::CutDirection::Ccw => "ccw".to_string(),
-                u_nesting_cutting::CutDirection::Cw => "cw".to_string(),
-            },
-            rapid_from: step.rapid_from.map(|p| [p.0, p.1]),
-            rapid_distance: step.rapid_distance,
-            cut_distance: step.cut_distance,
-        })
-        .collect();
-
-    CuttingResponse {
-        version: API_VERSION.to_string(),
-        success: true,
-        error: None,
-        sequence,
-        total_cut_distance: result.total_cut_distance,
-        total_rapid_distance: result.total_rapid_distance,
-        total_pierces: result.total_pierces,
-        estimated_time_seconds: result.estimated_time_seconds,
-        efficiency: result.efficiency(),
-        computation_time_ms: result.computation_time_ms,
-    }
+    result.to_response()
 }
 
 fn build_cutting_config(
@@ -1520,6 +1464,19 @@ mod tests {
 
             unesting_free_string(result_ptr);
         }
+    }
+
+    /// An empty angle list allows no orientation. It used to be read as 0°
+    /// here while the core documented an empty list as "any angle".
+    #[test]
+    fn empty_rotations_are_refused() {
+        let response = solve_2d_internal(
+            r#"{"geometries": [{"id": "r", "polygon": [[0,0],[20,0],[20,5],[0,5]], "rotations": []}],
+                "boundary": {"width": 30, "height": 50}}"#,
+        );
+        assert!(!response.success);
+        let error = response.error.expect("an error message");
+        assert!(error.contains("Rotations for 'r' are empty"), "{error}");
     }
 
     #[test]
@@ -2100,6 +2057,51 @@ mod tests {
         // Verify interior comes before exterior (precedence constraint)
         assert_eq!(response.sequence[0].contour_type, "interior");
         assert_eq!(response.sequence[1].contour_type, "exterior");
+    }
+
+    /// A hole smaller than the tool cannot be cut to size. The plan cuts the
+    /// rest and names the hole it left out -- the part would otherwise come off
+    /// the sheet without its hole while the response read `success: true`.
+    #[test]
+    fn a_hole_the_kerf_collapses_is_reported_not_dropped() {
+        let request = |kerf: f64| {
+            let solve_response = solve_2d_internal(
+                r#"{
+                "geometries": [{"id": "plate", "polygon": [[0,0],[20,0],[20,20],[0,20]],
+                    "holes": [[[9,9],[11,9],[11,11],[9,11]]], "quantity": 1}],
+                "boundary": {"width": 50, "height": 50}
+            }"#,
+            );
+            let json = serde_json::json!({
+                "geometries": [{"id": "plate", "polygon": [[0,0],[20,0],[20,20],[0,20]],
+                    "holes": [[[9,9],[11,9],[11,11],[9,11]]], "quantity": 1}],
+                "solve_result": solve_response,
+                "cutting_config": {"kerf_width": kerf}
+            });
+            optimize_cutting_path_internal(&json.to_string())
+        };
+
+        let narrow = request(0.5);
+        assert!(narrow.success, "{:?}", narrow.error);
+        assert_eq!(narrow.sequence.len(), 2);
+        assert!(narrow.skipped_contours.is_empty());
+
+        // A 2x2 hole and a 5-wide kerf: the inward offset of 2.5 empties it.
+        let wide = request(5.0);
+        assert!(wide.success, "{:?}", wide.error);
+        assert_eq!(wide.sequence.len(), 1);
+        assert_eq!(wide.sequence[0].contour_type, "exterior");
+        assert_eq!(wide.skipped_contours.len(), 1);
+        let skipped = &wide.skipped_contours[0];
+        assert_eq!(skipped.geometry_id, "plate");
+        assert_eq!(skipped.instance, 0);
+        assert_eq!(skipped.contour_type, "interior");
+        assert_eq!(skipped.reason, "kerf_collapsed");
+        assert_eq!(skipped.offset, Some(-2.5));
+
+        // The field crosses the C boundary as JSON.
+        let body = serde_json::to_value(&wide).expect("serializes");
+        assert_eq!(body["skipped_contours"][0]["reason"], "kerf_collapsed");
     }
 
     #[test]

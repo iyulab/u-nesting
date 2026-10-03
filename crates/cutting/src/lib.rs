@@ -39,4 +39,4 @@ pub mod thermal;
 pub use config::CuttingConfig;
 pub use contour::ContourType;
 pub use path::optimize_cutting_path;
-pub use result::{CutDirection, CutStep, CuttingPathResult};
+pub use result::{CutDirection, CutStep, CuttingPathResult, SkipReason, SkippedContour};

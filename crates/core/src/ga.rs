@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::error::{check_at_least, check_range, Result};
 use crate::timing::{evaluate_within, expired, Timer};
 
 #[cfg(feature = "serde")]
@@ -88,13 +89,13 @@ impl GaConfig {
 
     /// Sets the crossover rate.
     pub fn with_crossover_rate(mut self, rate: f64) -> Self {
-        self.crossover_rate = rate.clamp(0.0, 1.0);
+        self.crossover_rate = rate;
         self
     }
 
     /// Sets the mutation rate.
     pub fn with_mutation_rate(mut self, rate: f64) -> Self {
-        self.mutation_rate = rate.clamp(0.0, 1.0);
+        self.mutation_rate = rate;
         self
     }
 
@@ -114,6 +115,20 @@ impl GaConfig {
     pub fn with_target_fitness(mut self, fitness: f64) -> Self {
         self.target_fitness = Some(fitness);
         self
+    }
+
+    /// Checks every field against its range: the builders store what they are
+    /// given, and this is the one place a value is judged.
+    ///
+    /// # Errors
+    /// `ConfigError` naming the first field out of range: a crossover or
+    /// mutation rate outside `[0, 1]`, a population below 2 or a tournament of 0.
+    pub fn validate(&self) -> Result<()> {
+        check_range("crossover_rate", self.crossover_rate, 0.0, 1.0)?;
+        check_range("mutation_rate", self.mutation_rate, 0.0, 1.0)?;
+        check_at_least("population_size", self.population_size as f64, 2.0)?;
+        check_at_least("tournament_size", self.tournament_size as f64, 1.0)?;
+        Ok(())
     }
 }
 
@@ -225,22 +240,29 @@ where
     <P::Individual as Individual>::Fitness: Into<f64>,
 {
     /// Creates a new GA runner.
-    pub fn new(config: GaConfig, problem: P) -> Self {
-        Self {
-            config,
-            problem,
-            cancelled: Arc::new(AtomicBool::new(false)),
-        }
+    ///
+    /// # Errors
+    /// As [`GaConfig::validate`].
+    pub fn new(config: GaConfig, problem: P) -> Result<Self> {
+        Self::with_cancellation(config, problem, Arc::new(AtomicBool::new(false)))
     }
 
     /// Creates a runner that stops when `cancelled` is set — the caller's own
     /// flag, observed directly, so no thread is needed to forward it.
-    pub fn with_cancellation(config: GaConfig, problem: P, cancelled: Arc<AtomicBool>) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// As [`GaConfig::validate`].
+    pub fn with_cancellation(
+        config: GaConfig,
+        problem: P,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<Self> {
+        config.validate()?;
+        Ok(Self {
             config,
             problem,
             cancelled,
-        }
+        })
     }
 
     /// Returns a handle to cancel the algorithm.
@@ -692,7 +714,7 @@ mod tests {
             .with_max_generations(100)
             .with_target_fitness(-0.01);
 
-        let runner = GaRunner::new(config, SimpleProblem);
+        let runner = GaRunner::new(config, SimpleProblem).expect("valid config");
         let result = runner.run();
 
         // Should find something close to 0

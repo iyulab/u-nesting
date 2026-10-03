@@ -71,16 +71,18 @@ where
         return Ok(CuttingPathResult::new());
     }
 
-    // Step 1.5: Apply kerf compensation (if kerf_width > 0)
-    let contours = if config.kerf_width > 0.0 {
-        let kerf_results = kerf::apply_kerf_compensation(&raw_contours, config);
-        kerf::filter_compensated(kerf_results)
+    // Step 1.5: Apply kerf compensation (if kerf_width > 0). A contour the
+    // offset empties is reported in `skipped`, never dropped silently.
+    let (contours, skipped) = if config.kerf_width > 0.0 {
+        kerf::partition_compensated(kerf::apply_kerf_compensation(&raw_contours, config))
     } else {
-        raw_contours
+        (raw_contours, Vec::new())
     };
 
     if contours.is_empty() {
-        return Ok(CuttingPathResult::new());
+        let mut result = CuttingPathResult::new();
+        result.skipped = skipped;
+        return Ok(result);
     }
 
     // Step 2: Detect common edges (used for sequence adjacency bonus)
@@ -93,6 +95,7 @@ where
     // Step 4: Optimize sequence
     // Use GTSP solver when multiple pierce candidates are configured
     let mut result = CuttingPathResult::new();
+    result.skipped = skipped;
     let mut current_pos = config.home_position;
 
     if config.pierce_candidates > 1 {

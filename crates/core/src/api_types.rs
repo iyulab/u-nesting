@@ -553,6 +553,35 @@ pub struct CuttingResponse {
 
     /// Computation time in milliseconds.
     pub computation_time_ms: u64,
+
+    /// Contours of placed parts that the plan cannot cut, and why. A part
+    /// listed here is not fully cut by `sequence`.
+    #[serde(default)]
+    pub skipped_contours: Vec<SkippedContourResponse>,
+}
+
+/// A contour left out of the cutting sequence.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkippedContourResponse {
+    /// Contour ID.
+    pub contour_id: usize,
+
+    /// Source geometry ID.
+    pub geometry_id: String,
+
+    /// Instance index of the placed geometry.
+    pub instance: usize,
+
+    /// Contour type: "exterior" or "interior".
+    pub contour_type: String,
+
+    /// Why it was left out: `"kerf_collapsed"` -- offsetting by half the kerf
+    /// width left nothing (the contour is smaller than the tool).
+    pub reason: String,
+
+    /// The offset applied when `reason` is `"kerf_collapsed"`.
+    pub offset: Option<f64>,
 }
 
 /// A single step in the cutting sequence.
@@ -622,6 +651,7 @@ impl CuttingResponse {
             estimated_time_seconds: None,
             efficiency: 0.0,
             computation_time_ms: 0,
+            skipped_contours: Vec::new(),
         }
     }
 }

@@ -23,6 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::error::{check_at_least, check_range, Result};
 use crate::timing::{expired, Timer};
 
 #[cfg(feature = "serde")]
@@ -109,8 +110,24 @@ impl SaConfig {
 
     /// Sets the cooling rate.
     pub fn with_cooling_rate(mut self, rate: f64) -> Self {
-        self.cooling_rate = rate.clamp(0.001, 0.9999);
+        self.cooling_rate = rate;
         self
+    }
+
+    /// Checks every field against its range; the builders store what they are
+    /// given.
+    ///
+    /// # Errors
+    /// `ConfigError` naming the first field out of range: `cooling_rate`
+    /// outside `[0.001, 0.9999]`, temperatures that are not finite and
+    /// positive, `final_temp` above `initial_temp`, `reheat_factor` below 1.
+    pub fn validate(&self) -> Result<()> {
+        check_range("cooling_rate", self.cooling_rate, 0.001, 0.9999)?;
+        check_at_least("initial_temp", self.initial_temp, f64::MIN_POSITIVE)?;
+        check_at_least("final_temp", self.final_temp, f64::MIN_POSITIVE)?;
+        check_range("final_temp", self.final_temp, 0.0, self.initial_temp)?;
+        check_at_least("reheat_factor", self.reheat_factor, 1.0)?;
+        Ok(())
     }
 
     /// Sets the iterations per temperature level.
@@ -269,22 +286,29 @@ pub struct SaRunner<P: SaProblem> {
 
 impl<P: SaProblem> SaRunner<P> {
     /// Creates a new SA runner.
-    pub fn new(config: SaConfig, problem: P) -> Self {
-        Self {
-            config,
-            problem,
-            cancelled: Arc::new(AtomicBool::new(false)),
-        }
+    ///
+    /// # Errors
+    /// As [`SaConfig::validate`].
+    pub fn new(config: SaConfig, problem: P) -> Result<Self> {
+        Self::with_cancellation(config, problem, Arc::new(AtomicBool::new(false)))
     }
 
     /// Creates a runner that stops when `cancelled` is set — the caller's own
     /// flag, observed directly, so no thread is needed to forward it.
-    pub fn with_cancellation(config: SaConfig, problem: P, cancelled: Arc<AtomicBool>) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// As [`SaConfig::validate`].
+    pub fn with_cancellation(
+        config: SaConfig,
+        problem: P,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<Self> {
+        config.validate()?;
+        Ok(Self {
             config,
             problem,
             cancelled,
-        }
+        })
     }
 
     /// Returns a handle to cancel the algorithm.
@@ -753,7 +777,7 @@ mod tests {
             .with_max_iterations(5000);
 
         let problem = SimpleMaxProblem { size: 10 };
-        let runner = SaRunner::new(config, problem);
+        let runner = SaRunner::new(config, problem).expect("valid config");
         let result = runner.run();
 
         // Should find something reasonably good (fewer inversions)
@@ -775,7 +799,7 @@ mod tests {
                 .with_cooling_schedule(schedule)
                 .with_max_iterations(1000);
 
-            let runner = SaRunner::new(config, problem.clone());
+            let runner = SaRunner::new(config, problem.clone()).expect("valid config");
             let result = runner.run();
 
             // Should complete without panic
@@ -811,7 +835,7 @@ mod tests {
             .with_reheating(50, 1.5);
 
         let problem = SimpleMaxProblem { size: 8 };
-        let runner = SaRunner::new(config, problem);
+        let runner = SaRunner::new(config, problem).expect("valid config");
         let result = runner.run();
 
         // Should complete (reheating may or may not trigger)

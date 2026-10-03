@@ -303,6 +303,24 @@ impl Geometry for Geometry2D {
             )));
         }
 
+        // An empty angle list allows no orientation at all; reading it as 0°
+        // would place the part in an orientation the caller did not list.
+        if let RotationConstraint::Discrete(angles) = &self.rotation_constraint {
+            if angles.is_empty() {
+                return Err(Error::InvalidGeometry(format!(
+                    "Rotations for '{}' are empty; list at least one angle, \
+                     or leave rotations out for a fixed orientation",
+                    self.id
+                )));
+            }
+            if let Some(a) = angles.iter().find(|a| !a.is_finite()) {
+                return Err(Error::InvalidGeometry(format!(
+                    "Rotations for '{}' contain a non-finite angle ({a})",
+                    self.id
+                )));
+            }
+        }
+
         // Reject degenerate (zero-area / collinear) polygons: they make NFP and
         // collision tests meaningless. Threshold scales with extent so a small
         // but legitimate piece survives while a truly collinear ring is caught.

@@ -695,13 +695,16 @@ impl GdrrProblem for GdrrNestingProblem {
 }
 
 /// Run GDRR nesting optimization.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_gdrr_nesting(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
     config: &Config,
     gdrr_config: &GdrrConfig,
     cancelled: Arc<AtomicBool>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let mut problem = GdrrNestingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -710,7 +713,7 @@ pub fn run_gdrr_nesting(
         gdrr_config.time_limit_ms,
     );
 
-    let runner = GdrrRunner::new(gdrr_config.clone());
+    let runner = GdrrRunner::new(gdrr_config.clone())?;
     let gdrr_result: GdrrResult<GdrrNestingSolution> = runner.run(&mut problem, |_progress| {
         // Progress callback - can be used for logging
     });
@@ -741,7 +744,7 @@ pub fn run_gdrr_nesting(
     result.best_fitness = Some(gdrr_result.best_fitness);
     result.strategy = Some("GDRR".to_string());
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -921,7 +924,8 @@ mod tests {
             .with_time_limit_ms(5000);
         let cancelled = Arc::new(AtomicBool::new(false));
 
-        let result = run_gdrr_nesting(&geometries, &boundary, &config, &gdrr_config, cancelled);
+        let result = run_gdrr_nesting(&geometries, &boundary, &config, &gdrr_config, cancelled)
+            .expect("valid config");
 
         assert!(!result.placements.is_empty());
         assert!(result.utilization > 0.0);
@@ -938,7 +942,7 @@ mod tests {
 
         let gdrr_config = GdrrConfig::new().with_max_iterations(10).with_seed(42);
 
-        let runner = GdrrRunner::new(gdrr_config);
+        let runner = GdrrRunner::new(gdrr_config).expect("valid config");
         let result: GdrrResult<GdrrNestingSolution> = runner.run(&mut problem, |progress| {
             assert!(progress.iteration <= 10);
         });

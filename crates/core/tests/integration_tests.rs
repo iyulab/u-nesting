@@ -1,7 +1,7 @@
 //! Integration tests for u-nesting-core.
 
 use u_nesting_core::ga::{GaConfig, PermutationChromosome};
-use u_nesting_core::geometry::{Orientation3D, RotationConstraint};
+use u_nesting_core::geometry::RotationConstraint;
 use u_nesting_core::placement::{Placement, PlacementStats};
 use u_nesting_core::result::SolveResult;
 use u_nesting_core::transform::{Transform2D, Transform3D, AABB2D, AABB3D};
@@ -199,14 +199,6 @@ mod rotation_constraint_tests {
     }
 
     #[test]
-    fn test_rotation_free() {
-        let constraint: RotationConstraint<f64> = RotationConstraint::Free;
-        assert!(!constraint.is_fixed());
-        let angles = constraint.angles();
-        assert!(angles.is_empty()); // Empty means any angle
-    }
-
-    #[test]
     fn test_rotation_axis_aligned() {
         let constraint: RotationConstraint<f64> = RotationConstraint::axis_aligned();
         let angles = constraint.angles();
@@ -238,26 +230,6 @@ mod rotation_constraint_tests {
     }
 }
 
-mod orientation_3d_tests {
-    use super::*;
-
-    #[test]
-    fn test_orientation_counts() {
-        assert_eq!(Orientation3D::Fixed.count(), 1);
-        assert_eq!(Orientation3D::AxisAligned.count(), 6);
-        assert_eq!(Orientation3D::Orthogonal.count(), 24);
-        assert_eq!(Orientation3D::Free.count(), usize::MAX);
-    }
-
-    #[test]
-    fn test_orientation_is_fixed() {
-        assert!(Orientation3D::Fixed.is_fixed());
-        assert!(!Orientation3D::AxisAligned.is_fixed());
-        assert!(!Orientation3D::Orthogonal.is_fixed());
-        assert!(!Orientation3D::Free.is_fixed());
-    }
-}
-
 mod ga_tests {
     use super::*;
     use rand::prelude::*;
@@ -279,13 +251,20 @@ mod ga_tests {
     }
 
     #[test]
-    fn test_ga_config_clamping() {
+    fn test_ga_config_out_of_range_is_refused_not_clamped() {
         let config = GaConfig::new()
-            .with_crossover_rate(1.5)  // Should be clamped to 1.0
-            .with_mutation_rate(-0.1); // Should be clamped to 0.0
+            .with_crossover_rate(1.5)
+            .with_mutation_rate(-0.1);
 
-        assert!((config.crossover_rate - 1.0).abs() < 1e-10);
-        assert!((config.mutation_rate - 0.0).abs() < 1e-10);
+        // Stored as given, judged by `validate`.
+        assert_eq!(config.crossover_rate, 1.5);
+        assert_eq!(config.mutation_rate, -0.1);
+        let err = config.validate().expect_err("1.5 is not a rate");
+        assert!(err.to_string().contains("crossover_rate"), "{err}");
+        assert!(GaConfig::new()
+            .with_mutation_rate(f64::NAN)
+            .validate()
+            .is_err());
     }
 
     #[test]

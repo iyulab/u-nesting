@@ -5,6 +5,29 @@ use thiserror::Error;
 /// Result type alias for U-Nesting operations.
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// `value` inside `[min, max]` (a NaN is outside every range), or a
+/// `ConfigError` naming the field and the range.
+pub(crate) fn check_range(name: &str, value: f64, min: f64, max: f64) -> Result<()> {
+    if value >= min && value <= max {
+        Ok(())
+    } else {
+        Err(Error::ConfigError(format!(
+            "{name} must be in [{min}, {max}], got {value}"
+        )))
+    }
+}
+
+/// `value` finite and at least `min`, or a `ConfigError` naming the field.
+pub(crate) fn check_at_least(name: &str, value: f64, min: f64) -> Result<()> {
+    if value.is_finite() && value >= min {
+        Ok(())
+    } else {
+        Err(Error::ConfigError(format!(
+            "{name} must be a finite number >= {min}, got {value}"
+        )))
+    }
+}
+
 /// Errors that can occur during nesting/packing operations.
 #[derive(Debug, Error)]
 pub enum Error {

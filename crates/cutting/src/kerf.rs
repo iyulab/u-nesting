@@ -15,18 +15,20 @@
 
 use crate::config::CuttingConfig;
 use crate::contour::{ContourType, CutContour};
+use crate::result::{SkipReason, SkippedContour};
 
 /// Result of kerf compensation for a single contour.
 #[derive(Debug)]
 pub enum KerfResult {
     /// Successfully compensated contour with new vertices.
     Compensated(CutContour),
-    /// Contour collapsed (too small for the kerf width). Should be skipped.
+    /// Contour collapsed (too small for the kerf width): there is no tool path
+    /// that keeps the part's dimensions, so it cannot be cut.
     Collapsed {
-        /// The original contour ID.
-        contour_id: usize,
-        /// Reason for collapse.
-        reason: String,
+        /// The original, uncompensated contour.
+        contour: CutContour,
+        /// The offset that emptied it (`+kerf/2` exterior, `-kerf/2` interior).
+        offset: f64,
     },
 }
 
@@ -69,11 +71,8 @@ fn compensate_contour(contour: &CutContour, half_kerf: f64) -> KerfResult {
 
     if offset_results.is_empty() {
         return KerfResult::Collapsed {
-            contour_id: contour.id,
-            reason: format!(
-                "contour {} collapsed with kerf offset {:.4}",
-                contour.id, offset_distance
-            ),
+            contour: contour.clone(),
+            offset: offset_distance,
         };
     }
 
@@ -99,24 +98,24 @@ fn compensate_contour(contour: &CutContour, half_kerf: f64) -> KerfResult {
     })
 }
 
-/// Filters kerf results, keeping only successfully compensated contours.
-///
-/// Collapsed contours are logged at warn level and excluded.
-pub fn filter_compensated(results: Vec<KerfResult>) -> Vec<CutContour> {
-    results
-        .into_iter()
-        .filter_map(|r| match r {
-            KerfResult::Compensated(c) => Some(c),
-            KerfResult::Collapsed { contour_id, reason } => {
-                log::warn!(
-                    "Kerf compensation: contour {} collapsed — {}",
-                    contour_id,
-                    reason
-                );
-                None
-            }
-        })
-        .collect()
+/// Splits kerf results into the contours that can be cut and the ones that
+/// cannot, so the caller reports the second group instead of losing it.
+pub fn partition_compensated(results: Vec<KerfResult>) -> (Vec<CutContour>, Vec<SkippedContour>) {
+    let mut cut = Vec::new();
+    let mut skipped = Vec::new();
+    for result in results {
+        match result {
+            KerfResult::Compensated(c) => cut.push(c),
+            KerfResult::Collapsed { contour, offset } => skipped.push(SkippedContour {
+                contour_id: contour.id,
+                geometry_id: contour.geometry_id,
+                instance: contour.instance,
+                contour_type: contour.contour_type,
+                reason: SkipReason::KerfCollapsed { offset },
+            }),
+        }
+    }
+    (cut, skipped)
 }
 
 #[cfg(test)]
@@ -214,28 +213,35 @@ mod tests {
         assert_eq!(results.len(), 1);
 
         match &results[0] {
-            KerfResult::Collapsed { contour_id, .. } => {
-                assert_eq!(*contour_id, 0);
+            KerfResult::Collapsed { contour, offset } => {
+                assert_eq!(contour.id, 0);
+                assert_eq!(*offset, -2.5); // interior: inward by kerf/2
             }
             KerfResult::Compensated(_) => panic!("expected Collapsed for tiny contour"),
         }
     }
 
     #[test]
-    fn test_filter_compensated() {
+    fn test_partition_keeps_what_collapsed() {
         let results = vec![
             KerfResult::Compensated(make_square(0, 10.0, ContourType::Exterior)),
             KerfResult::Collapsed {
-                contour_id: 1,
-                reason: "test collapse".to_string(),
+                contour: make_square(1, 1.0, ContourType::Interior),
+                offset: -2.5,
             },
             KerfResult::Compensated(make_square(2, 10.0, ContourType::Exterior)),
         ];
 
-        let filtered = filter_compensated(results);
-        assert_eq!(filtered.len(), 2);
-        assert_eq!(filtered[0].id, 0);
-        assert_eq!(filtered[1].id, 2);
+        let (cut, skipped) = partition_compensated(results);
+        assert_eq!(cut.iter().map(|c| c.id).collect::<Vec<_>>(), vec![0, 2]);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0].contour_id, 1);
+        assert_eq!(skipped[0].geometry_id, "part1");
+        assert_eq!(skipped[0].contour_type, ContourType::Interior);
+        assert_eq!(
+            skipped[0].reason,
+            SkipReason::KerfCollapsed { offset: -2.5 }
+        );
     }
 
     #[test]
@@ -247,7 +253,7 @@ mod tests {
         let config = CuttingConfig::new().with_kerf_width(0.5);
 
         let results = apply_kerf_compensation(&contours, &config);
-        let compensated = filter_compensated(results);
+        let (compensated, _) = partition_compensated(results);
         assert_eq!(compensated.len(), 2);
 
         // Exterior expanded

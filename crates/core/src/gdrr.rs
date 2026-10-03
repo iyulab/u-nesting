@@ -24,7 +24,7 @@
 //! use u_nesting_core::gdrr::{GdrrConfig, GdrrRunner, GdrrProblem};
 //!
 //! let config = GdrrConfig::default();
-//! let runner = GdrrRunner::new(config);
+//! let runner = GdrrRunner::new(config)?;
 //! let result = runner.run(&mut problem, progress_callback);
 //! ```
 
@@ -102,14 +102,14 @@ impl GdrrConfig {
 
     /// Set ruin ratio range.
     pub fn with_ruin_ratio(mut self, min: f64, max: f64) -> Self {
-        self.min_ruin_ratio = min.clamp(0.0, 1.0);
-        self.max_ruin_ratio = max.clamp(self.min_ruin_ratio, 1.0);
+        self.min_ruin_ratio = min;
+        self.max_ruin_ratio = max;
         self
     }
 
     /// Set LAHC list length.
     pub fn with_lahc_list_length(mut self, length: usize) -> Self {
-        self.lahc_list_length = length.max(1);
+        self.lahc_list_length = length;
         self
     }
 
@@ -120,10 +120,37 @@ impl GdrrConfig {
         decrease_rate: f64,
         min_ratio: f64,
     ) -> Self {
-        self.initial_goal_ratio = initial_ratio.max(1.0);
-        self.goal_decrease_rate = decrease_rate.clamp(0.9, 1.0);
-        self.min_goal_ratio = min_ratio.clamp(0.5, 1.0);
+        self.initial_goal_ratio = initial_ratio;
+        self.goal_decrease_rate = decrease_rate;
+        self.min_goal_ratio = min_ratio;
         self
+    }
+
+    /// Checks every field against its range; the builders store what they are
+    /// given.
+    ///
+    /// # Errors
+    /// `ConfigError` naming the first field out of range: ruin ratios outside
+    /// `[0, 1]` or `min_ruin_ratio > max_ruin_ratio`, `lahc_list_length` 0,
+    /// `initial_goal_ratio` below 1, `goal_decrease_rate` outside `[0.9, 1]`,
+    /// `min_goal_ratio` outside `[0.5, 1]`, a negative ruin weight.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        use crate::error::{check_at_least, check_range};
+        check_range("min_ruin_ratio", self.min_ruin_ratio, 0.0, 1.0)?;
+        check_range(
+            "max_ruin_ratio",
+            self.max_ruin_ratio,
+            self.min_ruin_ratio,
+            1.0,
+        )?;
+        check_at_least("lahc_list_length", self.lahc_list_length as f64, 1.0)?;
+        check_at_least("initial_goal_ratio", self.initial_goal_ratio, 1.0)?;
+        check_range("goal_decrease_rate", self.goal_decrease_rate, 0.9, 1.0)?;
+        check_range("min_goal_ratio", self.min_goal_ratio, 0.5, 1.0)?;
+        check_at_least("random_ruin_weight", self.random_ruin_weight, 0.0)?;
+        check_at_least("cluster_ruin_weight", self.cluster_ruin_weight, 0.0)?;
+        check_at_least("worst_ruin_weight", self.worst_ruin_weight, 0.0)?;
+        Ok(())
     }
 
     /// Set random seed for reproducibility.
@@ -327,8 +354,12 @@ pub struct GdrrRunner {
 
 impl GdrrRunner {
     /// Create a new GDRR runner with the given configuration.
-    pub fn new(config: GdrrConfig) -> Self {
-        Self { config }
+    ///
+    /// # Errors
+    /// As [`GdrrConfig::validate`].
+    pub fn new(config: GdrrConfig) -> crate::error::Result<Self> {
+        config.validate()?;
+        Ok(Self { config })
     }
 
     /// Run the GDRR algorithm on the given problem.
@@ -504,6 +535,21 @@ impl GdrrRunner {
 
 #[cfg(test)]
 mod tests {
+    /// A builder stores what it is given and `validate` judges it. The clamp
+    /// it replaced panicked on a NaN minimum and silently raised a maximum
+    /// below the minimum.
+    #[test]
+    fn ruin_ratios_are_refused_not_adjusted() {
+        let nan = GdrrConfig::default().with_ruin_ratio(f64::NAN, 0.5);
+        assert!(
+            matches!(nan.validate(), Err(crate::Error::ConfigError(m)) if m.contains("min_ruin_ratio"))
+        );
+        let crossed = GdrrConfig::default().with_ruin_ratio(0.8, 0.3);
+        assert_eq!(crossed.max_ruin_ratio, 0.3, "stored as given");
+        assert!(GdrrRunner::new(crossed).is_err());
+        assert!(GdrrRunner::new(GdrrConfig::default()).is_ok());
+    }
+
     use super::*;
 
     #[test]
@@ -791,7 +837,7 @@ mod tests {
             improvement_per_iteration: 0.01,
         };
 
-        let runner = GdrrRunner::new(config);
+        let runner = GdrrRunner::new(config).expect("valid config");
         let mut last_progress: Option<GdrrProgress> = None;
 
         let result = runner.run(&mut problem, |progress| {
@@ -819,7 +865,7 @@ mod tests {
             improvement_per_iteration: 0.001,
         };
 
-        let runner = GdrrRunner::new(config);
+        let runner = GdrrRunner::new(config).expect("valid config");
         let result = runner.run(&mut problem, |_| {});
 
         // Should have terminated due to time limit, not iteration limit

@@ -31,6 +31,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::error::{check_at_least, check_range, Result};
 use crate::timing::{evaluate_within, expired, Timer};
 
 #[cfg(feature = "serde")]
@@ -93,20 +94,35 @@ impl BrkgaConfig {
 
     /// Sets the elite fraction.
     pub fn with_elite_fraction(mut self, fraction: f64) -> Self {
-        self.elite_fraction = fraction.clamp(0.01, 0.5);
+        self.elite_fraction = fraction;
         self
     }
 
     /// Sets the mutant fraction.
     pub fn with_mutant_fraction(mut self, fraction: f64) -> Self {
-        self.mutant_fraction = fraction.clamp(0.0, 0.5);
+        self.mutant_fraction = fraction;
         self
     }
 
     /// Sets the elite bias for crossover.
     pub fn with_elite_bias(mut self, bias: f64) -> Self {
-        self.elite_bias = bias.clamp(0.5, 1.0);
+        self.elite_bias = bias;
         self
+    }
+
+    /// Checks every field against its range; the builders store what they are
+    /// given.
+    ///
+    /// # Errors
+    /// `ConfigError` naming the first field out of range: `elite_fraction`
+    /// outside `[0.01, 0.5]`, `mutant_fraction` outside `[0, 0.5]`, the two
+    /// together above 1, `elite_bias` outside `[0.5, 1]`, a population below 2.
+    pub fn validate(&self) -> Result<()> {
+        check_range("elite_fraction", self.elite_fraction, 0.01, 0.5)?;
+        check_range("mutant_fraction", self.mutant_fraction, 0.0, 0.5)?;
+        check_range("elite_bias", self.elite_bias, 0.5, 1.0)?;
+        check_at_least("population_size", self.population_size as f64, 2.0)?;
+        Ok(())
     }
 
     /// Sets the time limit.
@@ -326,21 +342,28 @@ pub struct BrkgaRunner<P: BrkgaProblem> {
 
 impl<P: BrkgaProblem> BrkgaRunner<P> {
     /// Creates a new BRKGA runner.
-    pub fn new(config: BrkgaConfig, problem: P) -> Self {
-        Self {
-            config,
-            problem,
-            cancelled: Arc::new(AtomicBool::new(false)),
-        }
+    ///
+    /// # Errors
+    /// As [`BrkgaConfig::validate`].
+    pub fn new(config: BrkgaConfig, problem: P) -> Result<Self> {
+        Self::with_cancellation(config, problem, Arc::new(AtomicBool::new(false)))
     }
 
     /// Creates a runner with a pre-existing cancellation handle.
-    pub fn with_cancellation(config: BrkgaConfig, problem: P, cancelled: Arc<AtomicBool>) -> Self {
-        Self {
+    ///
+    /// # Errors
+    /// As [`BrkgaConfig::validate`].
+    pub fn with_cancellation(
+        config: BrkgaConfig,
+        problem: P,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<Self> {
+        config.validate()?;
+        Ok(Self {
             config,
             problem,
             cancelled,
-        }
+        })
     }
 
     /// Returns a handle to cancel the algorithm.
@@ -581,7 +604,7 @@ mod tests {
             .with_max_generations(50);
 
         let problem = MaxSumProblem { num_keys: 10 };
-        let runner = BrkgaRunner::new(config, problem);
+        let runner = BrkgaRunner::new(config, problem).expect("valid config");
         let result = runner.run();
 
         // Best should have keys close to 1.0, sum close to 10.0

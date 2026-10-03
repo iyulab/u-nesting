@@ -35,7 +35,7 @@
 //! use u_nesting_core::alns::{AlnsConfig, AlnsRunner, AlnsProblem};
 //!
 //! let config = AlnsConfig::default();
-//! let runner = AlnsRunner::new(config);
+//! let runner = AlnsRunner::new(config)?;
 //! let result = runner.run(&mut problem, progress_callback);
 //! ```
 
@@ -124,16 +124,33 @@ impl AlnsConfig {
 
     /// Set reaction factor.
     pub fn with_reaction_factor(mut self, factor: f64) -> Self {
-        self.reaction_factor = factor.clamp(0.0, 1.0);
+        self.reaction_factor = factor;
         self
     }
 
     /// Set temperature parameters for SA acceptance.
     pub fn with_temperature(mut self, initial: f64, cooling_rate: f64, final_temp: f64) -> Self {
-        self.initial_temperature = initial.max(0.01);
-        self.cooling_rate = cooling_rate.clamp(0.9, 1.0);
-        self.final_temperature = final_temp.max(0.001);
+        self.initial_temperature = initial;
+        self.cooling_rate = cooling_rate;
+        self.final_temperature = final_temp;
         self
+    }
+
+    /// Checks every field against its range; the builders store what they are
+    /// given.
+    ///
+    /// # Errors
+    /// `ConfigError` naming the first field out of range: `reaction_factor`
+    /// outside `[0, 1]`, `cooling_rate` outside `[0.9, 1]`, `initial_temperature`
+    /// below 0.01, `final_temperature` below 0.001, `min_weight` negative.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        use crate::error::{check_at_least, check_range};
+        check_range("reaction_factor", self.reaction_factor, 0.0, 1.0)?;
+        check_range("cooling_rate", self.cooling_rate, 0.9, 1.0)?;
+        check_at_least("initial_temperature", self.initial_temperature, 0.01)?;
+        check_at_least("final_temperature", self.final_temperature, 0.001)?;
+        check_at_least("min_weight", self.min_weight, 0.0)?;
+        Ok(())
     }
 
     /// Set random seed for reproducibility.
@@ -355,8 +372,12 @@ pub struct AlnsRunner {
 
 impl AlnsRunner {
     /// Create a new ALNS runner with the given configuration.
-    pub fn new(config: AlnsConfig) -> Self {
-        Self { config }
+    ///
+    /// # Errors
+    /// As [`AlnsConfig::validate`].
+    pub fn new(config: AlnsConfig) -> crate::error::Result<Self> {
+        config.validate()?;
+        Ok(Self { config })
     }
 
     /// Run the ALNS algorithm on the given problem.
@@ -804,7 +825,7 @@ mod tests {
             improvement_per_iteration: 0.01,
         };
 
-        let runner = AlnsRunner::new(config);
+        let runner = AlnsRunner::new(config).expect("valid config");
         let mut last_progress: Option<AlnsProgress> = None;
 
         let result = runner.run(&mut problem, |progress| {
@@ -833,7 +854,7 @@ mod tests {
             improvement_per_iteration: 0.001,
         };
 
-        let runner = AlnsRunner::new(config);
+        let runner = AlnsRunner::new(config).expect("valid config");
         let result = runner.run(&mut problem, |_| {});
 
         // Should have terminated due to time limit
@@ -853,7 +874,7 @@ mod tests {
             improvement_per_iteration: 0.01,
         };
 
-        let runner = AlnsRunner::new(config);
+        let runner = AlnsRunner::new(config).expect("valid config");
         let result = runner.run(&mut problem, |_| {});
 
         // Weights should have changed from initial values

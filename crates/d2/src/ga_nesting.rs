@@ -549,6 +549,9 @@ impl GaProblem for NestingProblem {
 }
 
 /// Runs GA-based nesting optimization.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_ga_nesting(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
@@ -556,7 +559,7 @@ pub fn run_ga_nesting(
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[Placement<f64>]>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = NestingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -567,7 +570,7 @@ pub fn run_ga_nesting(
     .with_seed_layout(seed_layout);
     let best_layout = problem.best_layout();
 
-    let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone());
+    let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone())?;
 
     // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
     // system entropy (non-deterministic).
@@ -618,10 +621,13 @@ pub fn run_ga_nesting(
     result.cancelled = cancelled.load(Ordering::Relaxed);
     result.target_reached = ga_result.target_reached;
 
-    result
+    Ok(result)
 }
 
 /// Runs GA-based nesting optimization with progress callback.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_ga_nesting_with_progress(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
@@ -630,7 +636,7 @@ pub fn run_ga_nesting_with_progress(
     cancelled: Arc<AtomicBool>,
     progress_callback: ProgressCallback,
     seed_layout: Option<&[Placement<f64>]>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let total_items = geometries.iter().map(|g| g.quantity()).sum::<usize>();
 
     let problem = NestingProblem::new(
@@ -643,7 +649,7 @@ pub fn run_ga_nesting_with_progress(
     .with_seed_layout(seed_layout);
     let best_layout = problem.best_layout();
 
-    let runner = GaRunner::with_cancellation(ga_config.clone(), problem, cancelled.clone());
+    let runner = GaRunner::with_cancellation(ga_config.clone(), problem, cancelled.clone())?;
 
     // Run GA with progress callback adapter. Thread `config.seed` through so the
     // callback-driven path is as reproducible as the plain `run_ga_nesting` path
@@ -718,7 +724,7 @@ pub fn run_ga_nesting_with_progress(
     result.cancelled = cancelled.load(Ordering::Relaxed);
     result.target_reached = ga_result.target_reached;
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -920,7 +926,8 @@ mod tests {
             ga_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());
@@ -943,7 +950,8 @@ mod tests {
             ga_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         // All 4 pieces should fit easily
         assert_eq!(result.placements.len(), 4);
@@ -970,7 +978,8 @@ mod tests {
             ga_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         // Should be able to place at least some pieces

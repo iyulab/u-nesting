@@ -568,13 +568,16 @@ impl AlnsProblem for AlnsNestingProblem {
 }
 
 /// Run ALNS nesting optimization.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_alns_nesting(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
     config: &Config,
     alns_config: &AlnsConfig,
     cancelled: Arc<AtomicBool>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let mut problem = AlnsNestingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -583,7 +586,7 @@ pub fn run_alns_nesting(
         alns_config.time_limit_ms,
     );
 
-    let runner = AlnsRunner::new(alns_config.clone());
+    let runner = AlnsRunner::new(alns_config.clone())?;
     let alns_result: AlnsResult<AlnsNestingSolution> = runner.run(&mut problem, |_progress| {
         // Progress callback
     });
@@ -614,7 +617,7 @@ pub fn run_alns_nesting(
     result.best_fitness = Some(alns_result.best_fitness);
     result.strategy = Some("ALNS".to_string());
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -771,7 +774,8 @@ mod tests {
             .with_time_limit_ms(5000);
         let cancelled = Arc::new(AtomicBool::new(false));
 
-        let result = run_alns_nesting(&geometries, &boundary, &config, &alns_config, cancelled);
+        let result = run_alns_nesting(&geometries, &boundary, &config, &alns_config, cancelled)
+            .expect("valid config");
 
         assert!(!result.placements.is_empty());
         assert!(result.utilization > 0.0);
@@ -788,7 +792,7 @@ mod tests {
 
         let alns_config = AlnsConfig::new().with_max_iterations(10).with_seed(42);
 
-        let runner = AlnsRunner::new(alns_config);
+        let runner = AlnsRunner::new(alns_config).expect("valid config");
         let result: AlnsResult<AlnsNestingSolution> = runner.run(&mut problem, |progress| {
             assert!(progress.iteration <= 10);
         });

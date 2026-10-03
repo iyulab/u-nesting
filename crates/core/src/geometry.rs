@@ -11,6 +11,10 @@ use serde::{Deserialize, Serialize};
 pub type GeometryId = String;
 
 /// Allowed rotation angles for a geometry.
+///
+/// Every solver searches a finite set of angles, so the constraint names that
+/// set. (A `Free` variant used to promise "any angle"; no solver implemented
+/// it, and it placed parts at 0° only.)
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Default)]
@@ -18,9 +22,9 @@ pub enum RotationConstraint<S> {
     /// No rotation allowed (fixed orientation).
     #[default]
     None,
-    /// Free rotation (any angle).
-    Free,
-    /// Discrete rotation steps (e.g., 0, 90, 180, 270 degrees).
+    /// Discrete rotation steps (e.g., 0, 90, 180, 270 degrees). Must not be
+    /// empty -- a geometry with no allowed angle cannot be placed, and its
+    /// `validate` refuses it.
     Discrete(Vec<S>),
 }
 
@@ -59,7 +63,6 @@ impl<S: RealField + Copy> RotationConstraint<S> {
     pub fn angles(&self) -> Vec<S> {
         match self {
             Self::None => vec![S::zero()],
-            Self::Free => vec![], // Empty means any angle
             Self::Discrete(angles) => angles.clone(),
         }
     }
@@ -214,39 +217,6 @@ pub trait Boundary3DExt: Boundary {
     fn effective_volume(&self, margin: Self::Scalar) -> Self::Scalar;
 }
 
-/// Orientation constraints for 3D packing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Default)]
-pub enum Orientation3D {
-    /// Original orientation only (no rotation).
-    Fixed,
-    /// Any of the 6 axis-aligned orientations.
-    #[default]
-    AxisAligned,
-    /// Any of the 24 orthogonal orientations.
-    Orthogonal,
-    /// Free rotation (any orientation).
-    Free,
-}
-
-impl Orientation3D {
-    /// Returns the number of discrete orientations.
-    pub fn count(&self) -> usize {
-        match self {
-            Self::Fixed => 1,
-            Self::AxisAligned => 6,
-            Self::Orthogonal => 24,
-            Self::Free => usize::MAX, // Continuous
-        }
-    }
-
-    /// Returns true if rotation is completely fixed.
-    pub fn is_fixed(&self) -> bool {
-        matches!(self, Self::Fixed)
-    }
-}
-
 /// Refuses a geometry id given to two geometries.
 ///
 /// [`Geometry::id`] is the geometry's identity: a result names each placement
@@ -290,12 +260,5 @@ mod tests {
         let constraint: RotationConstraint<f64> = RotationConstraint::steps(8);
         let angles = constraint.angles();
         assert_eq!(angles.len(), 8);
-    }
-
-    #[test]
-    fn test_orientation_3d_count() {
-        assert_eq!(Orientation3D::Fixed.count(), 1);
-        assert_eq!(Orientation3D::AxisAligned.count(), 6);
-        assert_eq!(Orientation3D::Orthogonal.count(), 24);
     }
 }

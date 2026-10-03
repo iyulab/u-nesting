@@ -340,41 +340,7 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
             Err(e) => return CuttingResponse::error(e),
         };
 
-    // Convert result to response
-    let sequence: Vec<CutStepResponse> = result
-        .sequence
-        .iter()
-        .map(|step| CutStepResponse {
-            contour_id: step.contour_id,
-            geometry_id: step.geometry_id.clone(),
-            instance: step.instance,
-            contour_type: match step.contour_type {
-                u_nesting_cutting::ContourType::Exterior => "exterior".to_string(),
-                u_nesting_cutting::ContourType::Interior => "interior".to_string(),
-            },
-            pierce_point: [step.pierce_point.0, step.pierce_point.1],
-            cut_direction: match step.cut_direction {
-                u_nesting_cutting::CutDirection::Ccw => "ccw".to_string(),
-                u_nesting_cutting::CutDirection::Cw => "cw".to_string(),
-            },
-            rapid_from: step.rapid_from.map(|p| [p.0, p.1]),
-            rapid_distance: step.rapid_distance,
-            cut_distance: step.cut_distance,
-        })
-        .collect();
-
-    CuttingResponse {
-        version: API_VERSION.to_string(),
-        success: true,
-        error: None,
-        sequence,
-        total_cut_distance: result.total_cut_distance,
-        total_rapid_distance: result.total_rapid_distance,
-        total_pierces: result.total_pierces,
-        estimated_time_seconds: result.estimated_time_seconds,
-        efficiency: result.efficiency(),
-        computation_time_ms: result.computation_time_ms,
-    }
+    result.to_response()
 }
 
 /// Builds a solver [`Config`] from the request, validating each field.

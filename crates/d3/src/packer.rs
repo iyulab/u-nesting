@@ -393,7 +393,7 @@ impl Packer3D {
             &self.config,
             ga_config,
             self.cancelled.clone(),
-        );
+        )?;
 
         Ok(result)
     }
@@ -416,7 +416,7 @@ impl Packer3D {
             &self.config,
             brkga_config,
             self.cancelled.clone(),
-        );
+        )?;
 
         Ok(result)
     }
@@ -444,7 +444,7 @@ impl Packer3D {
             &self.config,
             sa_config,
             self.cancelled.clone(),
-        );
+        )?;
 
         Ok(result)
     }
@@ -732,6 +732,7 @@ impl Solver for Packer3D {
         geometries: &[Self::Geometry],
         boundary: &Self::Boundary,
     ) -> Result<SolveResult<f64>> {
+        self.config.validate()?;
         boundary.validate()?;
         u_nesting_core::geometry::ensure_unique_ids(geometries)?;
 

@@ -143,13 +143,16 @@ impl BrkgaProblem for BrkgaPackingProblem {
 }
 
 /// Runs BRKGA-based 3D bin packing optimization.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_brkga_packing(
     geometries: &[Geometry3D],
     boundary: &Boundary3D,
     config: &Config,
     brkga_config: BrkgaConfig,
     cancelled: Arc<AtomicBool>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = BrkgaPackingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -157,7 +160,7 @@ pub fn run_brkga_packing(
         cancelled.clone(),
     );
 
-    let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone());
+    let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone())?;
 
     let brkga_result = runner.run();
 
@@ -185,7 +188,7 @@ pub fn run_brkga_packing(
     result.cancelled = cancelled.load(Ordering::Relaxed);
     result.target_reached = brkga_result.target_reached;
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -211,7 +214,8 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());
@@ -234,7 +238,8 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         // All 4 boxes should fit easily
         assert_eq!(result.placements.len(), 4);
@@ -262,7 +267,8 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());
@@ -321,7 +327,8 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         // Should only place 3 boxes due to 350 mass limit
         assert!(result.placements.len() <= 3);

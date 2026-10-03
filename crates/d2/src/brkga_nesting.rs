@@ -458,6 +458,9 @@ fn midpoint_key(choice: usize, options: usize) -> f64 {
 }
 
 /// Runs BRKGA-based nesting optimization.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_brkga_nesting(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
@@ -465,7 +468,7 @@ pub fn run_brkga_nesting(
     brkga_config: BrkgaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[Placement<f64>]>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = BrkgaNestingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -476,7 +479,7 @@ pub fn run_brkga_nesting(
     .with_time_limit(brkga_config.time_limit);
     let best_layout = problem.best_layout();
 
-    let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone());
+    let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone())?;
 
     // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
     // system entropy (non-deterministic).
@@ -530,7 +533,7 @@ pub fn run_brkga_nesting(
     result.cancelled = cancelled.load(Ordering::Relaxed);
     result.target_reached = brkga_result.target_reached;
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -557,7 +560,8 @@ mod tests {
             brkga_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());
@@ -581,7 +585,8 @@ mod tests {
             brkga_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         // All 4 pieces should fit easily
         assert_eq!(result.placements.len(), 4);
@@ -607,7 +612,8 @@ mod tests {
             brkga_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());

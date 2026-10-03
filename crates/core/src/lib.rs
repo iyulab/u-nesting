@@ -83,7 +83,7 @@ pub use gdrr::{
 };
 pub use geometry::{
     Boundary, Boundary2DExt, Boundary3DExt, Geometry, Geometry2DExt, Geometry3DExt, GeometryId,
-    Orientation3D, RotationConstraint,
+    RotationConstraint,
 };
 pub use placement::Placement;
 pub use result::{SolveResult, SolveSummary};

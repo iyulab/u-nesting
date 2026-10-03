@@ -378,6 +378,9 @@ impl SaProblem for SaNestingProblem {
 }
 
 /// Runs SA-based nesting optimization.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_sa_nesting(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
@@ -385,7 +388,7 @@ pub fn run_sa_nesting(
     sa_config: SaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[Placement<f64>]>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = SaNestingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -396,7 +399,7 @@ pub fn run_sa_nesting(
     .with_seed_layout(seed_layout);
     let best_layout = problem.best_layout();
 
-    let runner = SaRunner::with_cancellation(sa_config, problem, cancelled.clone());
+    let runner = SaRunner::with_cancellation(sa_config, problem, cancelled.clone())?;
 
     // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
     // system entropy (non-deterministic).
@@ -450,7 +453,7 @@ pub fn run_sa_nesting(
     result.cancelled = cancelled.load(Ordering::Relaxed);
     result.target_reached = sa_result.target_reached;
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -480,7 +483,8 @@ mod tests {
             sa_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());
@@ -505,7 +509,8 @@ mod tests {
             sa_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         // All 4 pieces should fit easily
         assert_eq!(result.placements.len(), 4);
@@ -532,7 +537,8 @@ mod tests {
             sa_config,
             Arc::new(AtomicBool::new(false)),
             None,
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());

@@ -323,13 +323,16 @@ impl GaProblem for PackingProblem {
 }
 
 /// Runs GA-based 3D bin packing optimization.
+///
+/// # Errors
+/// `ConfigError` when the algorithm configuration is out of range.
 pub fn run_ga_packing(
     geometries: &[Geometry3D],
     boundary: &Boundary3D,
     config: &Config,
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
-) -> SolveResult<f64> {
+) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = PackingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -337,7 +340,7 @@ pub fn run_ga_packing(
         cancelled.clone(),
     );
 
-    let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone());
+    let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone())?;
 
     let ga_result = runner.run();
 
@@ -365,7 +368,7 @@ pub fn run_ga_packing(
     result.cancelled = cancelled.load(Ordering::Relaxed);
     result.target_reached = ga_result.target_reached;
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -427,7 +430,8 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());
@@ -449,7 +453,8 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         // All 4 boxes should fit easily
         assert_eq!(result.placements.len(), 4);
@@ -476,7 +481,8 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         assert!(result.utilization > 0.0);
         assert!(!result.placements.is_empty());
@@ -521,7 +527,8 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("valid config");
 
         // Should only place 3 boxes due to 350 mass limit
         assert!(result.placements.len() <= 3);

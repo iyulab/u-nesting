@@ -150,6 +150,39 @@ interface CuttingRequest {
 > invalidates the result — it only trades some optimality for responsiveness.
 > Set `0` to disable the wall-clock bound (native/batch callers only).
 
+### `optimize_cutting_path` Response
+
+```typescript
+interface CuttingResponse {
+  version: string;
+  success: boolean;
+  error: string | null;
+  sequence: {
+    contour_id: number; geometry_id: string; instance: number;
+    contour_type: "exterior" | "interior";
+    pierce_point: [number, number]; cut_direction: "ccw" | "cw";
+    rapid_from: [number, number] | null; rapid_distance: number; cut_distance: number;
+  }[];
+  total_cut_distance: number;
+  total_rapid_distance: number;
+  total_pierces: number;
+  estimated_time_seconds: number | null;
+  efficiency: number;
+  computation_time_ms: number;
+  // Contours the plan cannot cut. A part listed here is NOT fully cut by `sequence`.
+  skipped_contours: {
+    contour_id: number; geometry_id: string; instance: number;
+    contour_type: "exterior" | "interior";
+    reason: "kerf_collapsed";          // smaller than the tool: half the kerf offset left nothing
+    offset: number | null;             // the offset applied (+kerf/2 exterior, -kerf/2 interior)
+  }[];
+}
+```
+
+Check `skipped_contours` whenever `kerf_width` is set: a hole narrower than the
+kerf has no tool path that keeps the part's dimensions, so it is left out of
+`sequence` and reported here rather than dropped.
+
 ## Input Schemas
 
 ### `solve_2d` Request
@@ -161,7 +194,8 @@ interface Request2D {
     polygon: [number, number][];       // Vertices (CCW)
     quantity?: number;                  // Default: 1
     allow_flip?: boolean;              // Default: false
-    rotations?: number[];              // Allowed rotation angles in degrees
+    rotations?: number[];              // Allowed rotation angles in degrees (at least one;
+                                       //   omit for a fixed orientation — [] is refused)
     holes?: [number, number][][];      // Interior holes
   }[];
   boundary: {

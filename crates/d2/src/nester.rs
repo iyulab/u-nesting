@@ -259,12 +259,8 @@ impl Nester2D {
             geom.validate()?;
 
             // Get allowed rotation angles
-            let rotations = geom.rotations();
-            let rotation_angles: Vec<f64> = if rotations.is_empty() {
-                vec![0.0]
-            } else {
-                rotations
-            };
+            // Never empty: `validate` refuses an empty angle list.
+            let rotation_angles: Vec<f64> = geom.rotations();
 
             let mirror_candidates = mirror_candidates(geom);
 
@@ -568,7 +564,7 @@ impl Nester2D {
             ga_config,
             self.cancelled.clone(),
             greedy.as_ref().map(|g| g.placements.as_slice()),
-        );
+        )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
@@ -601,7 +597,7 @@ impl Nester2D {
             brkga_config,
             self.cancelled.clone(),
             greedy.as_ref().map(|g| g.placements.as_slice()),
-        );
+        )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
@@ -636,7 +632,7 @@ impl Nester2D {
             sa_config,
             self.cancelled.clone(),
             greedy.as_ref().map(|g| g.placements.as_slice()),
-        );
+        )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
@@ -660,7 +656,7 @@ impl Nester2D {
             &self.config,
             &gdrr_config,
             self.cancelled.clone(),
-        );
+        )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
@@ -686,7 +682,7 @@ impl Nester2D {
             &self.config,
             &alns_config,
             self.cancelled.clone(),
-        );
+        )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
@@ -876,12 +872,8 @@ impl Nester2D {
         for geom in geometries {
             geom.validate()?;
 
-            let rotations = geom.rotations();
-            let rotation_angles: Vec<f64> = if rotations.is_empty() {
-                vec![0.0]
-            } else {
-                rotations
-            };
+            // Never empty: `validate` refuses an empty angle list.
+            let rotation_angles: Vec<f64> = geom.rotations();
 
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
@@ -1102,12 +1094,8 @@ impl Nester2D {
         for geom in geometries {
             geom.validate()?;
 
-            let rotations = geom.rotations();
-            let rotation_angles: Vec<f64> = if rotations.is_empty() {
-                vec![0.0]
-            } else {
-                rotations
-            };
+            // Never empty: `validate` refuses an empty angle list.
+            let rotation_angles: Vec<f64> = geom.rotations();
 
             let mirror_candidates = mirror_candidates(geom);
 
@@ -1299,6 +1287,7 @@ impl Nester2D {
     /// self-intersecting, or `allow_flip` geometries.
     fn validate_geometries(&self, geometries: &[Geometry2D]) -> Result<()> {
         use u_nesting_core::geometry::Geometry;
+        self.config.validate()?;
         for geom in geometries {
             geom.validate()?;
         }
@@ -1550,7 +1539,7 @@ impl Solver for Nester2D {
                     self.cancelled.clone(),
                     callback,
                     greedy.as_ref().map(|g| g.placements.as_slice()),
-                );
+                )?;
                 // Same BLF floor as the non-progress path: never return a
                 // layout worse than deterministic bottom-left-fill. The
                 // callback-driven entry points (FFI `solve_2d_with_callback`,

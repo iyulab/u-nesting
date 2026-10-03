@@ -19,6 +19,16 @@ pub enum ContourType {
     Interior,
 }
 
+impl ContourType {
+    /// The JSON API name: `"exterior"` or `"interior"`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ContourType::Exterior => "exterior",
+            ContourType::Interior => "interior",
+        }
+    }
+}
+
 /// A single contour to be cut, extracted from nesting results.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

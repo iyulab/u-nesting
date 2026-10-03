@@ -117,7 +117,7 @@ Solve a 2D nesting problem.
   - `id` (str): Unique identifier
   - `polygon` (list): Vertices as [[x, y], ...]
   - `quantity` (int): Number of copies (default: 1)
-  - `rotations` (list): Allowed rotation angles in degrees
+  - `rotations` (list): Allowed rotation angles in degrees — at least one; omit it for a fixed orientation (an empty list is refused)
   - `allow_flip` (bool): Allow horizontal flip
   - `holes` (list): Interior holes as list of polygons
 - `boundary`: Sheet definition

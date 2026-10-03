@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `optimize_cutting_path` reports the contours it cannot cut in
+  `skipped_contours` (`contour_id`, `geometry_id`, `instance`, `contour_type`,
+  `reason`, `offset`). A contour smaller than the kerf (`reason:
+  "kerf_collapsed"`) used to vanish from `sequence` while the response read
+  `success: true`, so a part could come off the sheet without its hole. In
+  Rust, `CuttingPathResult::skipped` with `SkippedContour`/`SkipReason`, and
+  `CuttingPathResult::to_response` — the one conversion every binding uses.
+
+### Changed
+
+- **Breaking:** an empty `rotations` list is refused ("list at least one angle,
+  or leave rotations out for a fixed orientation"); it was placed at 0° while
+  the core documented an empty list as "any angle". A non-finite angle is
+  refused too. `RotationConstraint::Free` is removed — no solver implemented
+  it, and it placed parts at 0° only. The unused `Orientation3D` is removed.
+- **Breaking (Rust API):** the algorithm configurations store what their
+  builders are given and judge it in one place, `validate()`
+  (`GaConfig`, `BrkgaConfig`, `SaConfig`, `AlnsConfig`, `GdrrConfig`,
+  `ExactConfig`, and the solver `Config`). The builders used to clamp: a value
+  out of range ran as a different one, a NaN slipped through some, and
+  `GdrrConfig::with_ruin_ratio(NaN, …)` panicked. The runners
+  (`GaRunner`, `BrkgaRunner`, `SaRunner`, `AlnsRunner`, `GdrrRunner`) and the
+  `run_*_nesting` / `run_*_packing` functions now return `Result` and refuse
+  an out-of-range configuration with `Error::ConfigError`; `Nester2D` and
+  `Packer3D` check the solver `Config` before solving (`target_utilization`
+  above 1 was clamped to 1).
+
 ## [0.15.0] - 2026-10-03
 
 ### Changed

@@ -131,6 +131,25 @@ impl Config {
         Self::default()
     }
 
+    /// Checks the fields a caller sets against their ranges -- the builders
+    /// store what they are given, and every solver calls this before it runs.
+    ///
+    /// # Errors
+    /// `ConfigError` naming the first field out of range: `spacing` or
+    /// `margin` negative or not finite, `crossover_rate`/`mutation_rate` or
+    /// `target_utilization` outside `[0, 1]`.
+    pub fn validate(&self) -> Result<()> {
+        use crate::error::{check_at_least, check_range};
+        check_at_least("spacing", self.spacing, 0.0)?;
+        check_at_least("margin", self.margin, 0.0)?;
+        check_range("crossover_rate", self.crossover_rate, 0.0, 1.0)?;
+        check_range("mutation_rate", self.mutation_rate, 0.0, 1.0)?;
+        if let Some(util) = self.target_utilization {
+            check_range("target_utilization", util, 0.0, 1.0)?;
+        }
+        Ok(())
+    }
+
     /// Sets the optimization strategy.
     pub fn with_strategy(mut self, strategy: Strategy) -> Self {
         self.strategy = strategy;
@@ -157,7 +176,7 @@ impl Config {
 
     /// Sets the target utilization.
     pub fn with_target_utilization(mut self, util: f64) -> Self {
-        self.target_utilization = Some(util.clamp(0.0, 1.0));
+        self.target_utilization = Some(util);
         self
     }
 
@@ -283,4 +302,24 @@ pub trait Solver {
 
     /// Cancels an ongoing solve operation.
     fn cancel(&self);
+}
+
+#[cfg(test)]
+mod config_tests {
+    use super::Config;
+
+    #[test]
+    fn a_target_utilization_above_one_is_refused_not_clamped() {
+        let config = Config::default().with_target_utilization(1.5);
+        assert_eq!(config.target_utilization, Some(1.5), "stored as given");
+        let err = config.validate().expect_err("1.5 is not a utilization");
+        assert!(err.to_string().contains("target_utilization"), "{err}");
+        assert!(Config::default()
+            .with_target_utilization(0.9)
+            .validate()
+            .is_ok());
+        let mut nan_rate = Config::default();
+        nan_rate.mutation_rate = f64::NAN;
+        assert!(nan_rate.validate().is_err());
+    }
 }

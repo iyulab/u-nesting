@@ -109,8 +109,21 @@ impl ExactConfig {
 
     /// Set MIP gap tolerance.
     pub fn with_gap_tolerance(mut self, gap: f64) -> Self {
-        self.gap_tolerance = gap.clamp(0.0, 1.0);
+        self.gap_tolerance = gap;
         self
+    }
+
+    /// Checks every field against its range; the builders store what they are
+    /// given.
+    ///
+    /// # Errors
+    /// `ConfigError` for a `gap_tolerance` outside `[0, 1]` or a `grid_step`
+    /// that is not finite and positive.
+    pub fn validate(&self) -> crate::error::Result<()> {
+        use crate::error::{check_at_least, check_range};
+        check_range("gap_tolerance", self.gap_tolerance, 0.0, 1.0)?;
+        check_at_least("grid_step", self.grid_step, f64::MIN_POSITIVE)?;
+        Ok(())
     }
 
     /// Set maximum number of items for exact solving.

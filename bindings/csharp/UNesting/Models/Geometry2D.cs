@@ -26,7 +26,8 @@ public class Geometry2D
     public int Quantity { get; set; } = 1;
 
     /// <summary>
-    /// Allowed rotation angles in degrees.
+    /// Allowed rotation angles in degrees: at least one. Leave it <c>null</c> for a
+    /// fixed orientation; an empty array is refused.
     /// </summary>
     [JsonPropertyName("rotations")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
