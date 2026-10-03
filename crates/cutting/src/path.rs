@@ -50,24 +50,25 @@ use crate::sequence::optimize_sequence_with_adjacency;
 /// let solve_result = nester.solve(&geometries, &boundary).unwrap();
 ///
 /// let cutting_config = CuttingConfig::default();
-/// let path = optimize_cutting_path(&solve_result, &geometries, &cutting_config);
+/// let path = optimize_cutting_path(&solve_result, &geometries, &cutting_config).unwrap();
 /// println!("Rapid distance: {}", path.total_rapid_distance);
 /// ```
 pub fn optimize_cutting_path<G>(
     solve_result: &SolveResult<f64>,
     geometries: &[G],
     config: &CuttingConfig,
-) -> CuttingPathResult
+) -> Result<CuttingPathResult, String>
 where
     G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>,
 {
     let start = Timer::now();
 
     // Step 1: Extract contours
-    let raw_contours = extract_contours(solve_result, geometries);
+    config.validate()?;
+    let raw_contours = extract_contours(solve_result, geometries)?;
 
     if raw_contours.is_empty() {
-        return CuttingPathResult::new();
+        return Ok(CuttingPathResult::new());
     }
 
     // Step 1.5: Apply kerf compensation (if kerf_width > 0)
@@ -79,7 +80,7 @@ where
     };
 
     if contours.is_empty() {
-        return CuttingPathResult::new();
+        return Ok(CuttingPathResult::new());
     }
 
     // Step 2: Detect common edges (used for sequence adjacency bonus)
@@ -168,7 +169,7 @@ where
         result.estimated_time_seconds = Some(rapid_time + cut_time);
     }
 
-    result
+    Ok(result)
 }
 
 #[cfg(test)]
@@ -181,7 +182,7 @@ mod tests {
         let geometries: Vec<DummyGeom> = Vec::new();
         let config = CuttingConfig::default();
 
-        let result = optimize_cutting_path(&solve_result, &geometries, &config);
+        let result = optimize_cutting_path(&solve_result, &geometries, &config).expect("valid");
         assert!(result.sequence.is_empty());
         assert_eq!(result.total_pierces, 0);
     }

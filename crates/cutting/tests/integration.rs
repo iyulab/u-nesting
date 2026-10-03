@@ -18,6 +18,7 @@ fn solve_and_cut(
         .solve(geometries, boundary)
         .expect("nesting should succeed");
     u_nesting_cutting::optimize_cutting_path(&solve_result, geometries, &cutting_config)
+        .expect("valid cutting request")
 }
 
 #[test]
@@ -228,7 +229,8 @@ fn test_optimize_cutting_path_is_time_bounded_end_to_end() {
     let cutting_config = CuttingConfig::default().with_time_limit_ms(200);
     let t = std::time::Instant::now();
     let result =
-        u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config);
+        u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config)
+            .expect("valid cutting request");
     let elapsed = t.elapsed();
 
     // Early termination must still yield a valid, complete sequence.

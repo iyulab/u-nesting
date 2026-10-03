@@ -24,7 +24,7 @@ use u_nesting_core::gdrr::GdrrConfig;
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
-use u_nesting_core::{Placement, Result, SolveResult};
+use u_nesting_core::{Error, Placement, Result, SolveResult};
 
 use crate::placement_utils::{hole_nfps, inset_boundary, offset_nfp};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -166,6 +166,39 @@ struct BlfCandidate {
 }
 
 impl Nester2D {
+    /// Runs the configured strategy. A strategy 2D nesting does not provide
+    /// (`ExtremePoint` is 3D only; the exact solvers need the `milp` feature)
+    /// is refused rather than replaced by another.
+    fn run_strategy(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+    ) -> Result<SolveResult<f64>> {
+        match self.config.strategy {
+            Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
+            Strategy::NfpGuided => self.nfp_guided_blf(geometries, boundary),
+            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
+            Strategy::Brkga => self.brkga(geometries, boundary),
+            Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
+            Strategy::Gdrr => self.gdrr(geometries, boundary),
+            Strategy::Alns => self.alns(geometries, boundary),
+            #[cfg(feature = "milp")]
+            Strategy::MilpExact => self.milp_exact(geometries, boundary),
+            #[cfg(feature = "milp")]
+            Strategy::HybridExact => self.hybrid_exact(geometries, boundary),
+            Strategy::ExtremePoint => Err(Error::ConfigError(
+                "strategy ExtremePoint is 3D only; 2D nesting offers BottomLeftFill, \
+                 NfpGuided, GeneticAlgorithm, Brkga, SimulatedAnnealing, Gdrr and Alns"
+                    .into(),
+            )),
+            #[cfg(not(feature = "milp"))]
+            Strategy::MilpExact | Strategy::HybridExact => Err(Error::ConfigError(format!(
+                "strategy {:?} needs the `milp` feature, which this build does not have",
+                self.config.strategy
+            ))),
+        }
+    }
+
     /// Creates a new nester with the given configuration.
     pub fn new(config: Config) -> Self {
         Self {
@@ -1301,24 +1334,7 @@ impl Nester2D {
             }
 
             // Solve on current strip
-            let strip_result = match self.config.strategy {
-                Strategy::BottomLeftFill => self.bottom_left_fill(&remaining_geometries, boundary),
-                Strategy::NfpGuided => self.nfp_guided_blf(&remaining_geometries, boundary),
-                Strategy::GeneticAlgorithm => {
-                    self.genetic_algorithm(&remaining_geometries, boundary)
-                }
-                Strategy::Brkga => self.brkga(&remaining_geometries, boundary),
-                Strategy::SimulatedAnnealing => {
-                    self.simulated_annealing(&remaining_geometries, boundary)
-                }
-                Strategy::Gdrr => self.gdrr(&remaining_geometries, boundary),
-                Strategy::Alns => self.alns(&remaining_geometries, boundary),
-                #[cfg(feature = "milp")]
-                Strategy::MilpExact => self.milp_exact(&remaining_geometries, boundary),
-                #[cfg(feature = "milp")]
-                Strategy::HybridExact => self.hybrid_exact(&remaining_geometries, boundary),
-                _ => self.nfp_guided_blf(&remaining_geometries, boundary),
-            }?;
+            let strip_result = self.run_strategy(&remaining_geometries, boundary)?;
 
             // Validate and filter out-of-bounds placements for this strip
             let strip_result = validate_and_filter_placements(
@@ -1468,27 +1484,7 @@ impl Solver for Nester2D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        let initial_result = match self.config.strategy {
-            Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
-            Strategy::NfpGuided => self.nfp_guided_blf(geometries, boundary),
-            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
-            Strategy::Brkga => self.brkga(geometries, boundary),
-            Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
-            Strategy::Gdrr => self.gdrr(geometries, boundary),
-            Strategy::Alns => self.alns(geometries, boundary),
-            #[cfg(feature = "milp")]
-            Strategy::MilpExact => self.milp_exact(geometries, boundary),
-            #[cfg(feature = "milp")]
-            Strategy::HybridExact => self.hybrid_exact(geometries, boundary),
-            _ => {
-                // Fall back to NFP-guided BLF for other strategies
-                log::warn!(
-                    "Strategy {:?} not yet implemented, using NfpGuided",
-                    self.config.strategy
-                );
-                self.nfp_guided_blf(geometries, boundary)
-            }
-        }?;
+        let initial_result = self.run_strategy(geometries, boundary)?;
 
         // Validate all placements and remove any that are outside the boundary
         let mut result = validate_and_filter_placements(
@@ -1561,14 +1557,10 @@ impl Solver for Nester2D {
                 // WASM/demo) route through here, so the guard must apply here too.
                 self.not_worse_than_baselines(ga_result, geometries, boundary, greedy)
             }
-            // For other strategies, use basic progress reporting
-            _ => {
-                log::warn!(
-                    "Strategy {:?} not yet implemented, using NfpGuided",
-                    self.config.strategy
-                );
-                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)?
-            }
+            // The other strategies have no progress reporting yet: run the
+            // strategy that was asked for, without progress, rather than a
+            // different one that reports it.
+            _ => self.run_strategy(geometries, boundary)?,
         };
 
         // Validate all placements and remove any that are outside the boundary

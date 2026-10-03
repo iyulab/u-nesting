@@ -10,7 +10,7 @@ use std::os::raw::{c_char, c_void};
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver, Strategy};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
-use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
+use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
 
 /// Error codes.
 pub const UNESTING_OK: i32 = 0;
@@ -145,18 +145,30 @@ pub unsafe extern "C" fn unesting_solve(
         Err(_) => return UNESTING_ERR_INVALID_JSON,
     };
 
-    let mode = value.get("mode").and_then(|m| m.as_str()).unwrap_or("2d");
+    // "2d" when absent; anything else but "3d" is refused -- a misspelt
+    // mode used to run the 2D solver and report a 2D schema error.
+    let mode: Result<&str, String> = match value.get("mode") {
+        None => Ok("2d"),
+        Some(m) => match m.as_str() {
+            Some(m @ ("2d" | "3d")) => Ok(m),
+            _ => Err(format!("unknown mode {m}; expected \"2d\" or \"3d\"")),
+        },
+    };
 
     // 2D and 3D use distinct wire-response types (SolveResponse / Pack3DResponse),
     // so serialize within each arm rather than over a unified value.
     let (response_json, success) = match mode {
-        "3d" => {
+        Ok("3d") => {
             let r = guard_panic(|| solve_3d_internal(json_str), Pack3DResponse::error);
             (serde_json::to_string(&r), r.success)
         }
-        _ => {
+        Ok(_) => {
             let r = guard_panic(|| solve_2d_internal(json_str), SolveResponse::error);
             (serde_json::to_string(&r), r.success)
+        }
+        Err(message) => {
+            let r = SolveResponse::error(message);
+            (serde_json::to_string(&r), false)
         }
     };
 
@@ -351,25 +363,37 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
         Err(_) => return UNESTING_ERR_INVALID_JSON,
     };
 
-    let mode = value.get("mode").and_then(|m| m.as_str()).unwrap_or("2d");
+    // "2d" when absent; anything else but "3d" is refused -- a misspelt
+    // mode used to run the 2D solver and report a 2D schema error.
+    let mode: Result<&str, String> = match value.get("mode") {
+        None => Ok("2d"),
+        Some(m) => match m.as_str() {
+            Some(m @ ("2d" | "3d")) => Ok(m),
+            _ => Err(format!("unknown mode {m}; expected \"2d\" or \"3d\"")),
+        },
+    };
     let callback_wrapper = CallbackWrapper::new(callback, user_data);
 
     // 2D and 3D use distinct wire-response types (SolveResponse / Pack3DResponse),
     // so serialize within each arm rather than over a unified value.
     let (response_json, success) = match mode {
-        "3d" => {
+        Ok("3d") => {
             let r = guard_panic(
                 || solve_3d_with_callback(json_str, &callback_wrapper),
                 Pack3DResponse::error,
             );
             (serde_json::to_string(&r), r.success)
         }
-        _ => {
+        Ok(_) => {
             let r = guard_panic(
                 || solve_2d_with_callback(json_str, &callback_wrapper),
                 SolveResponse::error,
             );
             (serde_json::to_string(&r), r.success)
+        }
+        Err(message) => {
+            let r = SolveResponse::error(message);
+            (serde_json::to_string(&r), false)
         }
     };
 
@@ -451,13 +475,21 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         .collect();
 
     // Convert boundary
-    let boundary = if let (Some(w), Some(h)) = (request.boundary.width, request.boundary.height) {
-        Boundary2D::rectangle(w, h)
-    } else if let Some(polygon) = request.boundary.polygon {
-        let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-        Boundary2D::new(vertices)
-    } else {
-        return SolveResponse::error("Invalid boundary: specify width/height or polygon");
+    // Exactly one shape: width and height together, or a polygon. Given
+    // both, or half of the rectangle, part of the request used to be dropped.
+    let boundary = match (
+        request.boundary.width,
+        request.boundary.height,
+        request.boundary.polygon,
+    ) {
+        (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
+        (None, None, Some(polygon)) => {
+            let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
+            Boundary2D::new(vertices)
+        }
+        _ => return SolveResponse::error(
+            "Invalid boundary: give either width and height, or polygon -- not both, not one half",
+        ),
     };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -500,7 +532,7 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     };
 
     // Convert geometries
-    let geometries: Vec<Geometry3D> = request
+    let geometries: Result<Vec<Geometry3D>, String> = request
         .geometries
         .into_iter()
         .map(|g| {
@@ -510,10 +542,20 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
             if let Some(mass) = g.mass {
                 geom = geom.with_mass(mass);
             }
+            if let Some(name) = g.orientation {
+                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
+                    format!("unknown orientation '{name}'; expected any, upright or fixed")
+                })?;
+                geom = geom.with_orientation(constraint);
+            }
 
-            geom
+            Ok(geom)
         })
-        .collect();
+        .collect::<Result<_, String>>();
+    let geometries = match geometries {
+        Ok(g) => g,
+        Err(e) => return Pack3DResponse::error(e),
+    };
 
     // Convert boundary
     let mut boundary = Boundary3D::new(
@@ -655,13 +697,21 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         .collect();
 
     // Convert boundary
-    let boundary = if let (Some(w), Some(h)) = (request.boundary.width, request.boundary.height) {
-        Boundary2D::rectangle(w, h)
-    } else if let Some(polygon) = request.boundary.polygon {
-        let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-        Boundary2D::new(vertices)
-    } else {
-        return SolveResponse::error("Invalid boundary: specify width/height or polygon");
+    // Exactly one shape: width and height together, or a polygon. Given
+    // both, or half of the rectangle, part of the request used to be dropped.
+    let boundary = match (
+        request.boundary.width,
+        request.boundary.height,
+        request.boundary.polygon,
+    ) {
+        (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
+        (None, None, Some(polygon)) => {
+            let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
+            Boundary2D::new(vertices)
+        }
+        _ => return SolveResponse::error(
+            "Invalid boundary: give either width and height, or polygon -- not both, not one half",
+        ),
     };
 
     // Send progress before solving
@@ -751,7 +801,7 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
     }
 
     // Convert geometries
-    let geometries: Vec<Geometry3D> = request
+    let geometries: Result<Vec<Geometry3D>, String> = request
         .geometries
         .into_iter()
         .map(|g| {
@@ -761,10 +811,20 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
             if let Some(mass) = g.mass {
                 geom = geom.with_mass(mass);
             }
+            if let Some(name) = g.orientation {
+                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
+                    format!("unknown orientation '{name}'; expected any, upright or fixed")
+                })?;
+                geom = geom.with_orientation(constraint);
+            }
 
-            geom
+            Ok(geom)
         })
-        .collect();
+        .collect::<Result<_, String>>();
+    let geometries = match geometries {
+        Ok(g) => g,
+        Err(e) => return Pack3DResponse::error(e),
+    };
 
     // Convert boundary
     let mut boundary = Boundary3D::new(
@@ -948,11 +1008,18 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     solve_result.utilization = request.solve_result.utilization;
 
     // Build cutting config
-    let cutting_config = build_cutting_config(request.cutting_config);
+    let cutting_config = match build_cutting_config(request.cutting_config) {
+        Ok(c) => c,
+        Err(e) => return CuttingResponse::error(e),
+    };
 
     // Run cutting path optimization
     let result =
-        u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config);
+        match u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config)
+        {
+            Ok(r) => r,
+            Err(e) => return CuttingResponse::error(e),
+        };
 
     // Convert result to response
     let sequence: Vec<CutStepResponse> = result
@@ -991,7 +1058,9 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     }
 }
 
-fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutting::CuttingConfig {
+fn build_cutting_config(
+    request: Option<CuttingConfigRequest>,
+) -> Result<u_nesting_cutting::CuttingConfig, String> {
     let mut config = u_nesting_cutting::CuttingConfig::default();
 
     if let Some(req) = request {
@@ -1014,31 +1083,32 @@ fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutt
             config.cut_speed = speed;
         }
         if let Some(ref dir) = req.exterior_direction {
-            config.exterior_direction = parse_direction(dir);
+            config.exterior_direction = parse_direction("exterior_direction", dir)?;
         }
         if let Some(ref dir) = req.interior_direction {
-            config.interior_direction = parse_direction(dir);
+            config.interior_direction = parse_direction("interior_direction", dir)?;
         }
         if let Some(home) = req.home_position {
             config.home_position = (home[0], home[1]);
         }
         if let Some(candidates) = req.pierce_candidates {
-            config.pierce_candidates = candidates.max(1);
+            config.pierce_candidates = candidates;
         }
         if let Some(tol) = req.tolerance {
             config.tolerance = tol;
         }
     }
 
-    config
+    config.validate()?;
+    Ok(config)
 }
 
-fn parse_direction(s: &str) -> u_nesting_cutting::config::CutDirectionPreference {
-    match s.to_lowercase().as_str() {
-        "ccw" => u_nesting_cutting::config::CutDirectionPreference::Ccw,
-        "cw" => u_nesting_cutting::config::CutDirectionPreference::Cw,
-        _ => u_nesting_cutting::config::CutDirectionPreference::Auto,
-    }
+fn parse_direction(
+    parameter: &str,
+    name: &str,
+) -> Result<u_nesting_cutting::config::CutDirectionPreference, String> {
+    u_nesting_cutting::config::CutDirectionPreference::parse(name)
+        .ok_or_else(|| format!("unknown {parameter} '{name}'; expected ccw, cw or auto"))
 }
 
 #[cfg(test)]
@@ -1513,6 +1583,53 @@ mod tests {
         let response = solve_3d_internal(json);
         assert!(response.success);
         assert_eq!(response.placements.len(), 1);
+    }
+
+    /// What the solver used to adjust or drop is refused: an unknown or
+    /// mistyped orientation, an ambiguous 2D boundary, and a strategy the
+    /// dimension does not provide (it used to run a different one).
+    #[test]
+    fn requests_are_read_as_given() {
+        let box3 = |orientation: &str| {
+            format!(
+                r#"{{"geometries": [{{"id": "b", "dimensions": [30, 10, 5], "quantity": 1, "orientation": "{orientation}"}}],
+                    "boundary": {{"dimensions": [12, 32, 40]}}}}"#
+            )
+        };
+        let r = solve_3d_internal(&box3("sideways"));
+        assert!(!r.success);
+        assert!(r
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("unknown orientation 'sideways'"));
+        // "fixed" keeps 30 along x, which does not fit 12 wide; "any" may turn it.
+        // ("fixed" also guards the layer packer: it used to place the box
+        // hanging 18 units out of the container.)
+        assert_eq!(solve_3d_internal(&box3("fixed")).placements.len(), 0);
+        assert_eq!(solve_3d_internal(&box3("any")).placements.len(), 1);
+
+        let both = r#"{"geometries": [{"id": "r", "polygon": [[0,0],[1,0],[1,1],[0,1]]}],
+            "boundary": {"width": 10, "height": 10, "polygon": [[0,0],[5,0],[5,5],[0,5]]}}"#;
+        let r = solve_2d_internal(both);
+        assert!(!r.success);
+        assert!(r.error.as_deref().unwrap_or("").contains("not both"));
+
+        let ep_2d = r#"{"geometries": [{"id": "r", "polygon": [[0,0],[1,0],[1,1],[0,1]]}],
+            "boundary": {"width": 10, "height": 10}, "config": {"strategy": "ep"}}"#;
+        let r = solve_2d_internal(ep_2d);
+        assert!(!r.success);
+        assert!(r.error.as_deref().unwrap_or("").contains("3D only"));
+
+        let nfp_3d = r#"{"geometries": [{"id": "b", "dimensions": [1, 1, 1]}],
+            "boundary": {"dimensions": [5, 5, 5]}, "config": {"strategy": "nfp"}}"#;
+        let r = solve_3d_internal(nfp_3d);
+        assert!(!r.success);
+        assert!(r
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("not available for 3D"));
     }
 
     #[test]
@@ -1999,7 +2116,8 @@ mod tests {
             home_position: Some([10.0, 10.0]),
             pierce_candidates: Some(4),
             tolerance: Some(0.001),
-        }));
+        }))
+        .expect("valid cutting config");
 
         assert_eq!(config.kerf_width, 0.5);
         assert_eq!(config.pierce_weight, 20.0);
@@ -2010,6 +2128,52 @@ mod tests {
         assert_eq!(config.home_position, (10.0, 10.0));
         assert_eq!(config.pierce_candidates, 4);
         assert_eq!(config.tolerance, 0.001);
+    }
+
+    /// A setting the optimizer would reinterpret is refused, not adjusted.
+    #[test]
+    fn cutting_config_refuses_what_it_used_to_adjust() {
+        let req = |f: &dyn Fn(&mut CuttingConfigRequest)| {
+            let mut r = CuttingConfigRequest {
+                kerf_width: None,
+                pierce_weight: None,
+                max_2opt_iterations: None,
+                time_limit_ms: None,
+                rapid_speed: None,
+                cut_speed: None,
+                exterior_direction: None,
+                interior_direction: None,
+                home_position: None,
+                pierce_candidates: None,
+                tolerance: None,
+            };
+            f(&mut r);
+            build_cutting_config(Some(r))
+        };
+        let err = req(&|r| r.pierce_candidates = Some(0)).expect_err("0 candidates");
+        assert!(err.contains("pierce_candidates"), "{err}");
+        let err = req(&|r| r.exterior_direction = Some("clockwise".into())).expect_err("typo");
+        assert!(err.contains("exterior_direction 'clockwise'"), "{err}");
+        let err = req(&|r| r.kerf_width = Some(-0.2)).expect_err("negative kerf");
+        assert!(err.contains("kerf_width"), "{err}");
+        assert!(req(&|r| r.interior_direction = Some("AUTO".into())).is_ok());
+    }
+
+    /// A mode other than "2d" or "3d" is refused instead of running 2D.
+    #[test]
+    fn an_unknown_mode_is_refused() {
+        for mode in ["\"3D\"", "\"xyz\"", "3"] {
+            let json = format!(r#"{{"mode": {mode}, "geometries": [], "boundary": {{}}}}"#);
+            let input = CString::new(json).unwrap();
+            let mut out: *mut c_char = std::ptr::null_mut();
+            let code = unsafe { unesting_solve(input.as_ptr(), &mut out) };
+            assert_eq!(code, UNESTING_ERR_SOLVE_FAILED, "{mode}");
+            let body = unsafe { CStr::from_ptr(out) }
+                .to_string_lossy()
+                .into_owned();
+            unsafe { unesting_free_string(out) };
+            assert!(body.contains("unknown mode"), "{body}");
+        }
     }
 
     // --- FFI JSON schema regression guards (Cycle 114) ---

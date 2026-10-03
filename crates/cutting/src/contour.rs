@@ -54,19 +54,28 @@ pub struct CutContour {
 ///
 /// A vector of `CutContour` with unique IDs, in order:
 /// exterior and holes for each placed instance.
+///
+/// # Errors
+/// A placement whose `geometry_id` names no geometry is refused: dropping it
+/// would leave a placed part out of the cut plan without a word.
 pub fn extract_contours<G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>>(
     solve_result: &SolveResult<f64>,
     geometries: &[G],
-) -> Vec<CutContour> {
+) -> Result<Vec<CutContour>, String> {
     let mut contours = Vec::new();
     let mut next_id: ContourId = 0;
 
     for placement in &solve_result.placements {
         // Find matching geometry
-        let geom = match geometries.iter().find(|g| *g.id() == placement.geometry_id) {
-            Some(g) => g,
-            None => continue,
-        };
+        let geom = geometries
+            .iter()
+            .find(|g| *g.id() == placement.geometry_id)
+            .ok_or_else(|| {
+                format!(
+                    "placement of '{}' (instance {}) names no geometry in the request",
+                    placement.geometry_id, placement.instance
+                )
+            })?;
 
         // Build transform from placement
         let transform = placement.to_transform_2d();
@@ -108,7 +117,7 @@ pub fn extract_contours<G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>>
         }
     }
 
-    contours
+    Ok(contours)
 }
 
 #[cfg(test)]

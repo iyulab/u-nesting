@@ -20,6 +20,19 @@ pub enum OrientationConstraint {
     Fixed,
 }
 
+impl OrientationConstraint {
+    /// Parses `"any"`, `"upright"` or `"fixed"` (case-insensitive); `None`
+    /// for any other name, so a misspelling is refused rather than ignored.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_lowercase().as_str() {
+            "any" => Some(Self::Any),
+            "upright" => Some(Self::Upright),
+            "fixed" => Some(Self::Fixed),
+            _ => None,
+        }
+    }
+}
+
 /// A 3D box geometry that can be packed.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]

@@ -16,7 +16,7 @@ use u_nesting_core::api_types::*;
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver, Strategy};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
-use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
+use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
 use wasm_bindgen::prelude::*;
 
 /// Solves a 2D nesting problem from a JSON request string.
@@ -151,13 +151,21 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         .collect();
 
     // Convert boundary
-    let boundary = if let (Some(w), Some(h)) = (request.boundary.width, request.boundary.height) {
-        Boundary2D::rectangle(w, h)
-    } else if let Some(polygon) = request.boundary.polygon {
-        let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-        Boundary2D::new(vertices)
-    } else {
-        return SolveResponse::error("Invalid boundary: specify width/height or polygon");
+    // Exactly one shape: width and height together, or a polygon. Given
+    // both, or half of the rectangle, part of the request used to be dropped.
+    let boundary = match (
+        request.boundary.width,
+        request.boundary.height,
+        request.boundary.polygon,
+    ) {
+        (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
+        (None, None, Some(polygon)) => {
+            let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
+            Boundary2D::new(vertices)
+        }
+        _ => return SolveResponse::error(
+            "Invalid boundary: give either width and height, or polygon -- not both, not one half",
+        ),
     };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -214,7 +222,7 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     }
 
     // Convert geometries
-    let geometries: Vec<Geometry3D> = request
+    let geometries: Result<Vec<Geometry3D>, String> = request
         .geometries
         .into_iter()
         .map(|g| {
@@ -224,10 +232,20 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
             if let Some(mass) = g.mass {
                 geom = geom.with_mass(mass);
             }
+            if let Some(name) = g.orientation {
+                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
+                    format!("unknown orientation '{name}'; expected any, upright or fixed")
+                })?;
+                geom = geom.with_orientation(constraint);
+            }
 
-            geom
+            Ok(geom)
         })
-        .collect();
+        .collect::<Result<_, String>>();
+    let geometries = match geometries {
+        Ok(g) => g,
+        Err(e) => return Pack3DResponse::error(e),
+    };
 
     // Convert boundary
     let mut boundary = Boundary3D::new(
@@ -309,11 +327,18 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     solve_result.utilization = request.solve_result.utilization;
 
     // Build cutting config
-    let cutting_config = build_cutting_config(request.cutting_config);
+    let cutting_config = match build_cutting_config(request.cutting_config) {
+        Ok(c) => c,
+        Err(e) => return CuttingResponse::error(e),
+    };
 
     // Run cutting path optimization
     let result =
-        u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config);
+        match u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config)
+        {
+            Ok(r) => r,
+            Err(e) => return CuttingResponse::error(e),
+        };
 
     // Convert result to response
     let sequence: Vec<CutStepResponse> = result
@@ -408,7 +433,9 @@ fn build_config(request: Option<ConfigRequest>) -> Result<Config, String> {
     Ok(config)
 }
 
-fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutting::CuttingConfig {
+fn build_cutting_config(
+    request: Option<CuttingConfigRequest>,
+) -> Result<u_nesting_cutting::CuttingConfig, String> {
     let mut config = u_nesting_cutting::CuttingConfig::default();
 
     if let Some(req) = request {
@@ -431,29 +458,30 @@ fn build_cutting_config(request: Option<CuttingConfigRequest>) -> u_nesting_cutt
             config.cut_speed = speed;
         }
         if let Some(ref dir) = req.exterior_direction {
-            config.exterior_direction = parse_direction(dir);
+            config.exterior_direction = parse_direction("exterior_direction", dir)?;
         }
         if let Some(ref dir) = req.interior_direction {
-            config.interior_direction = parse_direction(dir);
+            config.interior_direction = parse_direction("interior_direction", dir)?;
         }
         if let Some(home) = req.home_position {
             config.home_position = (home[0], home[1]);
         }
         if let Some(candidates) = req.pierce_candidates {
-            config.pierce_candidates = candidates.max(1);
+            config.pierce_candidates = candidates;
         }
         if let Some(tol) = req.tolerance {
             config.tolerance = tol;
         }
     }
 
-    config
+    config.validate()?;
+    Ok(config)
 }
 
-fn parse_direction(s: &str) -> u_nesting_cutting::config::CutDirectionPreference {
-    match s.to_lowercase().as_str() {
-        "ccw" => u_nesting_cutting::config::CutDirectionPreference::Ccw,
-        "cw" => u_nesting_cutting::config::CutDirectionPreference::Cw,
-        _ => u_nesting_cutting::config::CutDirectionPreference::Auto,
-    }
+fn parse_direction(
+    parameter: &str,
+    name: &str,
+) -> Result<u_nesting_cutting::config::CutDirectionPreference, String> {
+    u_nesting_cutting::config::CutDirectionPreference::parse(name)
+        .ok_or_else(|| format!("unknown {parameter} '{name}'; expected ccw, cw or auto"))
 }

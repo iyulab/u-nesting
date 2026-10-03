@@ -85,7 +85,7 @@ pub mod stability;
 
 // Re-exports
 pub use boundary::Boundary3D;
-pub use geometry::Geometry3D;
+pub use geometry::{Geometry3D, OrientationConstraint};
 pub use packer::Packer3D;
 pub use physics::{PhysicsConfig, PhysicsResult, PhysicsSimulator};
 pub use spatial_index::{Aabb3D, SpatialEntry3D, SpatialIndex3D};

@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **Breaking:** a strategy the dimension does not provide is refused
+  (`ConfigError`) instead of running another one with only a log warning:
+  2D `ExtremePoint` (3D only), `MilpExact`/`HybridExact` without the `milp`
+  feature (including the `exact` alias in WebAssembly), and 3D `NfpGuided`,
+  `Gdrr`, `Alns`, `MilpExact`, `HybridExact`. With a progress callback, a
+  strategy that has no progress reporting yet runs itself without progress;
+  it used to be replaced by NFP-guided BLF (2D) or layer packing (3D).
+- The 3D layer packer no longer places a box that is wider or deeper than the
+  container: it only checked the height, so such a box was reported placed,
+  hanging out of the container.
+- 3D requests apply a geometry's `orientation` (`any`, `upright`, `fixed`);
+  the field was accepted and ignored. An unknown name is refused.
+- A 2D boundary gives either `width` and `height` or `polygon`; both, or half
+  of the rectangle, are refused (part of the request used to be dropped).
+- **Breaking:** `optimize_cutting_path` returns `Result`: a placement whose
+  geometry is missing from the request is refused (it was left out of the
+  cut plan with `success: true`), and so is a `CuttingConfig` with a negative
+  or non-finite `kerf_width` (a negative one turned compensation off) or
+  `pierce_candidates` 0 (it became 1). `CuttingConfig::validate` and
+  `CutDirectionPreference::parse` are public; a misspelt
+  `exterior_direction`/`interior_direction` is refused instead of read as
+  `auto`.
+- C FFI `unesting_solve`/`unesting_solve_with_callback` refuse a `mode` other
+  than `"2d"` or `"3d"`; a misspelt one ran the 2D solver.
+
 ## [0.14.0] - 2026-09-30
 
 ### Changed

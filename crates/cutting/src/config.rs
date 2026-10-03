@@ -84,6 +84,19 @@ pub enum CutDirectionPreference {
     Auto,
 }
 
+impl CutDirectionPreference {
+    /// Parses `"ccw"`, `"cw"` or `"auto"` (case-insensitive); `None` for any
+    /// other name, so a misspelling is refused rather than read as `Auto`.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name.trim().to_lowercase().as_str() {
+            "ccw" => Some(Self::Ccw),
+            "cw" => Some(Self::Cw),
+            "auto" => Some(Self::Auto),
+            _ => None,
+        }
+    }
+}
+
 impl Default for CuttingConfig {
     fn default() -> Self {
         Self {
@@ -109,6 +122,22 @@ impl CuttingConfig {
     /// Creates a new default configuration.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Refuses a configuration the optimizer would otherwise reinterpret: a
+    /// kerf width that is negative or not finite (a negative one used to turn
+    /// compensation off) and fewer than one pierce candidate.
+    pub fn validate(&self) -> Result<(), String> {
+        if !(self.kerf_width.is_finite() && self.kerf_width >= 0.0) {
+            return Err(format!(
+                "kerf_width must be finite and >= 0 (0 disables compensation), got {}",
+                self.kerf_width
+            ));
+        }
+        if self.pierce_candidates == 0 {
+            return Err("pierce_candidates must be at least 1".into());
+        }
+        Ok(())
     }
 
     /// Sets the kerf width.

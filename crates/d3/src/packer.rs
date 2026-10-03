@@ -14,7 +14,7 @@ use u_nesting_core::geom::nalgebra_types::{NaPoint3 as Point3, NaVector3 as Vect
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
-use u_nesting_core::{Placement, Result, SolveResult};
+use u_nesting_core::{Error, Placement, Result, SolveResult};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -31,6 +31,26 @@ pub struct Packer3D {
 }
 
 impl Packer3D {
+    /// Runs the configured strategy. A strategy 3D packing does not provide is
+    /// refused rather than replaced by layer packing.
+    fn run_strategy(
+        &self,
+        geometries: &[Geometry3D],
+        boundary: &Boundary3D,
+    ) -> Result<SolveResult<f64>> {
+        match self.config.strategy {
+            Strategy::BottomLeftFill => self.layer_packing(geometries, boundary),
+            Strategy::ExtremePoint => self.extreme_point(geometries, boundary),
+            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
+            Strategy::Brkga => self.brkga(geometries, boundary),
+            Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
+            other => Err(Error::ConfigError(format!(
+                "strategy {other:?} is not available for 3D packing; it offers \
+                 BottomLeftFill, ExtremePoint, GeneticAlgorithm, Brkga and SimulatedAnnealing"
+            ))),
+        }
+    }
+
     /// Creates a new packer with the given configuration.
     pub fn new(config: Config) -> Self {
         Self {
@@ -261,8 +281,14 @@ impl Packer3D {
                         try_layer_height = 0.0;
                     }
 
-                    // Check if fits in container
-                    if try_z + g_height > bound_max_z {
+                    // Check if fits in container. A fresh row or layer starts at
+                    // the margin, so an orientation wider or deeper than the
+                    // container never fits; without the x/y checks it was placed
+                    // hanging out of the container.
+                    if try_x + g_width > bound_max_x
+                        || try_y + g_depth > bound_max_y
+                        || try_z + g_height > bound_max_z
+                    {
                         continue; // This orientation doesn't fit
                     }
 
@@ -594,7 +620,10 @@ impl Packer3D {
                         try_layer_height = 0.0;
                     }
 
-                    if try_z + g_height > bound_max_z {
+                    if try_x + g_width > bound_max_x
+                        || try_y + g_depth > bound_max_y
+                        || try_z + g_height > bound_max_z
+                    {
                         continue;
                     }
 
@@ -709,21 +738,7 @@ impl Solver for Packer3D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        let mut result = match self.config.strategy {
-            Strategy::BottomLeftFill => self.layer_packing(geometries, boundary),
-            Strategy::ExtremePoint => self.extreme_point(geometries, boundary),
-            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
-            Strategy::Brkga => self.brkga(geometries, boundary),
-            Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
-            _ => {
-                // Fall back to layer packing for unimplemented strategies
-                log::warn!(
-                    "Strategy {:?} not yet implemented, using layer packing",
-                    self.config.strategy
-                );
-                self.layer_packing(geometries, boundary)
-            }
-        }?;
+        let mut result = self.run_strategy(geometries, boundary)?;
 
         // Remove duplicate entries from unplaced list
         result.deduplicate_unplaced();
@@ -757,14 +772,10 @@ impl Solver for Packer3D {
             // EP is a fast single pass; run the real heuristic (not layer packing) and
             // skip incremental progress rather than silently substituting BLF.
             Strategy::ExtremePoint => self.extreme_point(geometries, boundary)?,
-            // Other strategies fall back to basic progress reporting
-            _ => {
-                log::warn!(
-                    "Strategy {:?} progress not yet implemented, using layer packing",
-                    self.config.strategy
-                );
-                self.layer_packing_with_progress(geometries, boundary, &callback)?
-            }
+            // The other strategies have no progress reporting yet: run the
+            // strategy that was asked for, without progress, rather than a
+            // different one that reports it.
+            _ => self.run_strategy(geometries, boundary)?,
         };
 
         // Remove duplicate entries from unplaced list
