@@ -18,8 +18,8 @@ rand.workspace = true
 # Wall-clock timing that works on both native (re-exports std::time) and wasm
 # (performance.now()). Restores time_limit_ms termination on wasm.
 web-time = "1"
-u-metaheur = "0.5"
-u-geometry = "0.3"
+u-metaheur = "0.6"
+u-geometry = "0.4"
 [dev-dependencies]
 serde_json = "1.0"
 approx.workspace = true

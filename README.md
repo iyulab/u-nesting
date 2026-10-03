@@ -87,8 +87,8 @@ Optimization results using different algorithms on the same dataset (50 pieces, 
 
 ```toml
 [dependencies]
-u-nesting = "0.14"                             # 2D only (default)
-u-nesting = { version = "0.14", features = ["3d"] } # 2D + 3D
+u-nesting = "0.15"                             # 2D only (default)
+u-nesting = { version = "0.15", features = ["3d"] } # 2D + 3D
 ```
 
 ### From GitHub
