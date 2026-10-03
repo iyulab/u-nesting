@@ -54,9 +54,12 @@ jobs:
             if [ "$HTTP" = "200" ]; then
               echo "should_publish=false" >> "$GITHUB_OUTPUT"
               echo "UNesting ${VERSION} already on nuget.org — skipping"
-            else
+            elif [ "$HTTP" = "404" ]; then
               echo "should_publish=true" >> "$GITHUB_OUTPUT"
               echo "UNesting ${VERSION} not on nuget.org (HTTP ${HTTP}) — will publish"
+            else
+              echo "::error::the registry answered HTTP ${HTTP}, so it is unknown whether this version is published; re-run once the registry responds"
+              exit 1
             fi
           fi
 

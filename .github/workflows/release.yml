@@ -48,9 +48,12 @@ jobs:
           if [ "$HTTP" = "200" ]; then
             echo "changed=false" >> $GITHUB_OUTPUT
             echo "u-nesting ${VERSION} already on crates.io — skipping"
-          else
+          elif [ "$HTTP" = "404" ]; then
             echo "changed=true" >> $GITHUB_OUTPUT
             echo "u-nesting ${VERSION} not on crates.io (HTTP ${HTTP}) — will publish"
+          else
+            echo "::error::the registry answered HTTP ${HTTP}, so it is unknown whether this version is published; re-run once the registry responds"
+            exit 1
           fi
 
   # Publish to crates.io
