@@ -44,16 +44,13 @@ jobs:
         id: check
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
-          PUBLISHED=$(curl -sf "https://crates.io/api/v1/crates/u-nesting/versions" \
-            -H "User-Agent: u-nesting-ci/1.0" \
-            | python3 -c "import sys,json; vs=[v['num'] for v in json.load(sys.stdin).get('versions',[])]; print('true' if '${VERSION}' in vs else 'false')" \
-            2>/dev/null || echo "false")
-          if [ "$PUBLISHED" = "false" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "Version ${VERSION} not yet on crates.io — will publish"
-          else
+          HTTP=$(curl -s -o /dev/null -w '%{http_code}' -H "User-Agent: u-nesting-ci/1.0" "https://crates.io/api/v1/crates/u-nesting/${VERSION}")
+          if [ "$HTTP" = "200" ]; then
             echo "changed=false" >> $GITHUB_OUTPUT
-            echo "Version ${VERSION} already on crates.io — skipping"
+            echo "u-nesting ${VERSION} already on crates.io — skipping"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "u-nesting ${VERSION} not on crates.io (HTTP ${HTTP}) — will publish"
           fi
 
   # Publish to crates.io
