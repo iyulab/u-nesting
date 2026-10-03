@@ -318,8 +318,10 @@ mod config_tests {
             .with_target_utilization(0.9)
             .validate()
             .is_ok());
-        let mut nan_rate = Config::default();
-        nan_rate.mutation_rate = f64::NAN;
+        let nan_rate = Config {
+            mutation_rate: f64::NAN,
+            ..Config::default()
+        };
         assert!(nan_rate.validate().is_err());
     }
 }
