@@ -99,6 +99,7 @@ impl CuttingPathResult {
     }
 }
 
+#[cfg(feature = "serde")]
 impl CuttingPathResult {
     /// The JSON API response for this result -- one conversion shared by every
     /// binding, so a field cannot reach one transport and not another.
