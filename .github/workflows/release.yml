@@ -78,7 +78,9 @@ jobs:
             local pkg=$1
             local out
             out=$(cargo publish -p "$pkg" --allow-dirty 2>&1) && { echo "$pkg: published"; return 0; }
-            if echo "$out" | grep -q "already uploaded"; then
+            # cargo has said both: "already uploaded" (registry) and "already exists
+            # on crates.io index" (checked before uploading, cargo >= 1.8x).
+            if echo "$out" | grep -qE "already uploaded|already exists on crates.io index"; then
               echo "$pkg: already on crates.io — skipping"
             else
               echo "::error::$pkg publish failed: $out"
