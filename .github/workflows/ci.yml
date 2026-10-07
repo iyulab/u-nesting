@@ -37,6 +37,32 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo check --workspace --all-features
 
+  # `--workspace` builds every member with the union of the features any member
+  # asks for, so a crate that forgets to enable a dependency's feature still
+  # builds here and only fails when the release step builds it alone -- which is
+  # how u-nesting-cutting reached a release without core's `serde` feature.
+  # Each published crate is checked on its own, so features are resolved for
+  # that crate only.
+  per-crate:
+    name: Each published crate builds on its own
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: false
+      - name: cargo check -p, one published crate at a time
+        run: |
+          set -euo pipefail
+          for crate in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | .name'); do
+            echo "::group::$crate"
+            cargo check -p "$crate" --all-targets
+            echo "::endgroup::"
+          done
+
   # The declared `rust-version` was measured by hand (toolchains 1.85 / 1.87
   # / 1.89 installed and run), and nothing since has checked that the crate
   # still builds there: the cross-repo guard only orders the floors. This job
