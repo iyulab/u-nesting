@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `UNesting`: `Nester2D` and `Packer3D` serialized requests and read results and
+  progress reports by reflection, which throws in trimmed and NativeAOT applications.
+  They now use source-generated serialization; the package is marked
+  `IsAotCompatible`.
+- The `UNesting` README told users to supply the native library themselves; the
+  package carries it for `win-x64`, `linux-x64`, `osx-x64` and `osx-arm64`.
+
 ## [0.16.0] - 2026-10-04
 
 ### Added

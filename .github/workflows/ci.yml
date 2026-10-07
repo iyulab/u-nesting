@@ -227,19 +227,28 @@ jobs:
         run: PKG=/tmp/wasm-pkg node --test demo/web/test/wasm_runtime_smoke.mjs
 
   csharp:
-    name: C# DTO Wire Contract
+    name: C# Binding
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # Pure managed serialization/round-trip guards — no native library needed, so
-      # no Rust toolchain or path dependencies. Pins C# request DTO JSON keys to the
-      # canonical Rust `ConfigRequest` wire names (deny_unknown_fields), catching
-      # drift like `generations` vs `max_generations` before it reaches a consumer.
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
-      - name: Run C# wire-contract tests
-        run: dotnet test bindings/csharp/UNesting.Tests/UNesting.Tests.csproj -c Release
+      # The tests pin the C# request keys to the canonical Rust `ConfigRequest` wire
+      # names (deny_unknown_fields) and drive both solvers end to end, with
+      # reflection-based JSON disabled as in a trimmed or NativeAOT host. The
+      # client's own build fails on any trim or AOT analyzer warning.
+      - name: Build the native library
+        run: cargo build -p u-nesting-ffi
+      - name: Client tests (reflection-based JSON disabled)
+        run: dotnet test bindings/csharp/UNesting.Tests/UNesting.Tests.csproj
 
   semver:
     name: SemVer (cargo-semver-checks)

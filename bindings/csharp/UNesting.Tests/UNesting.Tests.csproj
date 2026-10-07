@@ -7,12 +7,30 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <IsPackable>false</IsPackable>
     <RootNamespace>UNesting.Tests</RootNamespace>
+
+    <!-- What a trimmed or NativeAOT host runs with: any reflection-based JSON in the
+         client throws here exactly as it would there. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
+
+    <!-- The native library from a `cargo build` with the ffi feature. A standalone clone
+         builds into its own target/; inside a Cargo workspace it lands in the workspace's. -->
+    <UNestingNativeDir Condition="'$(UNestingNativeDir)' == '' and (Exists('$(MSBuildThisFileDirectory)../../../target/debug/u_nesting_ffi.dll') or Exists('$(MSBuildThisFileDirectory)../../../target/debug/libu_nesting_ffi.so') or Exists('$(MSBuildThisFileDirectory)../../../target/debug/libu_nesting_ffi.dylib'))">$(MSBuildThisFileDirectory)../../../target/debug</UNestingNativeDir>
+    <UNestingNativeDir Condition="'$(UNestingNativeDir)' == ''">$(MSBuildThisFileDirectory)../../../../../target/debug</UNestingNativeDir>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
     <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(UNestingNativeDir)/u_nesting_ffi.dll" Condition="Exists('$(UNestingNativeDir)/u_nesting_ffi.dll')"
+          CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(UNestingNativeDir)/libu_nesting_ffi.so" Condition="Exists('$(UNestingNativeDir)/libu_nesting_ffi.so')"
+          CopyToOutputDirectory="PreserveNewest" Visible="false" />
+    <None Include="$(UNestingNativeDir)/libu_nesting_ffi.dylib" Condition="Exists('$(UNestingNativeDir)/libu_nesting_ffi.dylib')"
+          CopyToOutputDirectory="PreserveNewest" Visible="false" />
   </ItemGroup>
 
   <ItemGroup>

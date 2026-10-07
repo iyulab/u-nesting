@@ -155,18 +155,16 @@ catch (OperationCanceledException)
 | `brkga` | Biased Random-Key GA |
 | `sa` | Simulated Annealing |
 
-## Native Library
+## Trimming and NativeAOT
 
-The native library (`u_nesting_ffi.dll` / `libu_nesting_ffi.so` / `libu_nesting_ffi.dylib`) must be available in your application's runtime directory or system PATH.
+The solvers serialize requests and read results and progress reports through
+source-generated serialization, with no reflection, and the package is marked
+`IsAotCompatible`. They run unchanged in trimmed and NativeAOT applications.
 
-### Building Native Library
+## Platforms
 
-```bash
-cd <u-nesting-repo>
-cargo build -p u-nesting-ffi --release
-```
-
-The built library will be in `target/release/`.
+The package carries the native library for `win-x64`, `linux-x64` (glibc 2.39 or
+later), `osx-x64` and `osx-arm64`; no separate install is needed.
 
 ## API Reference
 

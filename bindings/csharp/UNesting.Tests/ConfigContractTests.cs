@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using UNesting.Models;
 using Xunit;
 
@@ -33,9 +34,10 @@ public class ConfigContractTests
         "multi_sheet",
     };
 
-    private static IEnumerable<string> SerializedKeys(object dto)
+    // Serialized the way the solvers serialize: through the client's own context.
+    private static IEnumerable<string> SerializedKeys<T>(T dto, JsonTypeInfo<T> info)
     {
-        var json = JsonSerializer.Serialize(dto);
+        var json = JsonSerializer.Serialize(dto, info);
         using var doc = JsonDocument.Parse(json);
         foreach (var prop in doc.RootElement.EnumerateObject())
         {
@@ -58,7 +60,7 @@ public class ConfigContractTests
             MultiSheet = true,
         };
 
-        var keys = SerializedKeys(config).ToHashSet();
+        var keys = SerializedKeys(config, NestingJson.Default.Config2D).ToHashSet();
 
         Assert.Subset(CanonicalConfigKeys, keys);
         // Regression for the generations/max_generations drift specifically.
@@ -78,7 +80,7 @@ public class ConfigContractTests
             MaxGenerations = 200,
         };
 
-        var keys = SerializedKeys(config).ToHashSet();
+        var keys = SerializedKeys(config, NestingJson.Default.Config3D).ToHashSet();
 
         Assert.Subset(CanonicalConfigKeys, keys);
         Assert.Contains("max_generations", keys);
@@ -90,7 +92,7 @@ public class ConfigContractTests
     {
         // A default config must not emit zero/false optionals (JsonIgnore), so the
         // single-sheet default path is not accidentally forced into multi_sheet etc.
-        var keys = SerializedKeys(new Config2D()).ToHashSet();
+        var keys = SerializedKeys(new Config2D(), NestingJson.Default.Config2D).ToHashSet();
 
         Assert.DoesNotContain("multi_sheet", keys);
         Assert.DoesNotContain("max_generations", keys);
@@ -123,7 +125,7 @@ public class ConfigContractTests
         }
         """;
 
-        var result = JsonSerializer.Deserialize<NestingResult>(wire);
+        var result = JsonSerializer.Deserialize(wire, NestingJson.Default.NestingResult);
 
         Assert.NotNull(result);
         Assert.True(result!.Success);
@@ -139,5 +141,12 @@ public class ConfigContractTests
         Assert.Equal(120.0, result.UsedBoundingBox[0]);
         Assert.Equal(340.0, result.UsedBoundingBox[1]);
         Assert.Equal(0.83, result.UsedUtilization);
+    }
+
+    [Fact]
+    public void The_suite_runs_as_a_trimmed_host_does()
+    {
+        Assert.False(JsonSerializer.IsReflectionEnabledByDefault);
+        Assert.Throws<InvalidOperationException>(() => JsonSerializer.Serialize(new Config2D(), new JsonSerializerOptions()));
     }
 }

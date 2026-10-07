@@ -9,25 +9,12 @@ namespace UNesting;
 /// </summary>
 public class Packer3D : IDisposable
 {
-    private readonly JsonSerializerOptions _jsonOptions;
     private bool _disposed;
 
     /// <summary>
     /// Event raised when progress is reported during solving.
     /// </summary>
     public event EventHandler<ProgressEventArgs>? ProgressChanged;
-
-    /// <summary>
-    /// Creates a new Packer3D instance.
-    /// </summary>
-    public Packer3D()
-    {
-        _jsonOptions = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-        };
-    }
 
     /// <summary>
     /// Solves a 3D bin packing problem.
@@ -39,7 +26,7 @@ public class Packer3D : IDisposable
     {
         ThrowIfDisposed();
 
-        var requestJson = JsonSerializer.Serialize(request, _jsonOptions);
+        var requestJson = JsonSerializer.Serialize(request, NestingJson.Default.PackingRequest);
         int code = NativeLibrary.unesting_solve_3d(requestJson, out var resultPtr);
 
         return ProcessResult(code, resultPtr);
@@ -57,7 +44,7 @@ public class Packer3D : IDisposable
     {
         ThrowIfDisposed();
 
-        var requestJson = JsonSerializer.Serialize(request, _jsonOptions);
+        var requestJson = JsonSerializer.Serialize(request, NestingJson.Default.PackingRequest);
         var cancelled = false;
         GCHandle? handle = null;
 
@@ -74,7 +61,7 @@ public class Packer3D : IDisposable
                 var progressJson = Marshal.PtrToStringUTF8(progressPtr);
                 if (!string.IsNullOrEmpty(progressJson))
                 {
-                    var progress = JsonSerializer.Deserialize<ProgressInfo>(progressJson, _jsonOptions);
+                    var progress = JsonSerializer.Deserialize(progressJson, NestingJson.Default.ProgressInfo);
                     if (progress != null)
                     {
                         var args = new ProgressEventArgs(progress);
@@ -170,7 +157,7 @@ public class Packer3D : IDisposable
                 throw new NestingException(NativeLibrary.UNESTING_ERR_UNKNOWN, "Empty result");
             }
 
-            var result = JsonSerializer.Deserialize<PackingResult>(resultJson, _jsonOptions);
+            var result = JsonSerializer.Deserialize(resultJson, NestingJson.Default.PackingResult);
             return result ?? throw new NestingException(NativeLibrary.UNESTING_ERR_UNKNOWN, "Failed to parse result");
         }
         finally
