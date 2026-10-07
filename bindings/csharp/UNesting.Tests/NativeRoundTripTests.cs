@@ -45,6 +45,43 @@ public class NativeRoundTripTests
     }
 
     [Fact]
+    public void A_refusal_says_why_and_where()
+    {
+        using var nester = new Nester2D();
+
+        var twice = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("plate", 10, 10), Geometry2D.Rectangle("rib", 5, 5),
+                          Geometry2D.Rectangle("plate", 20, 20)],
+            Boundary = new Boundary2D { Width = 100, Height = 100 },
+        }));
+        Assert.Equal("duplicate_id", twice.Reason);
+        Assert.Equal("plate", twice.Details!.Value.GetProperty("id").GetString());
+        Assert.Equal(0, twice.Details!.Value.GetProperty("first").GetInt32());
+        Assert.Equal(2, twice.Details!.Value.GetProperty("index").GetInt32());
+        Assert.Contains("given twice", twice.Message);
+
+        var spacing = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10)],
+            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Config = new Config2D { Spacing = -1 },
+        }));
+        Assert.Equal("parameter_out_of_range", spacing.Reason);
+        Assert.Equal("spacing", spacing.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(-1.0, spacing.Details!.Value.GetProperty("got").GetDouble());
+
+        var strategy = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10)],
+            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Config = new Config2D { Strategy = "tabu" },
+        }));
+        Assert.Equal("unknown_option", strategy.Reason);
+        Assert.Equal("tabu", strategy.Details!.Value.GetProperty("got").GetString());
+    }
+
+    [Fact]
     public void Packing_solves_and_reads_the_result()
     {
         using var packer = new Packer3D();

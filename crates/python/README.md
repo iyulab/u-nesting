@@ -146,6 +146,11 @@ Solve a 2D nesting problem.
 - `unplaced` (list): **Deduplicated** IDs of items that couldn't be placed (not
   per-instance, so `len(unplaced)` under-reports the failed-instance count)
 - `computation_time_ms` (int): Solve time
+- `error` (str | None): Readable text when the solver refused the problem
+- `code` (str | None): Stable reason for that refusal (`invalid_geometry`,
+  `duplicate_id`, `parameter_out_of_range`, ...)
+- `details` (dict | None): The values behind `code` (`id`, `first`, `index`,
+  `parameter`, `min`, `max`, `got`, ...)
 
 ### `solve_3d(geometries, boundary, config=None) -> dict`
 

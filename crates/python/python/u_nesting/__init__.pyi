@@ -1,6 +1,6 @@
 """Type stubs for u_nesting module."""
 
-from typing import Any, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 class Geometry2D(TypedDict, total=False):
     """2D geometry input."""
@@ -61,6 +61,10 @@ class SolveResult(TypedDict):
     unplaced: List[str]
     computation_time_ms: int
     error: Optional[str]
+    code: Optional[str]
+    """Stable reason a solve was refused (``invalid_geometry``, ``duplicate_id``, ...)."""
+    details: Optional[Dict[str, Any]]
+    """The values behind ``code``: ``parameter``, ``id``, ``index``, ``min``, ``max``, ``got``, ..."""
 
 def solve_2d(
     geometries: List[Geometry2D],

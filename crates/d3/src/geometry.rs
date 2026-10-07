@@ -231,25 +231,25 @@ impl Geometry for Geometry3D {
 
     fn validate(&self) -> Result<()> {
         if self.dimensions.x <= 0.0 || self.dimensions.y <= 0.0 || self.dimensions.z <= 0.0 {
-            return Err(Error::InvalidGeometry(format!(
-                "All dimensions for '{}' must be positive",
-                self.id
-            )));
+            return Err(Error::invalid_geometry(
+                Some(&self.id),
+                format!("All dimensions for '{}' must be positive", self.id),
+            ));
         }
 
         if self.quantity == 0 {
-            return Err(Error::InvalidGeometry(format!(
-                "Quantity for '{}' must be at least 1",
-                self.id
-            )));
+            return Err(Error::invalid_geometry(
+                Some(&self.id),
+                format!("Quantity for '{}' must be at least 1", self.id),
+            ));
         }
 
         if let Some(mass) = self.mass {
             if mass < 0.0 {
-                return Err(Error::InvalidGeometry(format!(
-                    "Mass for '{}' cannot be negative",
-                    self.id
-                )));
+                return Err(Error::invalid_geometry(
+                    Some(&self.id),
+                    format!("Mass for '{}' cannot be negative", self.id),
+                ));
             }
         }
 

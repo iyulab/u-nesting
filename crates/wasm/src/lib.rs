@@ -14,7 +14,8 @@
 
 use u_nesting_core::api_types::*;
 use u_nesting_core::geometry::Boundary;
-use u_nesting_core::solver::{Config, Solver, Strategy};
+use u_nesting_core::solver::{Config, Solver};
+use u_nesting_core::Error;
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
 use wasm_bindgen::prelude::*;
@@ -28,7 +29,7 @@ pub fn solve_2d(request_json: &str) -> String {
     let response = solve_2d_internal(request_json);
     serde_json::to_string(&response).unwrap_or_else(|e| {
         format!(
-            r#"{{"success":false,"error":"Serialization error: {}"}}"#,
+            r#"{{"success":false,"error":"Serialization error: {}","code":"internal"}}"#,
             e
         )
     })
@@ -43,7 +44,7 @@ pub fn solve_3d(request_json: &str) -> String {
     let response = solve_3d_internal(request_json);
     serde_json::to_string(&response).unwrap_or_else(|e| {
         format!(
-            r#"{{"success":false,"error":"Serialization error: {}"}}"#,
+            r#"{{"success":false,"error":"Serialization error: {}","code":"internal"}}"#,
             e
         )
     })
@@ -59,7 +60,7 @@ pub fn optimize_cutting_path(request_json: &str) -> String {
     let response = optimize_cutting_path_internal(request_json);
     serde_json::to_string(&response).unwrap_or_else(|e| {
         format!(
-            r#"{{"success":false,"error":"Serialization error: {}"}}"#,
+            r#"{{"success":false,"error":"Serialization error: {}","code":"internal"}}"#,
             e
         )
     })
@@ -106,7 +107,9 @@ fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveRespon
 fn solve_2d_internal(json_str: &str) -> SolveResponse {
     let request: Request2D = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => return SolveResponse::error(format!("Invalid JSON: {e}")),
+        Err(e) => {
+            return SolveResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")))
+        }
     };
 
     // Check for WASM-blocked strategies
@@ -114,9 +117,12 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         if let Some(ref strategy) = config.strategy {
             let s = strategy.to_lowercase();
             if WASM_BLOCKED_STRATEGIES.iter().any(|blocked| s == *blocked) {
-                return SolveResponse::error(format!(
-                    "Strategy '{strategy}' is not available in WASM builds. \
+                return SolveResponse::refused(&Error::invalid_option(
+                    "strategy",
+                    format!(
+                        "Strategy '{strategy}' is not available in WASM builds. \
                      Use 'blf', 'nfp', 'ga', 'brkga', 'sa', 'gdrr', or 'alns'."
+                    ),
                 ));
             }
         }
@@ -163,9 +169,12 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
             Boundary2D::new(vertices)
         }
-        _ => return SolveResponse::error(
-            "Invalid boundary: give either width and height, or polygon -- not both, not one half",
-        ),
+        _ => {
+            return SolveResponse::refused(&Error::invalid_boundary(
+                Some("boundary"),
+                "give either width and height, or polygon -- not both, not one half".to_string(),
+            ))
+        }
     };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -176,9 +185,13 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         .unwrap_or(false);
 
     // Build config
-    let config = match build_config(request.config) {
+    let config = match request
+        .config
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+    {
         Ok(c) => c,
-        Err(e) => return SolveResponse::error(e),
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
@@ -198,14 +211,16 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             }
             build_solve_response(result)
         }
-        Err(e) => SolveResponse::error(e.to_string()),
+        Err(e) => SolveResponse::refused(&e),
     }
 }
 
 fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     let request: Request3D = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => return Pack3DResponse::error(format!("Invalid JSON: {e}")),
+        Err(e) => {
+            return Pack3DResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")))
+        }
     };
 
     // Check for WASM-blocked strategies
@@ -213,19 +228,23 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         if let Some(ref strategy) = config.strategy {
             let s = strategy.to_lowercase();
             if WASM_BLOCKED_STRATEGIES.iter().any(|blocked| s == *blocked) {
-                return Pack3DResponse::error(format!(
-                    "Strategy '{strategy}' is not available in WASM builds. \
+                return Pack3DResponse::refused(&Error::invalid_option(
+                    "strategy",
+                    format!(
+                        "Strategy '{strategy}' is not available in WASM builds. \
                      Use 'blf', 'ep', 'ga', 'brkga', or 'sa'."
+                    ),
                 ));
             }
         }
     }
 
     // Convert geometries
-    let geometries: Result<Vec<Geometry3D>, String> = request
+    let geometries: u_nesting_core::Result<Vec<Geometry3D>> = request
         .geometries
         .into_iter()
-        .map(|g| {
+        .enumerate()
+        .map(|(i, g)| {
             let mut geom = Geometry3D::new(g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
                 .with_quantity(g.quantity);
 
@@ -233,18 +252,21 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
                 geom = geom.with_mass(mass);
             }
             if let Some(name) = g.orientation {
-                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
-                    format!("unknown orientation '{name}'; expected any, upright or fixed")
-                })?;
+                let constraint =
+                    OrientationConstraint::parse(&name).ok_or_else(|| Error::UnknownOption {
+                        parameter: format!("geometries[{i}].orientation"),
+                        got: name.clone(),
+                        expected: vec!["any".into(), "upright".into(), "fixed".into()],
+                    })?;
                 geom = geom.with_orientation(constraint);
             }
 
             Ok(geom)
         })
-        .collect::<Result<_, String>>();
+        .collect();
     let geometries = match geometries {
         Ok(g) => g,
-        Err(e) => return Pack3DResponse::error(e),
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Convert boundary
@@ -263,28 +285,38 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         .with_stability(request.boundary.stability);
 
     // Build config
-    let config = match build_config(request.config) {
+    let config = match request
+        .config
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+    {
         Ok(c) => c,
-        Err(e) => return Pack3DResponse::error(e),
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Solve
     let packer = Packer3D::new(config);
     match packer.solve(&geometries, &boundary) {
         Ok(result) => u_nesting_d3::build_pack3d_response(&result, &geometries),
-        Err(e) => Pack3DResponse::error(e.to_string()),
+        Err(e) => Pack3DResponse::refused(&e),
     }
 }
 
 fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     let request: CuttingRequest = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => return CuttingResponse::error(format!("Invalid JSON: {e}")),
+        Err(e) => {
+            return CuttingResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")))
+        }
     };
 
     // Validate the solve result
     if !request.solve_result.success {
-        return CuttingResponse::error("Solve result indicates failure");
+        return CuttingResponse::refused(&Error::invalid_option(
+            "solve_result",
+            "the solve result is a refusal (success: false); give a successful one to cut"
+                .to_string(),
+        ));
     }
 
     // Convert geometries
@@ -327,127 +359,19 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     solve_result.utilization = request.solve_result.utilization;
 
     // Build cutting config
-    let cutting_config = match build_cutting_config(request.cutting_config) {
-        Ok(c) => c,
-        Err(e) => return CuttingResponse::error(e),
-    };
+    let cutting_config =
+        match u_nesting_cutting::CuttingConfig::from_request(request.cutting_config.as_ref()) {
+            Ok(c) => c,
+            Err(e) => return CuttingResponse::refused(&e),
+        };
 
     // Run cutting path optimization
     let result =
         match u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config)
         {
             Ok(r) => r,
-            Err(e) => return CuttingResponse::error(e),
+            Err(e) => return CuttingResponse::refused(&e),
         };
 
     result.to_response()
-}
-
-/// Builds a solver [`Config`] from the request, validating each field.
-///
-/// Returns `Err(message)` on invalid input (negative/non-finite spacing or
-/// margin, unknown strategy name) so the caller rejects the request instead of
-/// silently applying a default. Strategy names are parsed by the canonical
-/// [`Strategy::parse`], shared across all bindings.
-fn build_config(request: Option<ConfigRequest>) -> Result<Config, String> {
-    let mut config = Config::default();
-
-    if let Some(req) = request {
-        if let Some(spacing) = req.spacing {
-            if !spacing.is_finite() || spacing < 0.0 {
-                return Err(format!(
-                    "spacing must be a non-negative, finite number (got {spacing})"
-                ));
-            }
-            config.spacing = spacing;
-        }
-        if let Some(margin) = req.margin {
-            if !margin.is_finite() || margin < 0.0 {
-                return Err(format!(
-                    "margin must be a non-negative, finite number (got {margin})"
-                ));
-            }
-            config.margin = margin;
-        }
-        if let Some(time_limit) = req.time_limit_ms {
-            config.time_limit_ms = time_limit;
-        }
-        if let Some(target) = req.target_utilization {
-            config.target_utilization = Some(target.clamp(0.0, 1.0));
-        }
-        if let Some(pop) = req.population_size {
-            config.population_size = pop;
-        }
-        if let Some(gens) = req.max_generations {
-            config.max_generations = gens;
-        }
-        if let Some(crossover) = req.crossover_rate {
-            config.crossover_rate = crossover;
-        }
-        if let Some(mutation) = req.mutation_rate {
-            config.mutation_rate = mutation;
-        }
-        if let Some(seed) = req.seed {
-            config.seed = Some(seed);
-        }
-        if let Some(strategy) = req.strategy {
-            config.strategy = Strategy::parse(&strategy)
-                .ok_or_else(|| format!("unknown strategy: '{strategy}'"))?;
-        }
-    }
-
-    Ok(config)
-}
-
-fn build_cutting_config(
-    request: Option<CuttingConfigRequest>,
-) -> Result<u_nesting_cutting::CuttingConfig, String> {
-    let mut config = u_nesting_cutting::CuttingConfig::default();
-
-    if let Some(req) = request {
-        if let Some(kerf) = req.kerf_width {
-            config.kerf_width = kerf;
-        }
-        if let Some(weight) = req.pierce_weight {
-            config.pierce_weight = weight;
-        }
-        if let Some(iters) = req.max_2opt_iterations {
-            config.max_2opt_iterations = iters;
-        }
-        if let Some(time_limit) = req.time_limit_ms {
-            config.time_limit_ms = time_limit;
-        }
-        if let Some(speed) = req.rapid_speed {
-            config.rapid_speed = speed;
-        }
-        if let Some(speed) = req.cut_speed {
-            config.cut_speed = speed;
-        }
-        if let Some(ref dir) = req.exterior_direction {
-            config.exterior_direction = parse_direction("exterior_direction", dir)?;
-        }
-        if let Some(ref dir) = req.interior_direction {
-            config.interior_direction = parse_direction("interior_direction", dir)?;
-        }
-        if let Some(home) = req.home_position {
-            config.home_position = (home[0], home[1]);
-        }
-        if let Some(candidates) = req.pierce_candidates {
-            config.pierce_candidates = candidates;
-        }
-        if let Some(tol) = req.tolerance {
-            config.tolerance = tol;
-        }
-    }
-
-    config.validate()?;
-    Ok(config)
-}
-
-fn parse_direction(
-    parameter: &str,
-    name: &str,
-) -> Result<u_nesting_cutting::config::CutDirectionPreference, String> {
-    u_nesting_cutting::config::CutDirectionPreference::parse(name)
-        .ok_or_else(|| format!("unknown {parameter} '{name}'; expected ccw, cw or auto"))
 }

@@ -110,14 +110,16 @@ impl Boundary for Boundary3D {
 
     fn validate(&self) -> Result<()> {
         if self.dimensions.x <= 0.0 || self.dimensions.y <= 0.0 || self.dimensions.z <= 0.0 {
-            return Err(Error::InvalidBoundary(
+            return Err(Error::invalid_boundary(
+                Some("dimensions"),
                 "All dimensions must be positive".into(),
             ));
         }
 
         if let Some(mass) = self.max_mass {
             if mass <= 0.0 {
-                return Err(Error::InvalidBoundary(
+                return Err(Error::invalid_boundary(
+                    Some("max_mass"),
                     "Maximum mass must be positive".into(),
                 ));
             }

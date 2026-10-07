@@ -44,10 +44,13 @@ impl Packer3D {
             Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
             Strategy::Brkga => self.brkga(geometries, boundary),
             Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
-            other => Err(Error::ConfigError(format!(
-                "strategy {other:?} is not available for 3D packing; it offers \
+            other => Err(Error::invalid_option(
+                "strategy",
+                format!(
+                    "strategy {other:?} is not available for 3D packing; it offers \
                  BottomLeftFill, ExtremePoint, GeneticAlgorithm, Brkga and SimulatedAnnealing"
-            ))),
+                ),
+            )),
         }
     }
 

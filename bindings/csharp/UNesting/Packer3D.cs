@@ -29,7 +29,7 @@ public class Packer3D : IDisposable
         var requestJson = JsonSerializer.Serialize(request, NestingJson.Default.PackingRequest);
         int code = NativeLibrary.unesting_solve_3d(requestJson, out var resultPtr);
 
-        return ProcessResult(code, resultPtr);
+        return NativeCall.Read(code, resultPtr, NestingJson.Default.PackingResult);
     }
 
     /// <summary>
@@ -90,12 +90,7 @@ public class Packer3D : IDisposable
             int code = NativeLibrary.unesting_solve_3d_with_progress(
                 requestJson, callback, IntPtr.Zero, out var resultPtr);
 
-            if (cancelled || code == NativeLibrary.UNESTING_ERR_CANCELLED)
-            {
-                throw new OperationCanceledException();
-            }
-
-            return ProcessResult(code, resultPtr);
+            return NativeCall.Read(code, resultPtr, NestingJson.Default.PackingResult, cancelled);
         }
         finally
         {
@@ -135,38 +130,6 @@ public class Packer3D : IDisposable
                 return Solve(request);
             }
         }, cancellationToken);
-    }
-
-    private PackingResult ProcessResult(int code, IntPtr resultPtr)
-    {
-        try
-        {
-            if (code != NativeLibrary.UNESTING_OK)
-            {
-                throw new NestingException(code, NativeLibrary.GetErrorMessage(code));
-            }
-
-            if (resultPtr == IntPtr.Zero)
-            {
-                throw new NestingException(NativeLibrary.UNESTING_ERR_NULL_PTR, "Null result pointer");
-            }
-
-            var resultJson = Marshal.PtrToStringUTF8(resultPtr);
-            if (string.IsNullOrEmpty(resultJson))
-            {
-                throw new NestingException(NativeLibrary.UNESTING_ERR_UNKNOWN, "Empty result");
-            }
-
-            var result = JsonSerializer.Deserialize(resultJson, NestingJson.Default.PackingResult);
-            return result ?? throw new NestingException(NativeLibrary.UNESTING_ERR_UNKNOWN, "Failed to parse result");
-        }
-        finally
-        {
-            if (resultPtr != IntPtr.Zero)
-            {
-                NativeLibrary.unesting_free_string(resultPtr);
-            }
-        }
     }
 
     private void ThrowIfDisposed()

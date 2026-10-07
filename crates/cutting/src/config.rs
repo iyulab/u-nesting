@@ -3,6 +3,8 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use u_nesting_core::Error;
+
 use crate::bridge::BridgeConfig;
 use crate::leadin::LeadInConfig;
 use crate::thermal::ThermalConfig;
@@ -87,6 +89,16 @@ pub enum CutDirectionPreference {
 impl CutDirectionPreference {
     /// Parses `"ccw"`, `"cw"` or `"auto"` (case-insensitive); `None` for any
     /// other name, so a misspelling is refused rather than read as `Auto`.
+    /// [`Self::parse`], or `unknown_option` naming `parameter` and the names
+    /// it accepts.
+    pub fn read(parameter: &str, name: &str) -> u_nesting_core::Result<Self> {
+        Self::parse(name).ok_or_else(|| Error::UnknownOption {
+            parameter: parameter.to_string(),
+            got: name.to_string(),
+            expected: vec!["ccw".into(), "cw".into(), "auto".into()],
+        })
+    }
+
     pub fn parse(name: &str) -> Option<Self> {
         match name.trim().to_lowercase().as_str() {
             "ccw" => Some(Self::Ccw),
@@ -127,17 +139,75 @@ impl CuttingConfig {
     /// Refuses a configuration the optimizer would otherwise reinterpret: a
     /// kerf width that is negative or not finite (a negative one used to turn
     /// compensation off) and fewer than one pierce candidate.
-    pub fn validate(&self) -> Result<(), String> {
+    pub fn validate(&self) -> u_nesting_core::Result<()> {
         if !(self.kerf_width.is_finite() && self.kerf_width >= 0.0) {
-            return Err(format!(
-                "kerf_width must be finite and >= 0 (0 disables compensation), got {}",
-                self.kerf_width
-            ));
+            return Err(Error::OutOfRange {
+                parameter: "kerf_width".to_string(),
+                min: Some(0.0),
+                max: None,
+                got: self.kerf_width,
+                range: "finite and >= 0 (0 disables compensation)".to_string(),
+            });
         }
         if self.pierce_candidates == 0 {
-            return Err("pierce_candidates must be at least 1".into());
+            return Err(Error::OutOfRange {
+                parameter: "pierce_candidates".to_string(),
+                min: Some(1.0),
+                max: None,
+                got: 0.0,
+                range: "at least 1".to_string(),
+            });
         }
         Ok(())
+    }
+
+    /// The configuration a cutting request asks for, refused as the optimizer
+    /// would refuse it: an unknown direction name is `unknown_option`, a value
+    /// outside its range `parameter_out_of_range`.
+    #[cfg(feature = "serde")]
+    pub fn from_request(
+        request: Option<&u_nesting_core::api_types::CuttingConfigRequest>,
+    ) -> u_nesting_core::Result<Self> {
+        let mut config = Self::default();
+        if let Some(req) = request {
+            if let Some(kerf) = req.kerf_width {
+                config.kerf_width = kerf;
+            }
+            if let Some(weight) = req.pierce_weight {
+                config.pierce_weight = weight;
+            }
+            if let Some(iters) = req.max_2opt_iterations {
+                config.max_2opt_iterations = iters;
+            }
+            if let Some(time_limit) = req.time_limit_ms {
+                config.time_limit_ms = time_limit;
+            }
+            if let Some(speed) = req.rapid_speed {
+                config.rapid_speed = speed;
+            }
+            if let Some(speed) = req.cut_speed {
+                config.cut_speed = speed;
+            }
+            if let Some(dir) = &req.exterior_direction {
+                config.exterior_direction =
+                    CutDirectionPreference::read("exterior_direction", dir)?;
+            }
+            if let Some(dir) = &req.interior_direction {
+                config.interior_direction =
+                    CutDirectionPreference::read("interior_direction", dir)?;
+            }
+            if let Some(home) = req.home_position {
+                config.home_position = (home[0], home[1]);
+            }
+            if let Some(candidates) = req.pierce_candidates {
+                config.pierce_candidates = candidates;
+            }
+            if let Some(tol) = req.tolerance {
+                config.tolerance = tol;
+            }
+        }
+        config.validate()?;
+        Ok(config)
     }
 
     /// Sets the kerf width.

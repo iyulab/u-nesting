@@ -156,7 +156,9 @@ interface CuttingRequest {
 interface CuttingResponse {
   version: string;
   success: boolean;
-  error: string | null;
+  error: string | null;    // readable text; null on success
+  code: string | null;     // stable reason, see "Refusals"; null on success
+  details: RefusalDetails | null;
   sequence: {
     contour_id: number; geometry_id: string; instance: number;
     contour_type: "exterior" | "interior";
@@ -269,7 +271,9 @@ const res = JSON.parse(solve_2d(JSON.stringify({
 interface SolveResponse {
   version: string;
   success: boolean;
-  error?: string;
+  error: string | null;    // readable text; null on success
+  code: string | null;     // stable reason, see "Refusals"; null on success
+  details: RefusalDetails | null;
   placements: {
     id: string;            // geometry id
     instance: number;      // 0-based copy index
@@ -295,7 +299,9 @@ interface SolveResponse {
 interface Pack3DResponse {
   version: string;
   success: boolean;
-  error?: string;
+  error: string | null;    // readable text; null on success
+  code: string | null;     // stable reason, see "Refusals"; null on success
+  details: RefusalDetails | null;
   placements: {
     id: string;            // geometry id
     instance: number;      // 0-based copy index
@@ -314,6 +320,36 @@ interface Pack3DResponse {
   elapsed_ms: number;
 }
 ```
+
+### Refusals
+
+The functions never throw: a request the engine cannot honour comes back with
+`success: false`, a readable `error`, a stable `code` and the values behind it in
+`details`, so a program can point at the input to change without parsing the text.
+
+```typescript
+interface RefusalDetails {
+  parameter?: string;   // the setting or request part: "spacing", "strategy", "geometries[2].orientation", ...
+  id?: string;          // the geometry the refusal is about
+  first?: number;       // duplicate_id: where the id appeared first ...
+  index?: number;       // ... and where it appeared again
+  min?: number; max?: number;  // the accepted range
+  got?: number | string;       // the value given
+  expected?: string[];         // the names an unknown option could have been
+}
+```
+
+| `code` | `details` | Meaning |
+|---|---|---|
+| `parameter_out_of_range` | `parameter`, `min`, `max`, `got` | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, ...) |
+| `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `strategy`, a geometry's `orientation`, a cut direction, the C ABI's `mode` |
+| `invalid_option` | `parameter` | A setting that cannot be used here: a strategy this build or this dimension does not offer, a failed `solve_result` given to cut |
+| `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a quantity below 1; a placement naming no geometry |
+| `duplicate_id` | `parameter`, `id`, `first`, `index` | Two geometries share an id |
+| `invalid_boundary` | `parameter` (when one field is at fault) | A boundary the engine cannot place into (both or neither of size and polygon, non-positive dimensions, ...) |
+| `malformed_input` | `parameter` (when known) | Not JSON, or a missing, unknown or mistyped key |
+| `cancelled` | — | The caller stopped the run (C ABI progress callback) |
+| `internal` | — | A failure inside the engine, not caused by the request |
 
 ## Related
 

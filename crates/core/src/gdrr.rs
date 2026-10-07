@@ -542,7 +542,7 @@ mod tests {
     fn ruin_ratios_are_refused_not_adjusted() {
         let nan = GdrrConfig::default().with_ruin_ratio(f64::NAN, 0.5);
         assert!(
-            matches!(nan.validate(), Err(crate::Error::ConfigError(m)) if m.contains("min_ruin_ratio"))
+            matches!(nan.validate(), Err(crate::Error::OutOfRange { ref parameter, .. }) if parameter == "min_ruin_ratio")
         );
         let crossed = GdrrConfig::default().with_ruin_ratio(0.8, 0.3);
         assert_eq!(crossed.max_ruin_ratio, 0.3, "stored as given");

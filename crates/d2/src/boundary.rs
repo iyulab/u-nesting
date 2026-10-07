@@ -152,14 +152,16 @@ impl Boundary for Boundary2D {
 
     fn validate(&self) -> Result<()> {
         if self.exterior.len() < 3 {
-            return Err(Error::InvalidBoundary(
+            return Err(Error::invalid_boundary(
+                None,
                 "Boundary must have at least 3 vertices".into(),
             ));
         }
 
         if let (Some(w), Some(h)) = (self.width, self.height) {
             if w <= 0.0 || h <= 0.0 {
-                return Err(Error::InvalidBoundary(
+                return Err(Error::invalid_boundary(
+                    None,
                     "Width and height must be positive".into(),
                 ));
             }
@@ -173,12 +175,14 @@ impl Boundary for Boundary2D {
         if !is_rectangle && !self.infinite_length {
             let hole_refs: Vec<&[(f64, f64)]> = self.holes.iter().map(|h| h.as_slice()).collect();
             if geom_polygon::area_with_holes(&self.exterior, &hole_refs).abs() <= 0.0 {
-                return Err(Error::InvalidBoundary(
+                return Err(Error::invalid_boundary(
+                    None,
                     "Boundary polygon is degenerate (zero area)".into(),
                 ));
             }
             if !crate::polygon_ops::is_simple_polygon(&self.exterior) {
-                return Err(Error::InvalidBoundary(
+                return Err(Error::invalid_boundary(
+                    None,
                     "Boundary polygon is self-intersecting (edges cross)".into(),
                 ));
             }

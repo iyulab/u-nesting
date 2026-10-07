@@ -233,7 +233,8 @@ pub fn compute_nfp_with_config(
     let orb_exterior = orbiting.exterior();
 
     if stat_exterior.len() < 3 || orb_exterior.len() < 3 {
-        return Err(Error::InvalidGeometry(
+        return Err(Error::invalid_geometry(
+            None,
             "Polygons must have at least 3 vertices".into(),
         ));
     }
@@ -317,7 +318,8 @@ pub fn compute_nfp_mirrored(
     let orb_exterior = orbiting.exterior();
 
     if stat_exterior.len() < 3 || orb_exterior.len() < 3 {
-        return Err(Error::InvalidGeometry(
+        return Err(Error::invalid_geometry(
+            None,
             "Polygons must have at least 3 vertices".into(),
         ));
     }
@@ -408,14 +410,16 @@ pub fn compute_ifp_with_margin_and_mirror(
     mirror: bool,
 ) -> Result<Nfp> {
     if boundary_polygon.len() < 3 {
-        return Err(Error::InvalidBoundary(
+        return Err(Error::invalid_boundary(
+            None,
             "Boundary must have at least 3 vertices".into(),
         ));
     }
 
     let geom_exterior = geometry.exterior();
     if geom_exterior.len() < 3 {
-        return Err(Error::InvalidGeometry(
+        return Err(Error::invalid_geometry(
+            None,
             "Geometry must have at least 3 vertices".into(),
         ));
     }
@@ -436,7 +440,8 @@ pub fn compute_ifp_with_margin_and_mirror(
     };
 
     if effective_boundary.len() < 3 {
-        return Err(Error::InvalidBoundary(
+        return Err(Error::invalid_boundary(
+            None,
             "Boundary too small after applying margin".into(),
         ));
     }
@@ -459,7 +464,8 @@ pub fn compute_ifp_with_margin_and_mirror(
 /// by the geometry's extent in each direction.
 fn compute_minkowski_erosion(boundary: &[(f64, f64)], geometry: &[(f64, f64)]) -> Result<Nfp> {
     if boundary.len() < 3 || geometry.len() < 3 {
-        return Err(Error::InvalidGeometry(
+        return Err(Error::invalid_geometry(
+            None,
             "Both boundary and geometry must have at least 3 vertices".into(),
         ));
     }
@@ -490,7 +496,8 @@ fn compute_minkowski_erosion(boundary: &[(f64, f64)], geometry: &[(f64, f64)]) -
 
         // Check if IFP is valid (non-empty)
         if ifp_min_x > ifp_max_x + 1e-10 || ifp_min_y > ifp_max_y + 1e-10 {
-            return Err(Error::InvalidGeometry(
+            return Err(Error::invalid_geometry(
+                None,
                 "Geometry too large to fit in boundary".into(),
             ));
         }
@@ -537,7 +544,8 @@ fn compute_minkowski_erosion_general(
         let shapes = result.overlay(&[translated], OverlayRule::Intersect, FillRule::NonZero);
 
         if shapes.is_empty() {
-            return Err(Error::InvalidGeometry(
+            return Err(Error::invalid_geometry(
+                None,
                 "Geometry too large to fit in boundary".into(),
             ));
         }
@@ -557,7 +565,8 @@ fn compute_minkowski_erosion_general(
         }
 
         if result.len() < 3 {
-            return Err(Error::InvalidGeometry(
+            return Err(Error::invalid_geometry(
+                None,
                 "Geometry too large to fit in boundary".into(),
             ));
         }
@@ -575,7 +584,8 @@ fn compute_minkowski_erosion_general(
 /// `offset` everywhere (see `polygon_ops::offset_polygon`).
 fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>> {
     if polygon.len() < 3 {
-        return Err(Error::InvalidGeometry(
+        return Err(Error::invalid_geometry(
+            None,
             "Polygon must have at least 3 vertices".into(),
         ));
     }
@@ -599,7 +609,10 @@ fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>
 
             // Check if still valid
             if new_min_x >= new_max_x || new_min_y >= new_max_y {
-                return Err(Error::InvalidGeometry("Offset polygon collapsed".into()));
+                return Err(Error::invalid_geometry(
+                    None,
+                    "Offset polygon collapsed".into(),
+                ));
             }
 
             return Ok(vec![
@@ -623,7 +636,7 @@ fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .filter(|ring| signed_area(ring).abs() > 1e-10)
-        .ok_or_else(|| Error::InvalidGeometry("Offset polygon collapsed".into()))
+        .ok_or_else(|| Error::invalid_geometry(None, "Offset polygon collapsed".into()))
 }
 
 /// Computes bounding box of a polygon.

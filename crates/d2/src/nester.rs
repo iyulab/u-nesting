@@ -186,16 +186,20 @@ impl Nester2D {
             Strategy::MilpExact => self.milp_exact(geometries, boundary),
             #[cfg(feature = "milp")]
             Strategy::HybridExact => self.hybrid_exact(geometries, boundary),
-            Strategy::ExtremePoint => Err(Error::ConfigError(
+            Strategy::ExtremePoint => Err(Error::invalid_option(
+                "strategy",
                 "strategy ExtremePoint is 3D only; 2D nesting offers BottomLeftFill, \
                  NfpGuided, GeneticAlgorithm, Brkga, SimulatedAnnealing, Gdrr and Alns"
                     .into(),
             )),
             #[cfg(not(feature = "milp"))]
-            Strategy::MilpExact | Strategy::HybridExact => Err(Error::ConfigError(format!(
-                "strategy {:?} needs the `milp` feature, which this build does not have",
-                self.config.strategy
-            ))),
+            Strategy::MilpExact | Strategy::HybridExact => Err(Error::invalid_option(
+                "strategy",
+                format!(
+                    "strategy {:?} needs the `milp` feature, which this build does not have",
+                    self.config.strategy
+                ),
+            )),
         }
     }
 

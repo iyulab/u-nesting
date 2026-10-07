@@ -41,6 +41,20 @@ impl Strategy {
     /// error instead of silently falling back to a default strategy (which
     /// hides typos from consumers). This is the single source of truth for
     /// strategy-name parsing across all bindings (C FFI, Python, WASM).
+    /// The names [`Strategy::parse`] reads, one per strategy.
+    pub const NAMES: [&'static str; 10] = [
+        "blf",
+        "nfp",
+        "ga",
+        "brkga",
+        "sa",
+        "ep",
+        "gdrr",
+        "alns",
+        "milpexact",
+        "hybridexact",
+    ];
+
     pub fn parse(name: &str) -> Option<Self> {
         match name.trim().to_lowercase().as_str() {
             "blf" | "bottomleftfill" => Some(Self::BottomLeftFill),

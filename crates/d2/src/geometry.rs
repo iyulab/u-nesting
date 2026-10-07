@@ -290,34 +290,40 @@ impl Geometry for Geometry2D {
 
     fn validate(&self) -> Result<()> {
         if self.exterior.len() < 3 {
-            return Err(Error::InvalidGeometry(format!(
-                "Polygon '{}' must have at least 3 vertices",
-                self.id
-            )));
+            return Err(Error::invalid_geometry(
+                Some(&self.id),
+                format!("Polygon '{}' must have at least 3 vertices", self.id),
+            ));
         }
 
         if self.quantity == 0 {
-            return Err(Error::InvalidGeometry(format!(
-                "Quantity for '{}' must be at least 1",
-                self.id
-            )));
+            return Err(Error::invalid_geometry(
+                Some(&self.id),
+                format!("Quantity for '{}' must be at least 1", self.id),
+            ));
         }
 
         // An empty angle list allows no orientation at all; reading it as 0°
         // would place the part in an orientation the caller did not list.
         if let RotationConstraint::Discrete(angles) = &self.rotation_constraint {
             if angles.is_empty() {
-                return Err(Error::InvalidGeometry(format!(
-                    "Rotations for '{}' are empty; list at least one angle, \
+                return Err(Error::invalid_geometry(
+                    Some(&self.id),
+                    format!(
+                        "Rotations for '{}' are empty; list at least one angle, \
                      or leave rotations out for a fixed orientation",
-                    self.id
-                )));
+                        self.id
+                    ),
+                ));
             }
             if let Some(a) = angles.iter().find(|a| !a.is_finite()) {
-                return Err(Error::InvalidGeometry(format!(
-                    "Rotations for '{}' contain a non-finite angle ({a})",
-                    self.id
-                )));
+                return Err(Error::invalid_geometry(
+                    Some(&self.id),
+                    format!(
+                        "Rotations for '{}' contain a non-finite angle ({a})",
+                        self.id
+                    ),
+                ));
             }
         }
 
@@ -328,20 +334,23 @@ impl Geometry for Geometry2D {
         let scale = (max[0] - min[0]).max(max[1] - min[1]).max(1.0);
         let area_eps = 1e-9 * scale * scale;
         if geom_polygon::signed_area(&self.exterior).abs() < area_eps {
-            return Err(Error::InvalidGeometry(format!(
-                "Polygon '{}' is degenerate (zero area / collinear vertices)",
-                self.id
-            )));
+            return Err(Error::invalid_geometry(
+                Some(&self.id),
+                format!(
+                    "Polygon '{}' is degenerate (zero area / collinear vertices)",
+                    self.id
+                ),
+            ));
         }
 
         // Reject self-intersecting exteriors (e.g. a bow-tie): a non-simple
         // outline breaks point-in-polygon and NFP, which can produce overlapping
         // placements downstream.
         if !crate::polygon_ops::is_simple_polygon(&self.exterior) {
-            return Err(Error::InvalidGeometry(format!(
-                "Polygon '{}' is self-intersecting (edges cross)",
-                self.id
-            )));
+            return Err(Error::invalid_geometry(
+                Some(&self.id),
+                format!("Polygon '{}' is self-intersecting (edges cross)", self.id),
+            ));
         }
 
         Ok(())

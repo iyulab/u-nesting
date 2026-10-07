@@ -142,6 +142,8 @@ pub fn build_pack3d_response(
         version: API_VERSION.to_string(),
         success: true,
         error: None,
+        code: None,
+        details: None,
         placements,
         bins_used: result.boundaries_used,
         utilization: result.utilization,

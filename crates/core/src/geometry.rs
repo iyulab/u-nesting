@@ -227,18 +227,17 @@ pub trait Boundary3DExt: Boundary {
 ///
 /// # Errors
 ///
-/// [`Error::InvalidGeometry`](crate::Error::InvalidGeometry) naming the id
+/// [`Error::DuplicateId`](crate::Error::DuplicateId) naming the id
 /// and the two positions (counting from 0) where it appears.
 pub fn ensure_unique_ids<G: Geometry>(geometries: &[G]) -> Result<()> {
     let mut first_at = std::collections::HashMap::with_capacity(geometries.len());
     for (position, geometry) in geometries.iter().enumerate() {
         if let Some(first) = first_at.insert(geometry.id(), position) {
-            return Err(crate::Error::InvalidGeometry(format!(
-                "the id '{}' is given twice, at positions {first} and {position} of \
-                 geometries (counting from 0); placements name geometries by id, so \
-                 every geometry needs its own",
-                geometry.id()
-            )));
+            return Err(crate::Error::DuplicateId {
+                id: geometry.id().to_string(),
+                first,
+                second: position,
+            });
         }
     }
     Ok(())

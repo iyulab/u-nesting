@@ -5,6 +5,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::solver::{Config, Strategy};
+use crate::Error;
+
 /// API version from Cargo.toml.
 pub const API_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -209,6 +212,18 @@ pub struct SolveResponse {
     /// Error message if failed.
     pub error: Option<String>,
 
+    /// Stable name of the reason a request was refused
+    /// (`parameter_out_of_range`, `invalid_geometry`, `duplicate_id`, ...);
+    /// `null` on success. Branch on this, not on `error`, whose wording may
+    /// change.
+    #[serde(default)]
+    pub code: Option<String>,
+
+    /// The values behind `code` -- the setting, the geometry id, the
+    /// positions; `null` on success.
+    #[serde(default)]
+    pub details: Option<RefusalDetails>,
+
     /// Placements.
     #[serde(default)]
     pub placements: Vec<PlacementResponse>,
@@ -344,6 +359,8 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
             version: API_VERSION.to_string(),
             success: true,
             error: None,
+            code: None,
+            details: None,
             placements: Vec::new(), // Converted separately due to type constraints
             sheets_used: r.boundaries_used,
             utilization: r.utilization,
@@ -375,6 +392,18 @@ pub struct Pack3DResponse {
 
     /// Error message if failed.
     pub error: Option<String>,
+
+    /// Stable name of the reason a request was refused
+    /// (`parameter_out_of_range`, `invalid_geometry`, `duplicate_id`, ...);
+    /// `null` on success. Branch on this, not on `error`, whose wording may
+    /// change.
+    #[serde(default)]
+    pub code: Option<String>,
+
+    /// The values behind `code` -- the setting, the geometry id, the
+    /// positions; `null` on success.
+    #[serde(default)]
+    pub details: Option<RefusalDetails>,
 
     /// Placements.
     #[serde(default)]
@@ -444,12 +473,15 @@ pub struct Placement3DResponse {
 }
 
 impl Pack3DResponse {
-    /// Creates an error response.
-    pub fn error(msg: impl Into<String>) -> Self {
+    /// The response for a refused request: the message, its `code` and the
+    /// values behind it.
+    pub fn refused(error: &Error) -> Self {
         Self {
             version: API_VERSION.to_string(),
             success: false,
-            error: Some(msg.into()),
+            error: Some(error.to_string()),
+            code: Some(error.code().to_string()),
+            details: Some(RefusalDetails::of(error)),
             placements: Vec::new(),
             bins_used: 0,
             utilization: 0.0,
@@ -531,6 +563,18 @@ pub struct CuttingResponse {
 
     /// Error message if failed.
     pub error: Option<String>,
+
+    /// Stable name of the reason a request was refused
+    /// (`parameter_out_of_range`, `invalid_geometry`, `duplicate_id`, ...);
+    /// `null` on success. Branch on this, not on `error`, whose wording may
+    /// change.
+    #[serde(default)]
+    pub code: Option<String>,
+
+    /// The values behind `code` -- the setting, the geometry id, the
+    /// positions; `null` on success.
+    #[serde(default)]
+    pub details: Option<RefusalDetails>,
 
     /// Ordered sequence of cutting steps.
     #[serde(default)]
@@ -617,12 +661,15 @@ pub struct CutStepResponse {
 }
 
 impl SolveResponse {
-    /// Creates an error response.
-    pub fn error(msg: impl Into<String>) -> Self {
+    /// The response for a refused request: the message, its `code` and the
+    /// values behind it.
+    pub fn refused(error: &Error) -> Self {
         Self {
             version: API_VERSION.to_string(),
             success: false,
-            error: Some(msg.into()),
+            error: Some(error.to_string()),
+            code: Some(error.code().to_string()),
+            details: Some(RefusalDetails::of(error)),
             placements: Vec::new(),
             sheets_used: 0,
             utilization: 0.0,
@@ -638,12 +685,15 @@ impl SolveResponse {
 }
 
 impl CuttingResponse {
-    /// Creates an error response.
-    pub fn error(msg: impl Into<String>) -> Self {
+    /// The response for a refused request: the message, its `code` and the
+    /// values behind it.
+    pub fn refused(error: &Error) -> Self {
         Self {
             version: API_VERSION.to_string(),
             success: false,
-            error: Some(msg.into()),
+            error: Some(error.to_string()),
+            code: Some(error.code().to_string()),
+            details: Some(RefusalDetails::of(error)),
             sequence: Vec::new(),
             total_cut_distance: 0.0,
             total_rapid_distance: 0.0,
@@ -653,6 +703,137 @@ impl CuttingResponse {
             computation_time_ms: 0,
             skipped_contours: Vec::new(),
         }
+    }
+}
+
+/// The values behind a refusal's `code`. Only the ones the reason has are
+/// present.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefusalDetails {
+    /// The setting or request part at fault (`spacing`, `strategy`,
+    /// `geometries`, `max_mass`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parameter: Option<String>,
+    /// The geometry the refusal is about.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// For `duplicate_id`, the position where the id appeared first; `index`
+    /// is where it appeared again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first: Option<usize>,
+    /// The position of the offending entry.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index: Option<usize>,
+    /// Lower bound of the accepted range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<f64>,
+    /// Upper bound of the accepted range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<f64>,
+    /// The value given: a number for a range, a name for an unknown option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub got: Option<RefusalValue>,
+    /// The names an unknown option could have been.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected: Option<Vec<String>>,
+}
+
+/// A refused value as it was given.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RefusalValue {
+    /// A number outside its range.
+    Number(f64),
+    /// A name nobody knows.
+    Name(String),
+}
+
+impl RefusalDetails {
+    /// The fields of `error`'s reason.
+    pub fn of(error: &Error) -> Self {
+        let mut d = RefusalDetails::default();
+        match error {
+            Error::OutOfRange {
+                parameter,
+                min,
+                max,
+                got,
+                ..
+            } => {
+                d.parameter = Some(parameter.clone());
+                d.min = *min;
+                d.max = *max;
+                d.got = Some(RefusalValue::Number(*got));
+            }
+            Error::InvalidOption { parameter, .. } => d.parameter = Some(parameter.clone()),
+            Error::UnknownOption {
+                parameter,
+                got,
+                expected,
+            } => {
+                d.parameter = Some(parameter.clone());
+                d.got = Some(RefusalValue::Name(got.clone()));
+                d.expected = Some(expected.clone());
+            }
+            Error::MalformedInput { parameter, .. } => d.parameter = parameter.clone(),
+            Error::InvalidGeometry { id, .. } => d.id = id.clone(),
+            Error::DuplicateId { id, first, second } => {
+                d.parameter = Some("geometries".to_string());
+                d.id = Some(id.clone());
+                d.first = Some(*first);
+                d.index = Some(*second);
+            }
+            Error::InvalidBoundary { parameter, .. } => d.parameter = parameter.clone(),
+            _ => {}
+        }
+        d
+    }
+}
+
+impl ConfigRequest {
+    /// The solver configuration this request asks for, refused as the solver
+    /// would refuse it: a strategy name nobody knows is `unknown_option`, a
+    /// setting outside its range is `parameter_out_of_range` -- never clamped
+    /// into range.
+    pub fn to_config(&self) -> crate::Result<Config> {
+        let mut config = Config::default();
+        if let Some(strategy) = &self.strategy {
+            config.strategy = Strategy::parse(strategy).ok_or_else(|| Error::UnknownOption {
+                parameter: "strategy".to_string(),
+                got: strategy.clone(),
+                expected: Strategy::NAMES.iter().map(|n| n.to_string()).collect(),
+            })?;
+        }
+        if let Some(spacing) = self.spacing {
+            config.spacing = spacing;
+        }
+        if let Some(margin) = self.margin {
+            config.margin = margin;
+        }
+        if let Some(time_limit) = self.time_limit_ms {
+            config.time_limit_ms = time_limit;
+        }
+        if let Some(target) = self.target_utilization {
+            config.target_utilization = Some(target);
+        }
+        if let Some(pop) = self.population_size {
+            config.population_size = pop;
+        }
+        if let Some(gens) = self.max_generations {
+            config.max_generations = gens;
+        }
+        if let Some(crossover) = self.crossover_rate {
+            config.crossover_rate = crossover;
+        }
+        if let Some(mutation) = self.mutation_rate {
+            config.mutation_rate = mutation;
+        }
+        if let Some(seed) = self.seed {
+            config.seed = Some(seed);
+        }
+        config.validate()?;
+        Ok(config)
     }
 }
 
@@ -711,12 +892,97 @@ mod dto_strictness_tests {
 
     #[test]
     fn solve_response_serializes_total_requested() {
-        let resp = super::SolveResponse::error("x");
+        let resp = super::SolveResponse::refused(&crate::Error::Internal("x".into()));
         let v = serde_json::to_value(&resp).expect("serialize");
         assert!(
             v.get("total_requested").is_some(),
             "total_requested must be present in the wire output"
         );
+    }
+
+    /// A refusal carries its reason as `code` and the values behind it in
+    /// `details`, so a caller can point at the input without reading `error`.
+    #[test]
+    fn a_refusal_names_its_reason_and_values() {
+        let range = crate::Error::OutOfRange {
+            parameter: "spacing".into(),
+            min: Some(0.0),
+            max: None,
+            got: -1.0,
+            range: "a finite number >= 0".into(),
+        };
+        let v = serde_json::to_value(super::SolveResponse::refused(&range)).expect("serialize");
+        assert_eq!(v["success"], false);
+        assert_eq!(v["code"], "parameter_out_of_range");
+        assert_eq!(
+            v["details"],
+            json!({ "parameter": "spacing", "min": 0.0, "got": -1.0 })
+        );
+        assert_eq!(v["error"], "spacing must be a finite number >= 0, got -1");
+
+        let twice = crate::Error::DuplicateId {
+            id: "plate".into(),
+            first: 0,
+            second: 2,
+        };
+        let v = serde_json::to_value(super::Pack3DResponse::refused(&twice)).expect("serialize");
+        assert_eq!(v["code"], "duplicate_id");
+        assert_eq!(
+            v["details"],
+            json!({ "parameter": "geometries", "id": "plate", "first": 0, "index": 2 })
+        );
+
+        // A refused response read back -- as a cutting request carries one --
+        // keeps its reason.
+        let back: super::SolveResponse = serde_json::from_value(
+            serde_json::to_value(super::SolveResponse::refused(&range)).unwrap(),
+        )
+        .expect("deserialize");
+        assert_eq!(back.code.as_deref(), Some("parameter_out_of_range"));
+    }
+
+    #[test]
+    fn a_successful_response_has_no_reason() {
+        let v = serde_json::to_value(super::SolveResponse::from(crate::SolveResult::<f64>::new()))
+            .expect("serialize");
+        assert_eq!(v["code"], serde_json::Value::Null);
+        assert_eq!(v["details"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn config_requests_are_refused_not_clamped() {
+        let request = |v: serde_json::Value| -> super::ConfigRequest {
+            serde_json::from_value(v).expect("a config request")
+        };
+        let unknown = request(json!({ "strategy": "tabu" }))
+            .to_config()
+            .unwrap_err();
+        assert_eq!(unknown.code(), "unknown_option");
+        let details = super::RefusalDetails::of(&unknown);
+        assert_eq!(details.parameter.as_deref(), Some("strategy"));
+        assert_eq!(details.got, Some(super::RefusalValue::Name("tabu".into())));
+        assert!(details.expected.unwrap().contains(&"brkga".to_string()));
+
+        // It was clamped into [0, 1] by every binding.
+        let target = request(json!({ "target_utilization": 1.5 }))
+            .to_config()
+            .unwrap_err();
+        assert_eq!(target.code(), "parameter_out_of_range");
+        assert_eq!(
+            super::RefusalDetails::of(&target).parameter.as_deref(),
+            Some("target_utilization")
+        );
+
+        let spacing = request(json!({ "spacing": -1.0 })).to_config().unwrap_err();
+        assert_eq!(
+            super::RefusalDetails::of(&spacing).parameter.as_deref(),
+            Some("spacing")
+        );
+
+        let ok = request(json!({ "strategy": "ga", "spacing": 2.0, "target_utilization": 0.9 }))
+            .to_config()
+            .expect("a valid config");
+        assert_eq!(ok.spacing, 2.0);
     }
 
     #[test]

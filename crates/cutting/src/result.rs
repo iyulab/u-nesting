@@ -109,6 +109,8 @@ impl CuttingPathResult {
             version: u_nesting_core::api_types::API_VERSION.to_string(),
             success: true,
             error: None,
+            code: None,
+            details: None,
             sequence: self
                 .sequence
                 .iter()

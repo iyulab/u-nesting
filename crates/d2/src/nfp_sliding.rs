@@ -834,7 +834,8 @@ pub fn compute_nfp_sliding(
     config: &SlidingNfpConfig,
 ) -> Result<Nfp> {
     if stationary.len() < 3 || orbiting.len() < 3 {
-        return Err(Error::InvalidGeometry(
+        return Err(Error::invalid_geometry(
+            None,
             "Polygons must have at least 3 vertices".into(),
         ));
     }

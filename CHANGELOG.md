@@ -5,14 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.17.0] - 2026-10-07
+
+Depends on u-metaheur 0.7. The .NET client is `UNesting` 0.17.0.
 
 ### Added
 
+- Every refusal carries a stable `code` and its values in `details`
+  (`parameter`, `id`, `first`, `index`, `min`, `max`, `got`, `expected`) beside the
+  readable `error`, in the WebAssembly and C responses, the Python result dict and
+  `NestingException.Reason` / `Details` in .NET. The codes: `parameter_out_of_range`,
+  `unknown_option`, `invalid_option`, `invalid_geometry`, `duplicate_id`,
+  `invalid_boundary`, `malformed_input`, `cancelled`, `internal`.
 - `UNesting` carries the native library for `linux-arm64` (glibc 2.39 or later).
+
+### Changed
+
+- **Breaking:** `u_nesting_core::Error` carries what a caller needs as fields:
+  `OutOfRange { parameter, min, max, got, range }`, `InvalidOption`, `UnknownOption`,
+  `InvalidGeometry { id, message }`, `DuplicateId { id, first, second }`,
+  `InvalidBoundary { parameter, message }`, `MalformedInput`, `Cancelled`, `Internal`,
+  with `code()`. `ConfigError(String)` and the variants nothing produced (`NfpError`,
+  `NoPlacement`, `Timeout`, `SerializationError`) are gone. The cutting optimizer
+  returns this `Error` too.
+- **Breaking:** `SolveResponse::error`, `Pack3DResponse::error` and
+  `CuttingResponse::error` are replaced by `refused(&Error)`.
+- `ConfigRequest::to_config` and `CuttingConfig::from_request` build the solver and
+  cutting configurations once for every binding (each kept its own copy).
 
 ### Fixed
 
+- A `target_utilization` outside [0, 1] is refused (`parameter_out_of_range`). Every
+  binding clamped it into range while the engine's own check refused it.
+- `UNesting`: a refusal raised `NestingException` with a fixed message per status
+  ("Solver failed") and dropped the engine's text; it now carries the engine's
+  message, `Reason` and `Details`. A cancelled solve no longer leaks its native result.
 - `UNesting`: `Nester2D` and `Packer3D` serialized requests and read results and
   progress reports by reflection, which throws in trimmed and NativeAOT applications.
   They now use source-generated serialization; the package is marked

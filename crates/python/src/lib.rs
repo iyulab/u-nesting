@@ -39,9 +39,10 @@ use serde::{Deserialize, Serialize};
 
 use u_nesting_core::api_types::{
     Boundary2DRequest, Boundary3DRequest, ConfigRequest, Geometry2DRequest, Geometry3DRequest,
+    RefusalDetails,
 };
 use u_nesting_core::geometry::Boundary;
-use u_nesting_core::solver::{Config, Solver, Strategy};
+use u_nesting_core::solver::{Config, Solver};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
 
@@ -103,6 +104,12 @@ struct SolveOutput {
     used_utilization: f64,
     computation_time_ms: u64,
     error: Option<String>,
+    /// Stable name of the reason the solve was refused (`invalid_geometry`,
+    /// `duplicate_id`, `parameter_out_of_range`, ...); `None` on success.
+    code: Option<String>,
+    /// The values behind `code` -- the setting, the geometry id, the
+    /// positions; `None` on success.
+    details: Option<RefusalDetails>,
 }
 
 impl SolveOutput {
@@ -126,62 +133,6 @@ impl SolveOutput {
             used_utilization,
         )
     }
-}
-
-/// Builds a solver [`Config`] from Python input, validating each field.
-///
-/// Returns `Err(message)` on invalid input (negative/non-finite spacing or
-/// margin, unknown strategy name) so the caller raises `ValueError` instead of
-/// silently applying a default. Strategy names are parsed by the canonical
-/// [`Strategy::parse`], the single source of truth shared across all bindings.
-fn build_config(input: Option<ConfigRequest>) -> Result<Config, String> {
-    let mut config = Config::default();
-
-    if let Some(c) = input {
-        if let Some(strategy) = c.strategy {
-            config.strategy = Strategy::parse(&strategy)
-                .ok_or_else(|| format!("unknown strategy: '{strategy}'"))?;
-        }
-        if let Some(spacing) = c.spacing {
-            if !spacing.is_finite() || spacing < 0.0 {
-                return Err(format!(
-                    "spacing must be a non-negative, finite number (got {spacing})"
-                ));
-            }
-            config.spacing = spacing;
-        }
-        if let Some(margin) = c.margin {
-            if !margin.is_finite() || margin < 0.0 {
-                return Err(format!(
-                    "margin must be a non-negative, finite number (got {margin})"
-                ));
-            }
-            config.margin = margin;
-        }
-        if let Some(time_limit) = c.time_limit_ms {
-            config.time_limit_ms = time_limit;
-        }
-        if let Some(target) = c.target_utilization {
-            config.target_utilization = Some(target.clamp(0.0, 1.0));
-        }
-        if let Some(pop) = c.population_size {
-            config.population_size = pop;
-        }
-        if let Some(gens) = c.max_generations {
-            config.max_generations = gens;
-        }
-        if let Some(crossover) = c.crossover_rate {
-            config.crossover_rate = crossover;
-        }
-        if let Some(mutation) = c.mutation_rate {
-            config.mutation_rate = mutation;
-        }
-        if let Some(seed) = c.seed {
-            config.seed = Some(seed);
-        }
-    }
-
-    Ok(config)
 }
 
 /// Solve a 2D nesting problem.
@@ -293,7 +244,9 @@ fn solve_2d<'py>(
         .and_then(|c| c.multi_sheet)
         .unwrap_or(false);
 
-    let rust_config = build_config(config_input)
+    let rust_config = config_input
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
         .map_err(|e| PyValueError::new_err(format!("Invalid config: {e}")))?;
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
@@ -335,6 +288,8 @@ fn solve_2d<'py>(
                 used_utilization,
                 computation_time_ms: result.computation_time_ms,
                 error: None,
+                code: None,
+                details: None,
             }
         }
         Err(e) => SolveOutput {
@@ -350,6 +305,8 @@ fn solve_2d<'py>(
             used_utilization: 0.0,
             computation_time_ms: 0,
             error: Some(e.to_string()),
+            code: Some(e.code().to_string()),
+            details: Some(RefusalDetails::of(&e)),
         },
     };
 
@@ -456,7 +413,9 @@ fn solve_3d<'py>(
         .with_gravity(boundary_input.gravity)
         .with_stability(boundary_input.stability);
 
-    let rust_config = build_config(config_input)
+    let rust_config = config_input
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
         .map_err(|e| PyValueError::new_err(format!("Invalid config: {e}")))?;
 
     // Solve
@@ -488,6 +447,8 @@ fn solve_3d<'py>(
                 used_utilization,
                 computation_time_ms: result.computation_time_ms,
                 error: None,
+                code: None,
+                details: None,
             }
         }
         Err(e) => SolveOutput {
@@ -503,6 +464,8 @@ fn solve_3d<'py>(
             used_utilization: 0.0,
             computation_time_ms: 0,
             error: Some(e.to_string()),
+            code: Some(e.code().to_string()),
+            details: Some(RefusalDetails::of(&e)),
         },
     };
 
@@ -555,8 +518,17 @@ mod tests {
     use u_nesting_core::placement::Placement;
     use u_nesting_core::SolveResult;
 
+    use u_nesting_core::solver::Strategy;
+
     fn config_input() -> ConfigRequest {
         ConfigRequest::default()
+    }
+
+    /// The configuration a solve builds from its `config` argument.
+    fn build_config(input: Option<ConfigRequest>) -> u_nesting_core::Result<Config> {
+        input
+            .as_ref()
+            .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
     }
 
     // ---- build_config: strategy ----
@@ -609,7 +581,7 @@ mod tests {
         };
         let err = build_config(Some(input)).expect_err("unknown strategy must not fall back");
         assert!(
-            err.contains("teleport"),
+            err.to_string().contains("teleport"),
             "error should name the offending strategy, got: {err}"
         );
     }
@@ -667,20 +639,23 @@ mod tests {
     }
 
     #[test]
-    fn target_utilization_is_clamped_to_unit_range() {
-        let over = build_config(Some(ConfigRequest {
-            target_utilization: Some(1.5),
+    fn target_utilization_outside_unit_range_is_refused() {
+        // It used to be clamped into [0, 1] here while the engine's own check
+        // refused it -- the binding answered a different question than asked.
+        for bad in [1.5, -0.5] {
+            let err = build_config(Some(ConfigRequest {
+                target_utilization: Some(bad),
+                ..config_input()
+            }))
+            .expect_err("out of [0, 1]");
+            assert_eq!(err.code(), "parameter_out_of_range");
+        }
+        let ok = build_config(Some(ConfigRequest {
+            target_utilization: Some(0.9),
             ..config_input()
         }))
-        .expect("out-of-range targets clamp instead of erroring");
-        assert_eq!(over.target_utilization, Some(1.0));
-
-        let under = build_config(Some(ConfigRequest {
-            target_utilization: Some(-0.5),
-            ..config_input()
-        }))
-        .expect("out-of-range targets clamp instead of erroring");
-        assert_eq!(under.target_utilization, Some(0.0));
+        .expect("inside [0, 1]");
+        assert_eq!(ok.target_utilization, Some(0.9));
     }
 
     #[test]

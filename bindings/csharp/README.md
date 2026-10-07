@@ -155,6 +155,27 @@ catch (OperationCanceledException)
 | `brkga` | Biased Random-Key GA |
 | `sa` | Simulated Annealing |
 
+## Refusals
+
+A request the engine cannot honour raises `NestingException`. `Message` is readable
+text; `Reason` is a stable code to branch on and `Details` holds the values behind it:
+
+```csharp
+try
+{
+    nester.Solve(request);
+}
+catch (NestingException ex) when (ex.Reason == "duplicate_id")
+{
+    var id = ex.Details!.Value.GetProperty("id").GetString();
+    var again = ex.Details!.Value.GetProperty("index").GetInt32();
+    Console.WriteLine($"geometry '{id}' is given again at position {again}");
+}
+```
+
+The codes and their fields are listed in the npm package README's *Refusals* section;
+the .NET package reports the same ones.
+
 ## Trimming and NativeAOT
 
 The solvers serialize requests and read results and progress reports through

@@ -57,7 +57,7 @@ pub fn optimize_cutting_path<G>(
     solve_result: &SolveResult<f64>,
     geometries: &[G],
     config: &CuttingConfig,
-) -> Result<CuttingPathResult, String>
+) -> u_nesting_core::Result<CuttingPathResult>
 where
     G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>,
 {

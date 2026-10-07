@@ -8,7 +8,8 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
 use u_nesting_core::geometry::Boundary;
-use u_nesting_core::solver::{Config, Solver, Strategy};
+use u_nesting_core::solver::{Config, Solver};
+use u_nesting_core::Error;
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
 
@@ -27,7 +28,7 @@ pub const UNESTING_ERR_UNKNOWN: i32 = -99;
 /// behavior) or aborting the host process. This relies on the release profile
 /// **not** setting `panic = "abort"` (see the workspace `Cargo.toml`); under
 /// `abort` the panic never reaches this handler.
-fn guard_panic<T>(f: impl FnOnce() -> T, on_panic: impl FnOnce(String) -> T) -> T {
+fn guard_panic<T>(f: impl FnOnce() -> T, on_panic: impl FnOnce(&Error) -> T) -> T {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
         Ok(value) => value,
         Err(payload) => {
@@ -36,7 +37,7 @@ fn guard_panic<T>(f: impl FnOnce() -> T, on_panic: impl FnOnce(String) -> T) -> 
                 .map(|s| (*s).to_string())
                 .or_else(|| payload.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "unknown panic".to_string());
-            on_panic(format!("internal panic: {msg}"))
+            on_panic(&Error::Internal(format!("internal panic: {msg}")))
         }
     }
 }
@@ -61,7 +62,7 @@ pub unsafe extern "C" fn unesting_solve_2d(
         Err(_) => return UNESTING_ERR_INVALID_JSON,
     };
 
-    let response = guard_panic(|| solve_2d_internal(json_str), SolveResponse::error);
+    let response = guard_panic(|| solve_2d_internal(json_str), SolveResponse::refused);
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
@@ -100,7 +101,7 @@ pub unsafe extern "C" fn unesting_solve_3d(
         Err(_) => return UNESTING_ERR_INVALID_JSON,
     };
 
-    let response = guard_panic(|| solve_3d_internal(json_str), Pack3DResponse::error);
+    let response = guard_panic(|| solve_3d_internal(json_str), Pack3DResponse::refused);
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
         Err(_) => return UNESTING_ERR_UNKNOWN,
@@ -147,11 +148,15 @@ pub unsafe extern "C" fn unesting_solve(
 
     // "2d" when absent; anything else but "3d" is refused -- a misspelt
     // mode used to run the 2D solver and report a 2D schema error.
-    let mode: Result<&str, String> = match value.get("mode") {
+    let mode: Result<&str, Error> = match value.get("mode") {
         None => Ok("2d"),
         Some(m) => match m.as_str() {
             Some(m @ ("2d" | "3d")) => Ok(m),
-            _ => Err(format!("unknown mode {m}; expected \"2d\" or \"3d\"")),
+            _ => Err(Error::UnknownOption {
+                parameter: "mode".to_string(),
+                got: m.as_str().map_or_else(|| m.to_string(), str::to_string),
+                expected: vec!["2d".into(), "3d".into()],
+            }),
         },
     };
 
@@ -159,15 +164,15 @@ pub unsafe extern "C" fn unesting_solve(
     // so serialize within each arm rather than over a unified value.
     let (response_json, success) = match mode {
         Ok("3d") => {
-            let r = guard_panic(|| solve_3d_internal(json_str), Pack3DResponse::error);
+            let r = guard_panic(|| solve_3d_internal(json_str), Pack3DResponse::refused);
             (serde_json::to_string(&r), r.success)
         }
         Ok(_) => {
-            let r = guard_panic(|| solve_2d_internal(json_str), SolveResponse::error);
+            let r = guard_panic(|| solve_2d_internal(json_str), SolveResponse::refused);
             (serde_json::to_string(&r), r.success)
         }
-        Err(message) => {
-            let r = SolveResponse::error(message);
+        Err(refusal) => {
+            let r = SolveResponse::refused(&refusal);
             (serde_json::to_string(&r), false)
         }
     };
@@ -250,7 +255,7 @@ pub unsafe extern "C" fn unesting_solve_2d_with_progress(
     let callback_wrapper = CallbackWrapper::new(callback, user_data);
     let response = guard_panic(
         || solve_2d_with_callback(json_str, &callback_wrapper),
-        SolveResponse::error,
+        SolveResponse::refused,
     );
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
@@ -309,7 +314,7 @@ pub unsafe extern "C" fn unesting_solve_3d_with_progress(
     let callback_wrapper = CallbackWrapper::new(callback, user_data);
     let response = guard_panic(
         || solve_3d_with_callback(json_str, &callback_wrapper),
-        Pack3DResponse::error,
+        Pack3DResponse::refused,
     );
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
@@ -365,11 +370,15 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
 
     // "2d" when absent; anything else but "3d" is refused -- a misspelt
     // mode used to run the 2D solver and report a 2D schema error.
-    let mode: Result<&str, String> = match value.get("mode") {
+    let mode: Result<&str, Error> = match value.get("mode") {
         None => Ok("2d"),
         Some(m) => match m.as_str() {
             Some(m @ ("2d" | "3d")) => Ok(m),
-            _ => Err(format!("unknown mode {m}; expected \"2d\" or \"3d\"")),
+            _ => Err(Error::UnknownOption {
+                parameter: "mode".to_string(),
+                got: m.as_str().map_or_else(|| m.to_string(), str::to_string),
+                expected: vec!["2d".into(), "3d".into()],
+            }),
         },
     };
     let callback_wrapper = CallbackWrapper::new(callback, user_data);
@@ -380,19 +389,19 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
         Ok("3d") => {
             let r = guard_panic(
                 || solve_3d_with_callback(json_str, &callback_wrapper),
-                Pack3DResponse::error,
+                Pack3DResponse::refused,
             );
             (serde_json::to_string(&r), r.success)
         }
         Ok(_) => {
             let r = guard_panic(
                 || solve_2d_with_callback(json_str, &callback_wrapper),
-                SolveResponse::error,
+                SolveResponse::refused,
             );
             (serde_json::to_string(&r), r.success)
         }
-        Err(message) => {
-            let r = SolveResponse::error(message);
+        Err(refusal) => {
+            let r = SolveResponse::refused(&refusal);
             (serde_json::to_string(&r), false)
         }
     };
@@ -442,7 +451,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
     let request: Request2D = match serde_json::from_str(json_str) {
         Ok(r) => r,
         Err(e) => {
-            return SolveResponse::error(format!("Invalid JSON: {}", e));
+            return SolveResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")));
         }
     };
 
@@ -487,9 +496,12 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
             Boundary2D::new(vertices)
         }
-        _ => return SolveResponse::error(
-            "Invalid boundary: give either width and height, or polygon -- not both, not one half",
-        ),
+        _ => {
+            return SolveResponse::refused(&Error::invalid_boundary(
+                Some("boundary"),
+                "give either width and height, or polygon -- not both, not one half".to_string(),
+            ))
+        }
     };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -500,9 +512,13 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         .unwrap_or(false);
 
     // Build config
-    let config = match build_config(request.config) {
+    let config = match request
+        .config
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+    {
         Ok(c) => c,
-        Err(e) => return SolveResponse::error(e),
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
@@ -521,21 +537,24 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
             }
             build_solve_response(result)
         }
-        Err(e) => SolveResponse::error(e.to_string()),
+        Err(e) => SolveResponse::refused(&e),
     }
 }
 
 fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     let request: Request3D = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => return Pack3DResponse::error(format!("Invalid JSON: {}", e)),
+        Err(e) => {
+            return Pack3DResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")))
+        }
     };
 
     // Convert geometries
-    let geometries: Result<Vec<Geometry3D>, String> = request
+    let geometries: u_nesting_core::Result<Vec<Geometry3D>> = request
         .geometries
         .into_iter()
-        .map(|g| {
+        .enumerate()
+        .map(|(i, g)| {
             let mut geom = Geometry3D::new(g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
                 .with_quantity(g.quantity);
 
@@ -543,18 +562,21 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
                 geom = geom.with_mass(mass);
             }
             if let Some(name) = g.orientation {
-                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
-                    format!("unknown orientation '{name}'; expected any, upright or fixed")
-                })?;
+                let constraint =
+                    OrientationConstraint::parse(&name).ok_or_else(|| Error::UnknownOption {
+                        parameter: format!("geometries[{i}].orientation"),
+                        got: name.clone(),
+                        expected: vec!["any".into(), "upright".into(), "fixed".into()],
+                    })?;
                 geom = geom.with_orientation(constraint);
             }
 
             Ok(geom)
         })
-        .collect::<Result<_, String>>();
+        .collect::<u_nesting_core::Result<_>>();
     let geometries = match geometries {
         Ok(g) => g,
-        Err(e) => return Pack3DResponse::error(e),
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Convert boundary
@@ -573,81 +595,28 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         .with_stability(request.boundary.stability);
 
     // Build config
-    let config = match build_config(request.config) {
+    let config = match request
+        .config
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+    {
         Ok(c) => c,
-        Err(e) => return Pack3DResponse::error(e),
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Solve
     let packer = Packer3D::new(config);
     match packer.solve(&geometries, &boundary) {
         Ok(result) => u_nesting_d3::build_pack3d_response(&result, &geometries),
-        Err(e) => Pack3DResponse::error(e.to_string()),
+        Err(e) => Pack3DResponse::refused(&e),
     }
-}
-
-/// Builds a solver [`Config`] from the request, validating each field.
-///
-/// Returns `Err(message)` on invalid input (negative/non-finite spacing or
-/// margin, unknown strategy name) so the caller emits an error response instead
-/// of silently applying a default. `target_utilization` is clamped to `[0, 1]`.
-fn build_config(request: Option<ConfigRequest>) -> Result<Config, String> {
-    let mut config = Config::default();
-
-    if let Some(req) = request {
-        if let Some(spacing) = req.spacing {
-            if !spacing.is_finite() || spacing < 0.0 {
-                return Err(format!(
-                    "spacing must be a non-negative, finite number (got {spacing})"
-                ));
-            }
-            config.spacing = spacing;
-        }
-        if let Some(margin) = req.margin {
-            if !margin.is_finite() || margin < 0.0 {
-                return Err(format!(
-                    "margin must be a non-negative, finite number (got {margin})"
-                ));
-            }
-            config.margin = margin;
-        }
-        if let Some(time_limit) = req.time_limit_ms {
-            config.time_limit_ms = time_limit;
-        }
-        if let Some(target) = req.target_utilization {
-            // Clamp rather than reject: an out-of-range target is a soft stop
-            // condition, not a hard input error.
-            config.target_utilization = Some(target.clamp(0.0, 1.0));
-        }
-        if let Some(pop) = req.population_size {
-            config.population_size = pop;
-        }
-        if let Some(gens) = req.max_generations {
-            config.max_generations = gens;
-        }
-        if let Some(crossover) = req.crossover_rate {
-            config.crossover_rate = crossover;
-        }
-        if let Some(mutation) = req.mutation_rate {
-            config.mutation_rate = mutation;
-        }
-        if let Some(seed) = req.seed {
-            config.seed = Some(seed);
-        }
-        if let Some(strategy) = req.strategy {
-            config.strategy = Strategy::parse(&strategy)
-                .ok_or_else(|| format!("unknown strategy: '{strategy}'"))?;
-        }
-    }
-
-    Ok(config)
 }
 
 fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveResponse {
     let request: Request2D = match serde_json::from_str(json_str) {
         Ok(r) => r,
         Err(e) => {
-            return SolveResponse::error(format!("Invalid JSON: {}", e));
+            return SolveResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")));
         }
     };
 
@@ -665,7 +634,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         running: true,
     };
     if !callback.invoke(&initial_progress) {
-        return SolveResponse::error("Cancelled by user");
+        return SolveResponse::refused(&Error::Cancelled);
     }
 
     // Convert geometries
@@ -709,9 +678,12 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
             Boundary2D::new(vertices)
         }
-        _ => return SolveResponse::error(
-            "Invalid boundary: give either width and height, or polygon -- not both, not one half",
-        ),
+        _ => {
+            return SolveResponse::refused(&Error::invalid_boundary(
+                Some("boundary"),
+                "give either width and height, or polygon -- not both, not one half".to_string(),
+            ))
+        }
     };
 
     // Send progress before solving
@@ -727,7 +699,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         running: true,
     };
     if !callback.invoke(&solving_progress) {
-        return SolveResponse::error("Cancelled by user");
+        return SolveResponse::refused(&Error::Cancelled);
     }
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -738,9 +710,13 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         .unwrap_or(false);
 
     // Build config
-    let config = match build_config(request.config) {
+    let config = match request
+        .config
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+    {
         Ok(c) => c,
-        Err(e) => return SolveResponse::error(e),
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
@@ -773,14 +749,16 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
 
             build_solve_response(result)
         }
-        Err(e) => SolveResponse::error(e.to_string()),
+        Err(e) => SolveResponse::refused(&e),
     }
 }
 
 fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DResponse {
     let request: Request3D = match serde_json::from_str(json_str) {
         Ok(r) => r,
-        Err(e) => return Pack3DResponse::error(format!("Invalid JSON: {}", e)),
+        Err(e) => {
+            return Pack3DResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")))
+        }
     };
 
     // Send initial progress
@@ -797,14 +775,15 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
         running: true,
     };
     if !callback.invoke(&initial_progress) {
-        return Pack3DResponse::error("Cancelled by user");
+        return Pack3DResponse::refused(&Error::Cancelled);
     }
 
     // Convert geometries
-    let geometries: Result<Vec<Geometry3D>, String> = request
+    let geometries: u_nesting_core::Result<Vec<Geometry3D>> = request
         .geometries
         .into_iter()
-        .map(|g| {
+        .enumerate()
+        .map(|(i, g)| {
             let mut geom = Geometry3D::new(g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
                 .with_quantity(g.quantity);
 
@@ -812,18 +791,21 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
                 geom = geom.with_mass(mass);
             }
             if let Some(name) = g.orientation {
-                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
-                    format!("unknown orientation '{name}'; expected any, upright or fixed")
-                })?;
+                let constraint =
+                    OrientationConstraint::parse(&name).ok_or_else(|| Error::UnknownOption {
+                        parameter: format!("geometries[{i}].orientation"),
+                        got: name.clone(),
+                        expected: vec!["any".into(), "upright".into(), "fixed".into()],
+                    })?;
                 geom = geom.with_orientation(constraint);
             }
 
             Ok(geom)
         })
-        .collect::<Result<_, String>>();
+        .collect::<u_nesting_core::Result<_>>();
     let geometries = match geometries {
         Ok(g) => g,
-        Err(e) => return Pack3DResponse::error(e),
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Convert boundary
@@ -854,13 +836,17 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
         running: true,
     };
     if !callback.invoke(&solving_progress) {
-        return Pack3DResponse::error("Cancelled by user");
+        return Pack3DResponse::refused(&Error::Cancelled);
     }
 
     // Build config
-    let config = match build_config(request.config) {
+    let config = match request
+        .config
+        .as_ref()
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+    {
         Ok(c) => c,
-        Err(e) => return Pack3DResponse::error(e),
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Solve
@@ -883,7 +869,7 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
 
             u_nesting_d3::build_pack3d_response(&result, &geometries)
         }
-        Err(e) => Pack3DResponse::error(e.to_string()),
+        Err(e) => Pack3DResponse::refused(&e),
     }
 }
 
@@ -913,7 +899,7 @@ pub unsafe extern "C" fn unesting_optimize_cutting_path(
 
     let response = guard_panic(
         || optimize_cutting_path_internal(json_str),
-        CuttingResponse::error,
+        CuttingResponse::refused,
     );
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
@@ -937,13 +923,17 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     let request: CuttingRequest = match serde_json::from_str(json_str) {
         Ok(r) => r,
         Err(e) => {
-            return CuttingResponse::error(format!("Invalid JSON: {}", e));
+            return CuttingResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")));
         }
     };
 
     // Validate the solve result
     if !request.solve_result.success {
-        return CuttingResponse::error("Solve result indicates failure");
+        return CuttingResponse::refused(&Error::invalid_option(
+            "solve_result",
+            "the solve result is a refusal (success: false); give a successful one to cut"
+                .to_string(),
+        ));
     }
 
     // Convert geometries
@@ -986,77 +976,33 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     solve_result.utilization = request.solve_result.utilization;
 
     // Build cutting config
-    let cutting_config = match build_cutting_config(request.cutting_config) {
-        Ok(c) => c,
-        Err(e) => return CuttingResponse::error(e),
-    };
+    let cutting_config =
+        match u_nesting_cutting::CuttingConfig::from_request(request.cutting_config.as_ref()) {
+            Ok(c) => c,
+            Err(e) => return CuttingResponse::refused(&e),
+        };
 
     // Run cutting path optimization
     let result =
         match u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config)
         {
             Ok(r) => r,
-            Err(e) => return CuttingResponse::error(e),
+            Err(e) => return CuttingResponse::refused(&e),
         };
 
     result.to_response()
 }
 
-fn build_cutting_config(
-    request: Option<CuttingConfigRequest>,
-) -> Result<u_nesting_cutting::CuttingConfig, String> {
-    let mut config = u_nesting_cutting::CuttingConfig::default();
-
-    if let Some(req) = request {
-        if let Some(kerf) = req.kerf_width {
-            config.kerf_width = kerf;
-        }
-        if let Some(weight) = req.pierce_weight {
-            config.pierce_weight = weight;
-        }
-        if let Some(iters) = req.max_2opt_iterations {
-            config.max_2opt_iterations = iters;
-        }
-        if let Some(time_limit) = req.time_limit_ms {
-            config.time_limit_ms = time_limit;
-        }
-        if let Some(speed) = req.rapid_speed {
-            config.rapid_speed = speed;
-        }
-        if let Some(speed) = req.cut_speed {
-            config.cut_speed = speed;
-        }
-        if let Some(ref dir) = req.exterior_direction {
-            config.exterior_direction = parse_direction("exterior_direction", dir)?;
-        }
-        if let Some(ref dir) = req.interior_direction {
-            config.interior_direction = parse_direction("interior_direction", dir)?;
-        }
-        if let Some(home) = req.home_position {
-            config.home_position = (home[0], home[1]);
-        }
-        if let Some(candidates) = req.pierce_candidates {
-            config.pierce_candidates = candidates;
-        }
-        if let Some(tol) = req.tolerance {
-            config.tolerance = tol;
-        }
-    }
-
-    config.validate()?;
-    Ok(config)
-}
-
-fn parse_direction(
-    parameter: &str,
-    name: &str,
-) -> Result<u_nesting_cutting::config::CutDirectionPreference, String> {
-    u_nesting_cutting::config::CutDirectionPreference::parse(name)
-        .ok_or_else(|| format!("unknown {parameter} '{name}'; expected ccw, cw or auto"))
-}
-
 #[cfg(test)]
 mod tests {
+    use u_nesting_core::solver::Strategy;
+
+    /// The configuration a solve builds from its request's `config`.
+    fn config_of(request: Option<ConfigRequest>) -> u_nesting_core::Result<Config> {
+        request
+            .as_ref()
+            .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+    }
     use super::*;
 
     // `guard_panic` is the abort-prevention backbone: every FFI entry point wraps
@@ -1075,7 +1021,7 @@ mod tests {
             || -> SolveResponse {
                 panic!("boom");
             },
-            SolveResponse::error,
+            SolveResponse::refused,
         );
         assert!(!response.success, "a caught panic must report failure");
         let msg = response.error.expect("panic must surface an error message");
@@ -1090,7 +1036,7 @@ mod tests {
         // A `String` payload takes a different `downcast` branch than `&str`.
         let response = guard_panic(
             || -> SolveResponse { panic!("{}", String::from("dynamic message")) },
-            SolveResponse::error,
+            SolveResponse::refused,
         );
         assert!(!response.success);
         assert!(response.error.unwrap().contains("dynamic message"));
@@ -1099,8 +1045,12 @@ mod tests {
     #[test]
     fn guard_panic_passes_through_the_ok_value() {
         // The happy path must not be disturbed by the guard.
-        let response = guard_panic(|| SolveResponse::error("ok-sentinel"), SolveResponse::error);
-        assert_eq!(response.error.as_deref(), Some("ok-sentinel"));
+        let sentinel = Error::Internal("ok-sentinel".into());
+        let response = guard_panic(|| SolveResponse::refused(&sentinel), SolveResponse::refused);
+        assert_eq!(
+            response.error.as_deref(),
+            Some("Internal error: ok-sentinel")
+        );
     }
 
     #[test]
@@ -1555,11 +1505,18 @@ mod tests {
         };
         let r = solve_3d_internal(&box3("sideways"));
         assert!(!r.success);
-        assert!(r
-            .error
-            .as_deref()
-            .unwrap_or("")
-            .contains("unknown orientation 'sideways'"));
+        assert_eq!(r.code.as_deref(), Some("unknown_option"));
+        let details = r.details.expect("a refusal carries its values");
+        assert_eq!(
+            details.parameter.as_deref(),
+            Some("geometries[0].orientation")
+        );
+        assert_eq!(
+            details.got,
+            Some(u_nesting_core::api_types::RefusalValue::Name(
+                "sideways".into()
+            ))
+        );
         // "fixed" keeps 30 along x, which does not fit 12 wide; "any" may turn it.
         // ("fixed" also guards the layer packer: it used to place the box
         // hanging 18 units out of the container.)
@@ -1570,12 +1527,18 @@ mod tests {
             "boundary": {"width": 10, "height": 10, "polygon": [[0,0],[5,0],[5,5],[0,5]]}}"#;
         let r = solve_2d_internal(both);
         assert!(!r.success);
+        assert_eq!(r.code.as_deref(), Some("invalid_boundary"));
         assert!(r.error.as_deref().unwrap_or("").contains("not both"));
 
         let ep_2d = r#"{"geometries": [{"id": "r", "polygon": [[0,0],[1,0],[1,1],[0,1]]}],
             "boundary": {"width": 10, "height": 10}, "config": {"strategy": "ep"}}"#;
         let r = solve_2d_internal(ep_2d);
         assert!(!r.success);
+        assert_eq!(r.code.as_deref(), Some("invalid_option"));
+        assert_eq!(
+            r.details.and_then(|d| d.parameter).as_deref(),
+            Some("strategy")
+        );
         assert!(r.error.as_deref().unwrap_or("").contains("3D only"));
 
         let nfp_3d = r#"{"geometries": [{"id": "b", "dimensions": [1, 1, 1]}],
@@ -1591,7 +1554,7 @@ mod tests {
 
     #[test]
     fn test_build_config_default() {
-        let config = build_config(None).expect("default config is valid");
+        let config = config_of(None).expect("default config is valid");
         assert_eq!(config.spacing, 0.0);
         assert_eq!(config.margin, 0.0);
     }
@@ -1612,7 +1575,7 @@ mod tests {
             multi_sheet: None,
         });
 
-        let config = build_config(request).expect("valid config must parse");
+        let config = config_of(request).expect("valid config must parse");
         assert_eq!(config.spacing, 2.5);
         assert_eq!(config.margin, 1.0);
         assert_eq!(config.time_limit_ms, 5000);
@@ -1658,8 +1621,7 @@ mod tests {
                 mutation_rate: None,
                 multi_sheet: None,
             });
-            let config =
-                build_config(request).expect("known strategy names must parse successfully");
+            let config = config_of(request).expect("known strategy names must parse successfully");
             assert!(
                 std::mem::discriminant(&config.strategy) == std::mem::discriminant(&expected),
                 "Strategy '{}' should map to {:?}",
@@ -1684,7 +1646,7 @@ mod tests {
             multi_sheet: None,
         });
         assert!(
-            build_config(bad).is_err(),
+            config_of(bad).is_err(),
             "unknown strategy name must return an error"
         );
     }
@@ -1796,7 +1758,7 @@ mod tests {
             let response: SolveResponse = serde_json::from_str(result_str).unwrap();
 
             assert!(!response.success);
-            assert!(response.error.as_ref().unwrap().contains("Cancelled"));
+            assert_eq!(response.code.as_deref(), Some("cancelled"));
 
             unesting_free_string(result_ptr);
         }
@@ -2106,7 +2068,7 @@ mod tests {
 
     #[test]
     fn test_cutting_config_parsing() {
-        let config = build_cutting_config(Some(CuttingConfigRequest {
+        let config = u_nesting_cutting::CuttingConfig::from_request(Some(&CuttingConfigRequest {
             kerf_width: Some(0.5),
             pierce_weight: Some(20.0),
             max_2opt_iterations: Some(500),
@@ -2150,14 +2112,17 @@ mod tests {
                 tolerance: None,
             };
             f(&mut r);
-            build_cutting_config(Some(r))
+            u_nesting_cutting::CuttingConfig::from_request(Some(&r))
         };
+        let parameter = |e: &Error| u_nesting_core::api_types::RefusalDetails::of(e).parameter;
         let err = req(&|r| r.pierce_candidates = Some(0)).expect_err("0 candidates");
-        assert!(err.contains("pierce_candidates"), "{err}");
+        assert_eq!(err.code(), "parameter_out_of_range");
+        assert_eq!(parameter(&err).as_deref(), Some("pierce_candidates"));
         let err = req(&|r| r.exterior_direction = Some("clockwise".into())).expect_err("typo");
-        assert!(err.contains("exterior_direction 'clockwise'"), "{err}");
+        assert_eq!(err.code(), "unknown_option");
+        assert_eq!(parameter(&err).as_deref(), Some("exterior_direction"));
         let err = req(&|r| r.kerf_width = Some(-0.2)).expect_err("negative kerf");
-        assert!(err.contains("kerf_width"), "{err}");
+        assert_eq!(parameter(&err).as_deref(), Some("kerf_width"));
         assert!(req(&|r| r.interior_direction = Some("AUTO".into())).is_ok());
     }
 

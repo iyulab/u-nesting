@@ -15,8 +15,28 @@
       "description": "Whether the operation succeeded"
     },
     "error": {
-      "type": "string",
-      "description": "Error message (only present on failure)"
+      "type": ["string", "null"],
+      "description": "Readable refusal text; null on success. Branch on `code`, not on this text."
+    },
+    "code": {
+      "type": ["string", "null"],
+      "enum": ["parameter_out_of_range", "unknown_option", "invalid_option", "invalid_geometry", "duplicate_id", "invalid_boundary", "malformed_input", "cancelled", "internal", null],
+      "description": "Stable reason a request was refused; null on success"
+    },
+    "details": {
+      "type": ["object", "null"],
+      "description": "The values behind `code` (only the ones the reason has); null on success",
+      "additionalProperties": false,
+      "properties": {
+        "parameter": { "type": "string" },
+        "id": { "type": "string" },
+        "first": { "type": "integer" },
+        "index": { "type": "integer" },
+        "min": { "type": "number" },
+        "max": { "type": "number" },
+        "got": { "type": ["number", "string"] },
+        "expected": { "type": "array", "items": { "type": "string" } }
+      }
     },
     "placements": {
       "type": "array",

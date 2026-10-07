@@ -71,7 +71,7 @@ pub struct CutContour {
 pub fn extract_contours<G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>>(
     solve_result: &SolveResult<f64>,
     geometries: &[G],
-) -> Result<Vec<CutContour>, String> {
+) -> u_nesting_core::Result<Vec<CutContour>> {
     let mut contours = Vec::new();
     let mut next_id: ContourId = 0;
 
@@ -81,9 +81,12 @@ pub fn extract_contours<G: Geometry2DExt<Scalar = f64> + Geometry<Scalar = f64>>
             .iter()
             .find(|g| *g.id() == placement.geometry_id)
             .ok_or_else(|| {
-                format!(
-                    "placement of '{}' (instance {}) names no geometry in the request",
-                    placement.geometry_id, placement.instance
+                u_nesting_core::Error::invalid_geometry(
+                    Some(&placement.geometry_id),
+                    format!(
+                        "placement of '{}' (instance {}) names no geometry in the request",
+                        placement.geometry_id, placement.instance
+                    ),
                 )
             })?;
 
