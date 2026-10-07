@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `UNesting` carries the native library for `linux-arm64` (glibc 2.39 or later).
+
 ### Fixed
 
 - `UNesting`: `Nester2D` and `Packer3D` serialized requests and read results and
@@ -14,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   They now use source-generated serialization; the package is marked
   `IsAotCompatible`.
 - The `UNesting` README told users to supply the native library themselves; the
-  package carries it for `win-x64`, `linux-x64`, `osx-x64` and `osx-arm64`.
+  package carries it.
 
 ## [0.16.0] - 2026-10-04
 

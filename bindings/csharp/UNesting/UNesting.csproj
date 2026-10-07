@@ -39,23 +39,9 @@
   <ItemGroup>
     <None Include="../README.md" Pack="true" PackagePath="\" />
 
-    <!-- MSBuild .targets for auto-copy of native library -->
-    <None Include="build\UNesting.targets" Pack="true" PackagePath="build\" />
-    <None Include="build\UNesting.targets" Pack="true" PackagePath="buildTransitive/UNesting.targets" />
-
-    <!-- Native library bundling (4 platforms) -->
-    <None Include="runtimes/win-x64/native/u_nesting_ffi.dll"
-          Pack="true" PackagePath="runtimes/win-x64/native/"
-          Condition="Exists('runtimes/win-x64/native/u_nesting_ffi.dll')" />
-    <None Include="runtimes/linux-x64/native/libu_nesting_ffi.so"
-          Pack="true" PackagePath="runtimes/linux-x64/native/"
-          Condition="Exists('runtimes/linux-x64/native/libu_nesting_ffi.so')" />
-    <None Include="runtimes/osx-x64/native/libu_nesting_ffi.dylib"
-          Pack="true" PackagePath="runtimes/osx-x64/native/"
-          Condition="Exists('runtimes/osx-x64/native/libu_nesting_ffi.dylib')" />
-    <None Include="runtimes/osx-arm64/native/libu_nesting_ffi.dylib"
-          Pack="true" PackagePath="runtimes/osx-arm64/native/"
-          Condition="Exists('runtimes/osx-arm64/native/libu_nesting_ffi.dylib')" />
+    <!-- Native libraries, one per runtime identifier, placed under runtimes/ by the
+         NuGet release workflow; its build matrix is the list of runtimes. -->
+    <None Include="runtimes/**/*" Pack="true" PackagePath="runtimes/" />
   </ItemGroup>
 
 </Project>

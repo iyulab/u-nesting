@@ -83,6 +83,12 @@ jobs:
             target: x86_64-unknown-linux-gnu
             rid: linux-x64
             artifact: libu_nesting_ffi.so
+          # Built natively on the arm64 image of the same Ubuntu release, so it
+          # has the same glibc floor (2.39) as linux-x64.
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            rid: linux-arm64
+            artifact: libu_nesting_ffi.so
           - os: macos-latest
             target: x86_64-apple-darwin
             rid: osx-x64
@@ -128,29 +134,21 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Download win-x64 artifact
+      # One artifact per build-native leg; the matrix above is the only list of
+      # runtimes, so adding one there is all it takes to ship it.
+      - name: Download native artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: native-win-x64
-          path: bindings/csharp/UNesting/runtimes/win-x64/native/
+          pattern: native-*
+          path: native
 
-      - name: Download linux-x64 artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: native-linux-x64
-          path: bindings/csharp/UNesting/runtimes/linux-x64/native/
-
-      - name: Download osx-x64 artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: native-osx-x64
-          path: bindings/csharp/UNesting/runtimes/osx-x64/native/
-
-      - name: Download osx-arm64 artifact
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: native-osx-arm64
-          path: bindings/csharp/UNesting/runtimes/osx-arm64/native/
+      - name: Place native libraries by runtime identifier
+        run: |
+          for dir in native/native-*; do
+            rid="${dir#native/native-}"
+            mkdir -p "bindings/csharp/UNesting/runtimes/$rid/native"
+            mv "$dir"/* "bindings/csharp/UNesting/runtimes/$rid/native/"
+          done
 
       - name: Verify native libraries
         run: |
@@ -159,10 +157,10 @@ jobs:
           # Assert, don't just print: every runtime identifier packed into the
           # nupkg must have produced a binary. Listing alone cannot fail, so a
           # missing artifact used to reach `dotnet pack` unnoticed.
-          for rid in win-x64 linux-x64 osx-x64 osx-arm64; do
-            count=$(find "bindings/csharp/UNesting/runtimes/$rid/native" -type f | wc -l)
-            if [ "$count" -eq 0 ]; then
-              echo "::error::no native binary for $rid"
+          for dir in bindings/csharp/UNesting/runtimes/*/native; do
+            count=$(find "$dir" -type f | wc -l)
+            if [ "$count" -ne 1 ]; then
+              echo "::error::$dir holds $count files, expected one native library"
               exit 1
             fi
           done

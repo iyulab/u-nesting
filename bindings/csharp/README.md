@@ -163,8 +163,8 @@ source-generated serialization, with no reflection, and the package is marked
 
 ## Platforms
 
-The package carries the native library for `win-x64`, `linux-x64` (glibc 2.39 or
-later), `osx-x64` and `osx-arm64`; no separate install is needed.
+The package carries the native library for `win-x64`, `linux-x64` and `linux-arm64`
+(glibc 2.39 or later), `osx-x64` and `osx-arm64`; no separate install is needed.
 
 ## API Reference
 
