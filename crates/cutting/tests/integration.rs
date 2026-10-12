@@ -269,3 +269,62 @@ fn test_cut_direction() {
         }
     }
 }
+
+/// A big part and two small ones nested with a spacing of 1.
+fn tight_layout() -> (Vec<Geometry2D>, u_nesting_core::SolveResult<f64>) {
+    let geometries = vec![
+        Geometry2D::rectangle("big", 50.0, 30.0)
+            .with_rotations(vec![0.0])
+            .with_flip(false),
+        Geometry2D::rectangle("tiny", 2.0, 2.0)
+            .with_quantity(2)
+            .with_rotations(vec![0.0])
+            .with_flip(false),
+    ];
+    let boundary = Boundary2D::rectangle(100.0, 100.0);
+    let solve = Nester2D::new(Config::default().with_spacing(1.0))
+        .solve(&geometries, &boundary)
+        .expect("nesting should succeed");
+    assert_eq!(solve.placements.len(), 3);
+    (geometries, solve)
+}
+
+/// A kerf wider than the gap between two parts cuts one into the other. It
+/// used to return `success` with an empty sequence (and nothing skipped): the
+/// overlapping offsets made the two small parts wait for each other, and the
+/// big one, whose offset reached them, waited too.
+#[test]
+fn a_kerf_wider_than_the_gap_is_refused_with_the_gap() {
+    let (geometries, solve) = tight_layout();
+    for kerf in [1.5, 3.0, 5.0, 8.0] {
+        let config = CuttingConfig::new().with_kerf_width(kerf);
+        let err = u_nesting_cutting::optimize_cutting_path(&solve, &geometries, &config)
+            .expect_err("kerf wider than the gap");
+        assert_eq!(err.code(), "parameter_out_of_range");
+        match err {
+            u_nesting_core::Error::OutOfRange {
+                parameter,
+                max,
+                got,
+                ..
+            } => {
+                assert_eq!(parameter, "kerf_width");
+                assert!((max.expect("bounded") - 1.0).abs() < 1e-9, "{max:?}");
+                assert_eq!(got, kerf);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_kerf_that_fits_the_gap_cuts_every_part() {
+    let (geometries, solve) = tight_layout();
+    for kerf in [0.5, 1.0] {
+        let config = CuttingConfig::new().with_kerf_width(kerf);
+        let result = u_nesting_cutting::optimize_cutting_path(&solve, &geometries, &config)
+            .expect("kerf within the gap");
+        assert_eq!(result.sequence.len(), 3, "kerf {kerf}");
+        assert!(result.skipped.is_empty());
+    }
+}

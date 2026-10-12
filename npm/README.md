@@ -185,6 +185,13 @@ Check `skipped_contours` whenever `kerf_width` is set: a hole narrower than the
 kerf has no tool path that keeps the part's dimensions, so it is left out of
 `sequence` and reported here rather than dropped.
 
+The kerf must fit between the parts: each cut takes a band `kerf_width` wide
+beside its part, so a gap narrower than the kerf would cut one part into its
+neighbour. Such a request is refused with `parameter_out_of_range` on
+`kerf_width`, `max` set to the narrowest gap -- nest with a `spacing` of at least
+the kerf width. Every contour of every placed part is either in `sequence` or in
+`skipped_contours`.
+
 ## Input Schemas
 
 ### `solve_2d` Request

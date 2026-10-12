@@ -2066,6 +2066,52 @@ mod tests {
         assert_eq!(body["skipped_contours"][0]["reason"], "kerf_collapsed");
     }
 
+    /// A kerf wider than the gap between nested parts is refused with the gap
+    /// as `max` -- it used to answer `success: true` with an empty sequence.
+    #[test]
+    fn a_kerf_wider_than_the_part_gap_is_refused_with_the_gap() {
+        let geometries = serde_json::json!([
+            {"id": "big", "polygon": [[0,0],[50,0],[50,30],[0,30]], "quantity": 1,
+                "rotations": [0], "allow_flip": false},
+            {"id": "tiny", "polygon": [[0,0],[2,0],[2,2],[0,2]], "quantity": 2,
+                "rotations": [0], "allow_flip": false}
+        ]);
+        let solve_response = solve_2d_internal(
+            &serde_json::json!({
+                "geometries": geometries,
+                "boundary": {"width": 100, "height": 100},
+                "config": {"spacing": 1.0}
+            })
+            .to_string(),
+        );
+        let request = |kerf: f64| {
+            optimize_cutting_path_internal(
+                &serde_json::json!({
+                    "geometries": geometries,
+                    "solve_result": solve_response,
+                    "cutting_config": {"kerf_width": kerf}
+                })
+                .to_string(),
+            )
+        };
+
+        let fits = request(1.0);
+        assert!(fits.success, "{:?}", fits.error);
+        assert_eq!(fits.sequence.len(), 3);
+
+        let wide = request(5.0);
+        assert!(!wide.success);
+        assert!(wide.sequence.is_empty());
+        assert_eq!(wide.code.as_deref(), Some("parameter_out_of_range"));
+        let details = wide.details.expect("details");
+        assert_eq!(details.parameter.as_deref(), Some("kerf_width"));
+        assert!((details.max.expect("max") - 1.0).abs() < 1e-9);
+        assert_eq!(
+            details.got,
+            Some(u_nesting_core::api_types::RefusalValue::Number(5.0))
+        );
+    }
+
     #[test]
     fn test_cutting_config_parsing() {
         let config = u_nesting_cutting::CuttingConfig::from_request(Some(&CuttingConfigRequest {

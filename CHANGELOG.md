@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Depends on u-geometry 0.5.
+
+### Fixed
+
+- **Breaking:** a `kerf_width` wider than the gap between two placed parts is
+  refused with `parameter_out_of_range` (`parameter: "kerf_width"`, `max` the
+  narrowest gap) -- each cut takes a band the kerf's width beside its part, so the
+  plan would cut one part into its neighbour. With the outward offsets of two
+  neighbours overlapping, the cutting optimizer used to answer `success` with an
+  empty `sequence`, nothing in `skipped_contours` and 0 s: the two parts each
+  waited for the other, and every part near them waited too.
+- A part placed inside another part's hole is cut before that hole; it used to
+  be ordered only before the other part's exterior, so the hole could be cut
+  first and free the slug the part sits on. Precedence is taken from the parts as
+  designed, not from their kerf offsets.
+- The cutting optimizer never returns a plan that leaves a contour out silently:
+  every contour is in `sequence` or in `skipped_contours`, and a sequence that
+  cannot hold them all is an `internal` refusal.
+
 ## [0.17.0] - 2026-10-07
 
 Depends on u-metaheur 0.7. The .NET client is `UNesting` 0.17.0.

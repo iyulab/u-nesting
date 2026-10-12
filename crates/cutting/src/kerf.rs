@@ -98,6 +98,59 @@ fn compensate_contour(contour: &CutContour, half_kerf: f64) -> KerfResult {
     })
 }
 
+/// The smallest gap between two placed parts, if one is narrower than `within`.
+///
+/// The gap is the boundary distance between contours of different parts --
+/// two exteriors side by side, or a part and the hole it sits in. Each cut
+/// removes a band `kerf_width` wide outside its part (inside, for a hole), so
+/// a gap narrower than the kerf puts one part's cut through its neighbour.
+///
+/// Pairs whose bounding boxes are already `within` apart are not measured;
+/// `None` means no gap is narrower than `within`.
+///
+/// # Complexity
+/// O(c² + Σ n·m) for c contours, the sum over the pairs that pass the
+/// bounding-box test.
+pub fn narrowest_gap_below(contours: &[CutContour], within: f64) -> Option<f64> {
+    let boxes: Vec<(f64, f64, f64, f64)> = contours
+        .iter()
+        .map(|c| {
+            c.vertices.iter().fold(
+                (
+                    f64::INFINITY,
+                    f64::INFINITY,
+                    f64::NEG_INFINITY,
+                    f64::NEG_INFINITY,
+                ),
+                |(x0, y0, x1, y1), &(x, y)| (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+            )
+        })
+        .collect();
+    let mut narrowest: Option<f64> = None;
+    for i in 0..contours.len() {
+        for j in (i + 1)..contours.len() {
+            let (a, b) = (&contours[i], &contours[j]);
+            if a.geometry_id == b.geometry_id && a.instance == b.instance {
+                continue;
+            }
+            let (a0, b0) = (boxes[i], boxes[j]);
+            let dx = (a0.0 - b0.2).max(b0.0 - a0.2).max(0.0);
+            let dy = (a0.1 - b0.3).max(b0.1 - a0.3).max(0.0);
+            if dx.hypot(dy) >= within {
+                continue;
+            }
+            if let Some(d) =
+                u_nesting_core::geom::collision::boundary_distance(&a.vertices, &b.vertices)
+            {
+                if d < within && narrowest.is_none_or(|n| d < n) {
+                    narrowest = Some(d);
+                }
+            }
+        }
+    }
+    narrowest
+}
+
 /// Splits kerf results into the contours that can be cut and the ones that
 /// cannot, so the caller reports the second group instead of losing it.
 pub fn partition_compensated(results: Vec<KerfResult>) -> (Vec<CutContour>, Vec<SkippedContour>) {

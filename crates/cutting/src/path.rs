@@ -6,7 +6,7 @@
 use u_nesting_core::timing::Timer;
 
 use u_nesting_core::geometry::{Geometry, Geometry2DExt};
-use u_nesting_core::SolveResult;
+use u_nesting_core::{Error, SolveResult};
 
 use crate::common_edge;
 use crate::config::CuttingConfig;
@@ -71,6 +71,29 @@ where
         return Ok(CuttingPathResult::new());
     }
 
+    // Each cut takes a band `kerf_width` wide beside its part: a narrower gap
+    // between two parts runs one part's cut through the other.
+    if config.kerf_width > 0.0 {
+        if let Some(gap) =
+            kerf::narrowest_gap_below(&raw_contours, config.kerf_width - config.tolerance)
+        {
+            return Err(Error::OutOfRange {
+                parameter: "kerf_width".to_string(),
+                min: Some(0.0),
+                max: Some(gap),
+                got: config.kerf_width,
+                range: format!(
+                    "at most {gap}, the narrowest gap between two placed parts (a wider \
+                     cut runs into the neighbouring part; nest with a spacing of at least \
+                     the kerf width)"
+                ),
+            });
+        }
+    }
+
+    // Precedence comes from the parts as designed, before any offset.
+    let mut dag = CuttingDag::build(&raw_contours);
+
     // Step 1.5: Apply kerf compensation (if kerf_width > 0). A contour the
     // offset empties is reported in `skipped`, never dropped silently.
     let (contours, skipped) = if config.kerf_width > 0.0 {
@@ -89,8 +112,8 @@ where
     let common_edges =
         common_edge::detect_common_edges(&contours, config.kerf_width + config.tolerance, 0.1);
 
-    // Step 3: Build precedence DAG
-    let dag = CuttingDag::build(&contours);
+    // Step 3: Constraints on contours that will not be cut no longer apply.
+    dag.retain(|id| contours.iter().any(|c| c.id == id));
 
     // Step 4: Optimize sequence
     // Use GTSP solver when multiple pierce candidates are configured
@@ -161,6 +184,16 @@ where
             result.total_pierces += 1;
             current_pos = pierce.end_point;
         }
+    }
+
+    // Every contour is either in the sequence or in `skipped` with a reason.
+    if result.sequence.len() != contours.len() {
+        return Err(Error::Internal(format!(
+            "the cutting sequence holds {} of {} contours; the precedence constraints \
+             could not all be met",
+            result.sequence.len(),
+            contours.len()
+        )));
     }
 
     result.computation_time_ms = start.elapsed_ms();
