@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::error::{check_at_least, check_range, Result};
+use crate::error::{check_above, check_at_least, check_range, Result};
 use crate::timing::{expired, Timer};
 
 #[cfg(feature = "serde")]
@@ -123,8 +123,8 @@ impl SaConfig {
     /// positive, `final_temp` above `initial_temp`, `reheat_factor` below 1.
     pub fn validate(&self) -> Result<()> {
         check_range("cooling_rate", self.cooling_rate, 0.001, 0.9999)?;
-        check_at_least("initial_temp", self.initial_temp, f64::MIN_POSITIVE)?;
-        check_at_least("final_temp", self.final_temp, f64::MIN_POSITIVE)?;
+        check_above("initial_temp", self.initial_temp, 0.0)?;
+        check_above("final_temp", self.final_temp, 0.0)?;
         check_range("final_temp", self.final_temp, 0.0, self.initial_temp)?;
         check_at_least("reheat_factor", self.reheat_factor, 1.0)?;
         Ok(())

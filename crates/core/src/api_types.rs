@@ -725,12 +725,20 @@ pub struct RefusalDetails {
     /// The position of the offending entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index: Option<usize>,
-    /// Lower bound of the accepted range.
+    /// Closed lower bound of the accepted range: the value may equal it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
-    /// Upper bound of the accepted range.
+    /// Closed upper bound of the accepted range: the value may equal it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
+    /// Open lower bound of the accepted range: the value must be above it.
+    /// Never present together with `min`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclusive_min: Option<f64>,
+    /// Open upper bound of the accepted range: the value must be below it.
+    /// Never present together with `max`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exclusive_max: Option<f64>,
     /// The value given: a number for a range, a name for an unknown option.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub got: Option<RefusalValue>,
@@ -758,12 +766,16 @@ impl RefusalDetails {
                 parameter,
                 min,
                 max,
+                exclusive_min,
+                exclusive_max,
                 got,
                 ..
             } => {
                 d.parameter = Some(parameter.clone());
                 d.min = *min;
                 d.max = *max;
+                d.exclusive_min = *exclusive_min;
+                d.exclusive_max = *exclusive_max;
                 d.got = Some(RefusalValue::Number(*got));
             }
             Error::InvalidOption { parameter, .. } => d.parameter = Some(parameter.clone()),
@@ -908,6 +920,8 @@ mod dto_strictness_tests {
             parameter: "spacing".into(),
             min: Some(0.0),
             max: None,
+            exclusive_min: None,
+            exclusive_max: None,
             got: -1.0,
             range: "a finite number >= 0".into(),
         };
@@ -939,6 +953,58 @@ mod dto_strictness_tests {
         )
         .expect("deserialize");
         assert_eq!(back.code.as_deref(), Some("parameter_out_of_range"));
+    }
+
+    /// A bound the value may not equal is an open one: it goes out as
+    /// `exclusive_min` / `exclusive_max`, never as `min` / `max`, and a
+    /// closed-only refusal keeps its shape (see the test above).
+    #[test]
+    fn an_open_bound_is_reported_as_exclusive() {
+        let err = crate::sa::SaConfig {
+            initial_temp: 0.0,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("a temperature of 0 is refused");
+        let v = serde_json::to_value(super::SolveResponse::refused(&err)).expect("serialize");
+        assert_eq!(v["code"], "parameter_out_of_range");
+        assert_eq!(
+            v["details"],
+            json!({ "parameter": "initial_temp", "exclusive_min": 0.0, "got": 0.0 })
+        );
+        assert_eq!(
+            v["error"],
+            "initial_temp must be a finite number > 0, got 0"
+        );
+
+        let grid = crate::exact::ExactConfig {
+            grid_step: -1.0,
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("a negative grid step is refused");
+        assert_eq!(
+            serde_json::to_value(super::RefusalDetails::of(&grid)).expect("serialize"),
+            json!({ "parameter": "grid_step", "exclusive_min": 0.0, "got": -1.0 })
+        );
+
+        // A mixed range -- open below, closed above -- survives the round trip.
+        let open = crate::Error::OutOfRange {
+            parameter: "ratio".into(),
+            min: None,
+            max: Some(1.0),
+            exclusive_min: Some(0.0),
+            exclusive_max: None,
+            got: 0.0,
+            range: "in (0, 1]".into(),
+        };
+        let wire = serde_json::to_value(super::SolveResponse::refused(&open)).expect("serialize");
+        assert_eq!(
+            wire["details"],
+            json!({ "parameter": "ratio", "max": 1.0, "exclusive_min": 0.0, "got": 0.0 })
+        );
+        let back: super::SolveResponse = serde_json::from_value(wire).expect("deserialize");
+        assert_eq!(back.details, Some(super::RefusalDetails::of(&open)));
     }
 
     #[test]

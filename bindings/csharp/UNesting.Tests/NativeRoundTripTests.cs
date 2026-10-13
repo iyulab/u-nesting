@@ -70,6 +70,9 @@ public class NativeRoundTripTests
         Assert.Equal("parameter_out_of_range", spacing.Reason);
         Assert.Equal("spacing", spacing.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal(-1.0, spacing.Details!.Value.GetProperty("got").GetDouble());
+        // 0 itself is accepted: a closed bound, so `min` and never `exclusive_min`.
+        Assert.Equal(0.0, spacing.Details!.Value.GetProperty("min").GetDouble());
+        Assert.False(spacing.Details!.Value.TryGetProperty("exclusive_min", out _));
 
         var strategy = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
         {

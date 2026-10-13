@@ -24,8 +24,10 @@ public class NestingException : Exception
 
     /// <summary>
     /// The values behind <see cref="Reason"/>: <c>parameter</c>, <c>id</c>, <c>first</c>,
-    /// <c>index</c>, <c>min</c>, <c>max</c>, <c>got</c>, <c>expected</c> — only those the
-    /// reason has. <c>null</c> when there are none.
+    /// <c>index</c>, <c>min</c>, <c>max</c>, <c>exclusive_min</c>, <c>exclusive_max</c>,
+    /// <c>got</c>, <c>expected</c> — only those the reason has. <c>min</c> / <c>max</c> are
+    /// closed bounds (the value may equal them), <c>exclusive_min</c> / <c>exclusive_max</c>
+    /// open ones; a side has at most one of the two. <c>null</c> when there are none.
     /// </summary>
     public JsonElement? Details { get; }
 

@@ -150,7 +150,9 @@ Solve a 2D nesting problem.
 - `code` (str | None): Stable reason for that refusal (`invalid_geometry`,
   `duplicate_id`, `parameter_out_of_range`, ...)
 - `details` (dict | None): The values behind `code` (`id`, `first`, `index`,
-  `parameter`, `min`, `max`, `got`, ...)
+  `parameter`, `got`, ...). A range gives each bounded side as `min` / `max`
+  when the bound itself is accepted, or `exclusive_min` / `exclusive_max` when
+  it is not
 
 ### `solve_3d(geometries, boundary, config=None) -> dict`
 

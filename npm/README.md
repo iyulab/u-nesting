@@ -340,7 +340,8 @@ interface RefusalDetails {
   id?: string;          // the geometry the refusal is about
   first?: number;       // duplicate_id: where the id appeared first ...
   index?: number;       // ... and where it appeared again
-  min?: number; max?: number;  // the accepted range
+  min?: number; max?: number;  // closed bounds of the accepted range: the value may equal them
+  exclusive_min?: number; exclusive_max?: number;  // open bounds: the value must lie strictly beyond them
   got?: number | string;       // the value given
   expected?: string[];         // the names an unknown option could have been
 }
@@ -348,7 +349,7 @@ interface RefusalDetails {
 
 | `code` | `details` | Meaning |
 |---|---|---|
-| `parameter_out_of_range` | `parameter`, `min`, `max`, `got` | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, ...) |
+| `parameter_out_of_range` | `parameter`, `got`, and per side `min` / `max` (closed) or `exclusive_min` / `exclusive_max` (open); an unbounded side has neither | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, ...) |
 | `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `strategy`, a geometry's `orientation`, a cut direction, the C ABI's `mode` |
 | `invalid_option` | `parameter` | A setting that cannot be used here: a strategy this build or this dimension does not offer, a failed `solve_result` given to cut |
 | `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a quantity below 1; a placement naming no geometry |

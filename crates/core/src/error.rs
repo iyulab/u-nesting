@@ -15,6 +15,8 @@ pub(crate) fn check_range(name: &str, value: f64, min: f64, max: f64) -> Result<
             parameter: name.to_string(),
             min: Some(min),
             max: Some(max),
+            exclusive_min: None,
+            exclusive_max: None,
             got: value,
             range: format!("in [{min}, {max}]"),
         })
@@ -31,8 +33,28 @@ pub(crate) fn check_at_least(name: &str, value: f64, min: f64) -> Result<()> {
             parameter: name.to_string(),
             min: Some(min),
             max: None,
+            exclusive_min: None,
+            exclusive_max: None,
             got: value,
             range: format!("a finite number >= {min}"),
+        })
+    }
+}
+
+/// `value` finite and strictly above `bound`, or an [`Error::OutOfRange`]
+/// naming the field with `bound` as its open lower bound (`exclusive_min`).
+pub(crate) fn check_above(name: &str, value: f64, bound: f64) -> Result<()> {
+    if value.is_finite() && value > bound {
+        Ok(())
+    } else {
+        Err(Error::OutOfRange {
+            parameter: name.to_string(),
+            min: None,
+            max: None,
+            exclusive_min: Some(bound),
+            exclusive_max: None,
+            got: value,
+            range: format!("a finite number > {bound}"),
         })
     }
 }
@@ -44,13 +66,18 @@ pub(crate) fn check_at_least(name: &str, value: f64, min: f64) -> Result<()> {
 #[derive(Debug, Clone, PartialEq, Error)]
 #[non_exhaustive]
 pub enum Error {
-    /// A setting outside the values it accepts: `min` / `max` are the bounds
-    /// (`None` where unbounded) and `range` says it in words.
+    /// A setting outside the values it accepts, and `range` says it in words.
+    /// `min` / `max` are the closed bounds (the value may equal them),
+    /// `exclusive_min` / `exclusive_max` the open ones (it must lie strictly
+    /// beyond them). A side has at most one of the two; `None` on both means
+    /// that side is unbounded.
     #[error("{parameter} must be {range}, got {got}")]
     OutOfRange {
         parameter: String,
         min: Option<f64>,
         max: Option<f64>,
+        exclusive_min: Option<f64>,
+        exclusive_max: Option<f64>,
         got: f64,
         range: String,
     },

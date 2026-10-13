@@ -145,6 +145,8 @@ impl CuttingConfig {
                 parameter: "kerf_width".to_string(),
                 min: Some(0.0),
                 max: None,
+                exclusive_min: None,
+                exclusive_max: None,
                 got: self.kerf_width,
                 range: "finite and >= 0 (0 disables compensation)".to_string(),
             });
@@ -154,6 +156,8 @@ impl CuttingConfig {
                 parameter: "pierce_candidates".to_string(),
                 min: Some(1.0),
                 max: None,
+                exclusive_min: None,
+                exclusive_max: None,
                 got: 0.0,
                 range: "at least 1".to_string(),
             });

@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Depends on u-geometry 0.5.
 
+### Changed
+
+- **Breaking:** a `parameter_out_of_range` refusal tells a closed bound from an
+  open one. `min` / `max` are now only bounds the value may equal;
+  a bound it may not equal goes out as the new `exclusive_min` /
+  `exclusive_max` (in `details` on every transport, and as fields of
+  `Error::OutOfRange`, which gains `exclusive_min: Option<f64>` and
+  `exclusive_max: Option<f64>`). A side carries at most one of the two, and the
+  open-bound keys appear only when used, so a refusal with closed bounds keeps
+  its shape. `SaConfig::validate` (`initial_temp`, `final_temp`) and
+  `ExactConfig::validate` (`grid_step`) used to report "> 0" as
+  `min: 2.2250738585072014e-308`; they now report `exclusive_min: 0`, and the
+  message reads "a finite number > 0". The response JSON schema lists the two
+  keys under `details`.
+
 ### Fixed
 
 - **Breaking:** a `kerf_width` wider than the gap between two placed parts is

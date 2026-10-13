@@ -120,9 +120,9 @@ impl ExactConfig {
     /// `ConfigError` for a `gap_tolerance` outside `[0, 1]` or a `grid_step`
     /// that is not finite and positive.
     pub fn validate(&self) -> crate::error::Result<()> {
-        use crate::error::{check_at_least, check_range};
+        use crate::error::{check_above, check_range};
         check_range("gap_tolerance", self.gap_tolerance, 0.0, 1.0)?;
-        check_at_least("grid_step", self.grid_step, f64::MIN_POSITIVE)?;
+        check_above("grid_step", self.grid_step, 0.0)?;
         Ok(())
     }
 

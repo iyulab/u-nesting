@@ -81,6 +81,8 @@ where
                 parameter: "kerf_width".to_string(),
                 min: Some(0.0),
                 max: Some(gap),
+                exclusive_min: None,
+                exclusive_max: None,
                 got: config.kerf_width,
                 range: format!(
                     "at most {gap}, the narrowest gap between two placed parts (a wider \

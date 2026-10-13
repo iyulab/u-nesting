@@ -34,6 +34,8 @@
         "index": { "type": "integer" },
         "min": { "type": "number" },
         "max": { "type": "number" },
+        "exclusive_min": { "type": "number" },
+        "exclusive_max": { "type": "number" },
         "got": { "type": ["number", "string"] },
         "expected": { "type": "array", "items": { "type": "string" } }
       }
