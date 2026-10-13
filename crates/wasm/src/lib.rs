@@ -317,7 +317,7 @@ mod tests {
 
         let r = answer(solve_3d(
             r#"{"geometries": [{"id": "crate", "dimensions": [1, 1, 1]}],
-                "boundary": {"dimensions": [5, 5, 5]}, "config": {"population_size": -1}}"#,
+                "boundary": {"dimensions": [5, 5, 5]}, "config": {"strategy": "ga", "population_size": -1}}"#,
         ));
         assert_eq!(r["code"], "parameter_out_of_range", "{r}");
         assert_eq!(

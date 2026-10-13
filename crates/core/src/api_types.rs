@@ -1035,6 +1035,29 @@ impl ConfigRequest {
                 expected: Strategy::NAMES.iter().map(|n| n.to_string()).collect(),
             })?;
         }
+        // A setting only some strategies read is refused when the chosen one
+        // does not: run without it, the request would claim a setting that
+        // changed nothing. (It used to be accepted and ignored.)
+        let present = [
+            ("population_size", self.population_size.is_some()),
+            ("max_generations", self.max_generations.is_some()),
+            ("crossover_rate", self.crossover_rate.is_some()),
+            ("mutation_rate", self.mutation_rate.is_some()),
+            ("seed", self.seed.is_some()),
+            ("target_utilization", self.target_utilization.is_some()),
+        ];
+        for (setting, given) in present {
+            if given && !config.strategy.reads_setting(setting) {
+                let name = self.strategy.as_deref().unwrap_or(Strategy::NAMES[0]);
+                return Err(Error::invalid_option(
+                    setting,
+                    format!(
+                        "{setting} is read by {} -- strategy \"{name}\" does not read it; leave it out",
+                        Strategy::readers_of(setting).join(", ")
+                    ),
+                ));
+            }
+        }
         if let Some(spacing) = self.spacing {
             config.spacing = spacing;
         }
@@ -1427,6 +1450,60 @@ mod dto_strictness_tests {
         assert_eq!(v["details"], serde_json::Value::Null);
     }
 
+    /// A setting only some strategies read is refused under a strategy that
+    /// does not read it -- named, with the strategies that do -- rather than
+    /// accepted and ignored; under one that reads it, it is taken.
+    #[test]
+    fn a_setting_the_strategy_does_not_read_is_refused() {
+        let config = |v: serde_json::Value| {
+            serde_json::from_value::<super::ConfigRequest>(v)
+                .expect("a config request")
+                .to_config()
+        };
+        for (body, setting) in [
+            (
+                json!({ "strategy": "sa", "crossover_rate": 0.9 }),
+                "crossover_rate",
+            ),
+            (
+                json!({ "strategy": "brkga", "mutation_rate": 0.1 }),
+                "mutation_rate",
+            ),
+            (
+                json!({ "strategy": "sa", "population_size": 40 }),
+                "population_size",
+            ),
+            (
+                json!({ "strategy": "nfp", "max_generations": 10 }),
+                "max_generations",
+            ),
+            (json!({ "strategy": "blf", "seed": 7 }), "seed"),
+            (
+                json!({ "strategy": "gdrr", "target_utilization": 0.8 }),
+                "target_utilization",
+            ),
+            // No strategy: the default (blf) reads none of them.
+            (json!({ "population_size": 40 }), "population_size"),
+        ] {
+            let e = config(body.clone()).unwrap_err();
+            assert_eq!(e.code(), "invalid_option", "{body}");
+            let details = super::RefusalDetails::of(&e);
+            assert_eq!(details.parameter.as_deref(), Some(setting), "{body}");
+        }
+        let e = config(json!({ "strategy": "sa", "crossover_rate": 0.9 })).unwrap_err();
+        assert!(e.to_string().contains("read by ga"), "{e}");
+
+        for body in [
+            json!({ "strategy": "ga", "crossover_rate": 0.9, "mutation_rate": 0.1, "population_size": 40, "max_generations": 10, "seed": 7, "target_utilization": 0.8 }),
+            json!({ "strategy": "brkga", "population_size": 40, "max_generations": 10, "seed": 7, "target_utilization": 0.8 }),
+            json!({ "strategy": "sa", "seed": 7, "target_utilization": 0.8 }),
+            json!({ "strategy": "alns", "seed": 7 }),
+            json!({ "strategy": "hybridexact", "seed": 7 }),
+        ] {
+            assert!(config(body.clone()).is_ok(), "{body}");
+        }
+    }
+
     #[test]
     fn config_requests_are_refused_not_clamped() {
         let request = |v: serde_json::Value| -> super::ConfigRequest {
@@ -1442,7 +1519,7 @@ mod dto_strictness_tests {
         assert!(details.expected.unwrap().contains(&"brkga".to_string()));
 
         // It was clamped into [0, 1] by every binding.
-        let target = request(json!({ "target_utilization": 1.5 }))
+        let target = request(json!({ "strategy": "ga", "target_utilization": 1.5 }))
             .to_config()
             .unwrap_err();
         assert_eq!(target.code(), "parameter_out_of_range");
@@ -1535,7 +1612,10 @@ mod dto_strictness_tests {
     /// meets the same bound as a too-small positive value.
     #[test]
     fn counts_are_whole_numbers_judged_by_their_range() {
-        let config = |v: serde_json::Value| -> crate::Result<crate::solver::Config> {
+        // Under `ga`, which reads every one of these settings: the range is
+        // what is being judged, not whether the strategy reads the setting.
+        let config = |mut v: serde_json::Value| -> crate::Result<crate::solver::Config> {
+            v["strategy"] = json!("ga");
             super::from_json::<super::ConfigRequest>(&v.to_string())?.to_config()
         };
         let details = |e: crate::Error| {

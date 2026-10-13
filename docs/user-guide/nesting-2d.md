@@ -115,11 +115,13 @@ sheets of the same size (see [Multi-Sheet Nesting](#multi-sheet-nesting)).
 | `spacing` | number | 0 | Minimum distance between parts, at least 0 |
 | `margin` | number | 0 | Minimum distance from the sheet edges, at least 0 |
 | `time_limit_ms` | integer | 30000 | Maximum solving time, at least 0 (0 = no limit) |
-| `target_utilization` | number | none | Stop a search once a layout reaches it, in [0, 1] |
+| `target_utilization` | number | none | `ga`, `brkga`, `sa`: stop once every part is placed at this utilization or more, in [0, 1] |
 | `population_size` | integer | 30 | GA/BRKGA population size, at least 2; a value you set is run as given |
 | `max_generations` | integer | 50 | GA/BRKGA generation budget, at least 0; a value you set is run as given |
 | `crossover_rate` | number | 0.85 | GA crossover probability, in [0, 1] |
 | `mutation_rate` | number | 0.05 | GA mutation probability, in [0, 1] |
+
+A setting that only some strategies read (`target_utilization`, `population_size`, `max_generations`, `crossover_rate`, `mutation_rate`, `seed`) is refused as `invalid_option` when the request's strategy does not read it, with the strategies that do in the message -- it is not accepted and ignored.
 | `seed` | integer | none | RNG seed of `ga`, `brkga`, `sa`, `gdrr`, `alns`: the same request and seed give the same layout when the run ends on its own budget, not on the clock (a search keeps a 10-15 s budget of its own when `time_limit_ms` is 0) |
 | `multi_sheet` | boolean | false | Spill overflow onto additional sheets (sheet-local coords; `sheet_index` selects the sheet) |
 

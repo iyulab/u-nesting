@@ -126,7 +126,7 @@
         },
         "target_utilization": {
           "type": "number",
-          "description": "Target utilization ratio (0.0-1.0). Solver stops if reached.",
+          "description": "Target utilization (0.0-1.0): ga, brkga and sa stop once every piece is placed at this utilization or more. Refused (invalid_option) under any other strategy.",
           "minimum": 0,
           "maximum": 1
         },

@@ -26,7 +26,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 use u_nesting_core::{Error, Placement, Result, SolveResult};
 
-use crate::placement_utils::{hole_nfps, inset_boundary, offset_nfp};
+use crate::placement_utils::{hole_nfps, inset_boundary, nesting_fitness, offset_nfp};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
@@ -247,23 +247,31 @@ impl Nester2D {
     /// generation budget, [`SEARCH_POPULATION`] / [`SEARCH_GENERATIONS`] for
     /// the ones left unset.
     fn ga_config(&self) -> GaConfig {
-        GaConfig::default()
+        let config = GaConfig::default()
             .with_population_size(self.config.population_size.unwrap_or(SEARCH_POPULATION))
             .with_max_generations(self.config.max_generations.unwrap_or(SEARCH_GENERATIONS))
             .with_crossover_rate(self.config.crossover_rate)
             .with_mutation_rate(self.config.mutation_rate)
-            .with_elite_count(self.config.elite_count)
+            .with_elite_count(self.config.elite_count);
+        match self.target_fitness() {
+            Some(target) => config.with_target_fitness(target),
+            None => config,
+        }
     }
 
     /// The BRKGA run the configuration asks for, with the same population
     /// and generation budget as [`Self::ga_config`].
     fn brkga_config(&self) -> BrkgaConfig {
-        BrkgaConfig::default()
+        let config = BrkgaConfig::default()
             .with_population_size(self.config.population_size.unwrap_or(SEARCH_POPULATION))
             .with_max_generations(self.config.max_generations.unwrap_or(SEARCH_GENERATIONS))
             .with_elite_fraction(0.2)
             .with_mutant_fraction(0.15)
-            .with_elite_bias(0.7)
+            .with_elite_bias(0.7);
+        match self.target_fitness() {
+            Some(target) => config.with_target_fitness(target),
+            None => config,
+        }
     }
 
     /// The GDRR run for `time_limit_ms`, drawing from the caller's seed.
@@ -608,6 +616,14 @@ impl Nester2D {
     /// The time a search strategy may spend on one strip: a quarter of the
     /// limit (assuming up to about four strips), at least 5 s, never more than
     /// the limit itself; `default_ms` when there is no limit.
+    /// The fitness a search stops at for `target_utilization`: every part
+    /// placed, at that utilization ([`nesting_fitness`] of a complete layout).
+    fn target_fitness(&self) -> Option<f64> {
+        self.config
+            .target_utilization
+            .map(|target| nesting_fitness(1, 1, target))
+    }
+
     fn search_budget_ms(&self, default_ms: u64) -> u64 {
         if self.config.time_limit_ms > 0 {
             (self.config.time_limit_ms / 4)
@@ -730,6 +746,10 @@ impl Nester2D {
             .with_iterations_per_temp(20) // Fewer iterations per temp (was 50)
             .with_max_iterations(500) // Much fewer max iterations (was 10000)
             .with_time_limit(std::time::Duration::from_millis(time_limit_ms));
+        let sa_config = match self.target_fitness() {
+            Some(target) => sa_config.with_target_fitness(target),
+            None => sa_config,
+        };
 
         let result = run_sa_nesting(
             geometries,

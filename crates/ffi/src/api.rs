@@ -1391,7 +1391,7 @@ mod tests {
     #[test]
     fn test_build_config_with_values() {
         let request = Some(ConfigRequest {
-            strategy: Some("nfp".to_string()),
+            strategy: Some("ga".to_string()),
             seed: None,
             spacing: Some(2.5),
             margin: Some(1.0),
@@ -1413,7 +1413,7 @@ mod tests {
         assert_eq!(config.max_generations, Some(100));
         assert_eq!(config.crossover_rate, 0.9);
         assert_eq!(config.mutation_rate, 0.1);
-        assert!(matches!(config.strategy, Strategy::NfpGuided));
+        assert!(matches!(config.strategy, Strategy::GeneticAlgorithm));
     }
 
     #[test]
@@ -2263,7 +2263,14 @@ mod tests {
             })
         );
 
-        let config = |setting: &str| c_abi(unesting_solve_2d, &rectangle_with("", setting));
+        // Under `ga`, which reads every one of these settings: the range is what
+        // is judged here, not whether the strategy reads the setting.
+        let config = |setting: &str| {
+            c_abi(
+                unesting_solve_2d,
+                &rectangle_with("", &format!(r#""strategy": "ga", {setting}"#)),
+            )
+        };
         for population in ["-1", "1"] {
             let r = config(&format!(r#""population_size": {population}"#));
             assert_eq!(r["code"], "parameter_out_of_range", "{r}");
@@ -2302,7 +2309,7 @@ mod tests {
 
         // Whole numbers in range pass, a seed up to the largest u64 included.
         let r = config(
-            r#""strategy": "ga", "population_size": 2, "max_generations": 0, "time_limit_ms": 0,
+            r#""population_size": 2, "max_generations": 0, "time_limit_ms": 0,
                "seed": 18446744073709551615"#,
         );
         assert_eq!(r["success"], true, "{r}");

@@ -38,6 +38,40 @@ impl Strategy {
     /// The short name of each strategy -- what a refusal of an unknown name
     /// lists as expected. [`Strategy::parse`] reads these and the longer
     /// forms in [`Strategy::SPELLINGS`].
+    /// Whether this strategy reads `setting` -- one of the settings only some
+    /// strategies use. A request that names one its strategy does not read is
+    /// refused rather than run without it (see `ConfigRequest::to_config`).
+    /// Settings every strategy reads are not listed and always read.
+    ///
+    /// - `crossover_rate`, `mutation_rate`: the genetic algorithm.
+    /// - `population_size`, `max_generations`: the two population searches.
+    /// - `seed`: the stochastic searches (and the hybrid's ALNS fallback).
+    /// - `target_utilization`: the searches that stop on a target (GA, BRKGA,
+    ///   SA).
+    pub fn reads_setting(self, setting: &str) -> bool {
+        use Strategy::*;
+        match setting {
+            "crossover_rate" | "mutation_rate" => matches!(self, GeneticAlgorithm),
+            "population_size" | "max_generations" => matches!(self, GeneticAlgorithm | Brkga),
+            "seed" => matches!(
+                self,
+                GeneticAlgorithm | Brkga | SimulatedAnnealing | Gdrr | Alns | HybridExact
+            ),
+            "target_utilization" => matches!(self, GeneticAlgorithm | Brkga | SimulatedAnnealing),
+            _ => true,
+        }
+    }
+
+    /// The names of the strategies that read `setting` (see
+    /// [`Self::reads_setting`]).
+    pub fn readers_of(setting: &str) -> Vec<&'static str> {
+        Self::NAMES
+            .iter()
+            .copied()
+            .filter(|n| Self::parse(n).is_some_and(|s| s.reads_setting(setting)))
+            .collect()
+    }
+
     pub const NAMES: [&'static str; 10] = [
         "blf",
         "nfp",

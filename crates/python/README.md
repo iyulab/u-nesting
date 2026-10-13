@@ -153,15 +153,18 @@ Solve a 2D nesting problem.
   - `margin` (float): Gap from boundary
   - `time_limit_ms` (int): Timeout in milliseconds, at least 0 (0 = no
     limit; default 30000)
-  - `target_utilization` (float): Stop a search once a layout reaches this
-    utilization, in [0, 1]
+  - `target_utilization` (float): `ga`, `brkga`, `sa` stop once every part is
+    placed at this utilization or more, in [0, 1]
   - `population_size` (int): GA/BRKGA population, at least 2, run as given.
     Omitted, each search uses the size it is tuned for: 30 in 2D
   - `max_generations` (int): GA/BRKGA generation budget, at least 0, run as
     given. Omitted, 50 in 2D
+  - A setting only some strategies read (`target_utilization`, `population_size`,
+    `max_generations`, `crossover_rate`, `mutation_rate`, `seed`) is refused as
+    `invalid_option` under a strategy that does not read it, not ignored
   - `crossover_rate` / `mutation_rate` (float): GA crossover and mutation
     probabilities, in [0, 1] (default 0.85 / 0.05)
-  - `seed` (int): RNG seed of `ga`, `brkga`, `sa`, `gdrr` and `alns`. The same
+  - `seed` (int): RNG seed of `ga`, `brkga`, `sa`, `gdrr`, `alns` and `hybridexact`. The same
     problem with the same seed returns the same layout when the run ends on its
     own budget rather than on the clock (a 2D search keeps a time budget of its
     own, 10-15 s, when `time_limit_ms` is 0)

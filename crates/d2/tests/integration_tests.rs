@@ -1234,3 +1234,31 @@ mod stress_tests {
         assert!(result.unplaced.is_empty());
     }
 }
+
+/// `target_utilization` stops the searches that read it: once every part is
+/// placed at that utilization or more, the search ends and says so. It used to
+/// be validated and never read -- no search stopped on it.
+#[test]
+fn a_reached_target_stops_the_search() {
+    let geometries = vec![Geometry2D::rectangle("plate", 10.0, 5.0).with_quantity(4)];
+    let boundary = Boundary2D::rectangle(100.0, 100.0);
+    for strategy in [
+        Strategy::GeneticAlgorithm,
+        Strategy::Brkga,
+        Strategy::SimulatedAnnealing,
+    ] {
+        let config = Config::default()
+            .with_strategy(strategy)
+            .with_target_utilization(0.0)
+            .with_time_limit(30_000)
+            .with_seed(1);
+        let result = Nester2D::new(config)
+            .solve(&geometries, &boundary)
+            .expect("a valid request");
+        assert!(result.unplaced.is_empty(), "{strategy:?}: every part fits");
+        assert!(
+            result.target_reached,
+            "{strategy:?}: a target of 0 is met by the first complete layout"
+        );
+    }
+}

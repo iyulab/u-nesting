@@ -651,6 +651,7 @@ mod tests {
         // refused it -- the binding answered a different question than asked.
         for bad in [1.5, -0.5] {
             let err = build_config(Some(ConfigRequest {
+                strategy: Some("ga".to_string()),
                 target_utilization: Some(bad),
                 ..config_input()
             }))
@@ -658,6 +659,7 @@ mod tests {
             assert_eq!(err.code(), "parameter_out_of_range");
         }
         let ok = build_config(Some(ConfigRequest {
+            strategy: Some("ga".to_string()),
             target_utilization: Some(0.9),
             ..config_input()
         }))
@@ -668,6 +670,7 @@ mod tests {
     #[test]
     fn stochastic_parameters_and_seed_reach_the_config() {
         let input = ConfigRequest {
+            strategy: Some("ga".to_string()),
             time_limit_ms: Some(1_234),
             population_size: Some(42),
             max_generations: Some(7),
@@ -864,7 +867,7 @@ mod tests {
         assert_eq!(omitted.population_size, None);
         assert_eq!(omitted.max_generations, None);
 
-        let e = from_json::<ConfigRequest>(r#"{"population_size":-1}"#)
+        let e = from_json::<ConfigRequest>(r#"{"strategy":"ga","population_size":-1}"#)
             .expect("a whole number is the right shape")
             .to_config()
             .expect_err("below 2");
@@ -966,7 +969,7 @@ mod tests {
         };
         let cases = [
             (
-                solve(plate, sheet, r#"{"population_size": 1}"#),
+                solve(plate, sheet, r#"{"strategy": "ga", "population_size": 1}"#),
                 "parameter_out_of_range",
                 "config.population_size",
             ),

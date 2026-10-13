@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** a setting only some strategies read is refused as
+  `invalid_option` (`parameter` = the setting) when the request's strategy does
+  not read it, with the strategies that do in the message:
+  `crossover_rate` / `mutation_rate` (`ga`), `population_size` /
+  `max_generations` (`ga`, `brkga`), `seed` (`ga`, `brkga`, `sa`, `gdrr`,
+  `alns`, `hybridexact`) and `target_utilization` (`ga`, `brkga`, `sa`). They
+  used to be accepted and ignored. A request without a `strategy` runs `blf`,
+  which reads none of them. `Strategy::reads_setting` / `readers_of` state the
+  table; the Rust `Config` is unchanged.
+
 - **Breaking:** `Config` has no `threads` field. It was never read: a thread
   count given there changed nothing. A build with the `parallel` feature runs
   its parallel work (GA and BRKGA population evaluation, no-fit polygon
@@ -45,6 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it, and it read 0 restarts as 1 and drew from an unseeded generator.
 
 ### Fixed
+
+- `target_utilization` stops the searches. It was validated and never read:
+  no search stopped on it, though the README said one would. `ga`, `brkga` and
+  `sa` (2D and 3D) now end once every part is placed at that utilization or
+  more, and report `target_reached`.
 
 - The ESICUP benchmark measures against the literature. Its reference table
   held strip lengths, some of them impossible for the instance (MARQUES at a

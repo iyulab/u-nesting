@@ -5,7 +5,7 @@ use crate::brkga_packing::run_brkga_packing;
 use crate::extreme_point::run_ep_packing;
 use crate::ga_packing::run_ga_packing;
 use crate::geometry::Geometry3D;
-use crate::packing_utils::{build_unplaced_list, layer_fill_in_order};
+use crate::packing_utils::{build_unplaced_list, layer_fill_in_order, packing_fitness};
 use crate::physics::{PhysicsConfig, PhysicsSimulator};
 use crate::sa_packing::run_sa_packing;
 use crate::stability::{PlacedBox, StabilityAnalyzer, StabilityConstraint, StabilityReport};
@@ -85,24 +85,40 @@ impl Packer3D {
     /// generation budget, [`GA_POPULATION`] / [`GA_GENERATIONS`] for the ones
     /// left unset.
     fn ga_config(&self) -> GaConfig {
-        GaConfig::default()
+        let config = GaConfig::default()
             .with_population_size(self.config.population_size.unwrap_or(GA_POPULATION))
             .with_max_generations(self.config.max_generations.unwrap_or(GA_GENERATIONS))
             .with_crossover_rate(self.config.crossover_rate)
             .with_mutation_rate(self.config.mutation_rate)
-            .with_elite_count(self.config.elite_count)
+            .with_elite_count(self.config.elite_count);
+        match self.target_fitness() {
+            Some(target) => config.with_target_fitness(target),
+            None => config,
+        }
+    }
+
+    /// The fitness a search stops at for `target_utilization`: every box
+    /// placed, at that utilization ([`packing_fitness`] of a complete packing).
+    fn target_fitness(&self) -> Option<f64> {
+        self.config
+            .target_utilization
+            .map(|target| packing_fitness(1, 1, target))
     }
 
     /// The BRKGA run the configuration asks for: the caller's population and
     /// generation budget, [`BRKGA_POPULATION`] / [`BRKGA_GENERATIONS`] for the
     /// ones left unset.
     fn brkga_config(&self) -> BrkgaConfig {
-        BrkgaConfig::default()
+        let config = BrkgaConfig::default()
             .with_population_size(self.config.population_size.unwrap_or(BRKGA_POPULATION))
             .with_max_generations(self.config.max_generations.unwrap_or(BRKGA_GENERATIONS))
             .with_elite_fraction(0.2)
             .with_mutant_fraction(0.15)
-            .with_elite_bias(0.7)
+            .with_elite_bias(0.7);
+        match self.target_fitness() {
+            Some(target) => config.with_target_fitness(target),
+            None => config,
+        }
     }
 
     /// Judges the request once, at the solve entry point, whichever strategy
@@ -445,6 +461,7 @@ impl Packer3D {
             .with_iterations_per_temp(50)
             .with_max_iterations(10000);
         sa_config.time_limit = self.search_time_limit(&started);
+        sa_config.target_fitness = self.target_fitness();
 
         let result = run_sa_packing(
             geometries,

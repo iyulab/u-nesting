@@ -106,7 +106,9 @@ fn assert_levels(root: &Value, given: &Value, levels: &[(&str, &Value, &Value)])
 /// One valid value for every key a request's `config` takes.
 fn every_setting() -> Map<String, Value> {
     let settings = json!({
-        "spacing": 0.0, "margin": 0.0, "strategy": "blf", "time_limit_ms": 1000,
+        // `ga` reads every setting only some strategies read, so a request
+        // carrying all of them is one a strategy accepts.
+        "spacing": 0.0, "margin": 0.0, "strategy": "ga", "time_limit_ms": 1000,
         "target_utilization": 0.9, "population_size": 4, "max_generations": 1,
         "crossover_rate": 0.8, "mutation_rate": 0.1, "seed": 1, "multi_sheet": false
     });
@@ -246,7 +248,13 @@ fn each_config_schema_lists_the_settings_its_dimension_accepts() {
     let accepted = |solves: &dyn Fn(&Value) -> bool| -> BTreeSet<String> {
         settings
             .iter()
-            .filter(|(key, value)| solves(&json!({ key.as_str(): value })))
+            // Each setting beside the strategy that reads it: a setting only
+            // some strategies read is refused under one that does not.
+            .filter(|(key, value)| {
+                let mut config = json!({ "strategy": "ga" });
+                config[key.as_str()] = (*value).clone();
+                solves(&config)
+            })
             .map(|(key, _)| key.clone())
             .collect()
     };
