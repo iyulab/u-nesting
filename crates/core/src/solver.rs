@@ -90,6 +90,11 @@ impl Strategy {
 }
 
 /// Common configuration for solvers.
+///
+/// It holds no thread count: a build with the `parallel` feature runs its
+/// parallel work on the rayon pool the solve is called from, so
+/// `rayon::ThreadPool::install` around the solve (or `RAYON_NUM_THREADS`)
+/// bounds it; without the feature a solve runs on the calling thread.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct Config {
@@ -112,9 +117,6 @@ pub struct Config {
 
     /// Target utilization (0.0 - 1.0). Solver stops if reached.
     pub target_utilization: Option<f64>,
-
-    /// Number of threads to use (0 = auto).
-    pub threads: usize,
 
     // GA-specific parameters
     /// Population size for the population-based strategies (GA, BRKGA).
@@ -165,7 +167,6 @@ impl Default for Config {
             margin: 0.0,
             time_limit_ms: 30000,
             target_utilization: None,
-            threads: 0,
             population_size: None,
             max_generations: None,
             crossover_rate: 0.85,
