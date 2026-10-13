@@ -132,16 +132,14 @@
         },
         "population_size": {
           "type": "integer",
-          "description": "Population size for GA/BRKGA",
-          "minimum": 2,
-          "default": 100
+          "description": "Population size for GA/BRKGA, run as given. Omitted, each strategy uses the size it is tuned for: 100 for GA and 50 for BRKGA in 3D",
+          "minimum": 2
         },
         "max_generations": {
           "type": "integer",
-          "description": "Maximum generations for GA/BRKGA",
+          "description": "Generation budget for GA/BRKGA, run as given (0 evaluates the first population only). Omitted, each strategy uses the budget it is tuned for: 500 for GA and 100 for BRKGA in 3D",
           "minimum": 0,
-          "maximum": 4294967295,
-          "default": 500
+          "maximum": 4294967295
         },
         "crossover_rate": {
           "type": "number",

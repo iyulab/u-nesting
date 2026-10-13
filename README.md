@@ -343,7 +343,7 @@ SolveResult {
 
 ## Performance
 
-### 2D Benchmarks (GA, 500 generations)
+### 2D Benchmarks (GA)
 
 | Geometries | Complexity | Time | Utilization |
 |------------|------------|------|-------------|

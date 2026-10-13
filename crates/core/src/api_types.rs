@@ -176,11 +176,14 @@ pub struct ConfigRequest {
     /// Target utilization (0.0 - 1.0).
     pub target_utilization: Option<f64>,
 
-    /// GA population size: a whole number, at least 2.
+    /// GA/BRKGA population size: a whole number, at least 2. Omitted, each
+    /// strategy uses the size it is tuned for (see `Config::population_size`).
     #[serde(default, deserialize_with = "whole::optional")]
     pub population_size: Option<i128>,
 
-    /// GA max generations: a whole number from 0 to 4294967295.
+    /// GA/BRKGA generation budget: a whole number from 0 to 4294967295.
+    /// Omitted, each strategy uses the budget it is tuned for (see
+    /// `Config::max_generations`).
     #[serde(default, deserialize_with = "whole::optional")]
     pub max_generations: Option<i128>,
 
@@ -713,8 +716,10 @@ pub struct CuttingResponse {
     /// Total number of pierce operations.
     pub total_pierces: usize,
 
-    /// Estimated total time in seconds (if speeds configured).
-    pub estimated_time_seconds: Option<f64>,
+    /// Estimated total time in seconds: the rapid distance at `rapid_speed`
+    /// plus the cut distance at `cut_speed` (0 when nothing is cut, and on
+    /// error responses).
+    pub estimated_time_seconds: f64,
 
     /// Cutting efficiency (cut_distance / total_distance).
     pub efficiency: f64,
@@ -822,7 +827,7 @@ impl CuttingResponse {
             total_cut_distance: 0.0,
             total_rapid_distance: 0.0,
             total_pierces: 0,
-            estimated_time_seconds: None,
+            estimated_time_seconds: 0.0,
             efficiency: 0.0,
             computation_time_ms: 0,
             skipped_contours: Vec::new(),
@@ -904,7 +909,9 @@ impl RefusalDetails {
                 d.exclusive_max = *exclusive_max;
                 d.got = Some(RefusalValue::Number(*got));
             }
-            Error::InvalidOption { parameter, .. } => d.parameter = Some(parameter.clone()),
+            Error::EmptyInput { parameter } | Error::InvalidOption { parameter, .. } => {
+                d.parameter = Some(parameter.clone())
+            }
             Error::UnknownOption {
                 parameter,
                 got,
@@ -957,10 +964,10 @@ impl ConfigRequest {
             config.target_utilization = Some(target);
         }
         if let Some(pop) = self.population_size {
-            config.population_size = Config::check_population_size(pop)?;
+            config.population_size = Some(Config::check_population_size(pop)?);
         }
         if let Some(gens) = self.max_generations {
-            config.max_generations = whole_at_least("max_generations", gens, 0)?;
+            config.max_generations = Some(whole_at_least("max_generations", gens, 0)?);
         }
         if let Some(crossover) = self.crossover_rate {
             config.crossover_rate = crossover;
@@ -1136,6 +1143,123 @@ mod dto_strictness_tests {
         assert_eq!(back.details, Some(super::RefusalDetails::of(&open)));
     }
 
+    /// A list with nothing in it names itself and nothing else.
+    #[test]
+    fn an_empty_list_is_named() {
+        let empty = crate::Error::empty_input("geometries");
+        let v = serde_json::to_value(super::SolveResponse::refused(&empty)).expect("serialize");
+        assert_eq!(v["code"], "empty_input");
+        assert_eq!(v["details"], json!({ "parameter": "geometries" }));
+        assert_eq!(v["error"], "geometries is empty; give at least one");
+    }
+
+    /// The algorithm builders store what they are given -- they used to raise
+    /// a value below a floor to the floor (a grid step of 0.05 became 0.1, a
+    /// NaN ruin weight 0) -- and `validate` refuses what is out of range.
+    #[test]
+    fn builders_store_what_they_are_given() {
+        use crate::alns::AlnsConfig;
+        use crate::brkga::BrkgaConfig;
+        use crate::exact::ExactConfig;
+        use crate::ga::GaConfig;
+        use crate::gdrr::GdrrConfig;
+        use crate::sa::SaConfig;
+        let details = |r: crate::Result<()>| {
+            let e = r.expect_err("out of range");
+            (
+                e.code(),
+                serde_json::to_value(super::RefusalDetails::of(&e)).expect("serialize"),
+            )
+        };
+        let range = |v: serde_json::Value| ("parameter_out_of_range", v);
+
+        let sa = SaConfig::default().with_initial_temp(0.0);
+        assert_eq!(sa.initial_temp, 0.0);
+        assert_eq!(
+            details(sa.validate()),
+            range(json!({ "parameter": "initial_temp", "exclusive_min": 0.0, "got": 0.0 }))
+        );
+        assert_eq!(
+            details(SaConfig::default().with_final_temp(0.0).validate()),
+            range(json!({ "parameter": "final_temp", "exclusive_min": 0.0, "got": 0.0 }))
+        );
+        let sa = SaConfig::default().with_iterations_per_temp(0);
+        assert_eq!(sa.iterations_per_temp, 0);
+        assert_eq!(
+            details(sa.validate()),
+            range(json!({ "parameter": "iterations_per_temp", "min": 1.0, "got": 0.0 }))
+        );
+        let sa = SaConfig::default().with_reheating(10, 0.5);
+        assert_eq!(sa.reheat_factor, 0.5);
+        assert_eq!(
+            details(sa.validate()),
+            range(json!({ "parameter": "reheat_factor", "min": 1.0, "got": 0.5 }))
+        );
+        assert!(SaConfig::default()
+            .with_reheating(10, 1.05)
+            .validate()
+            .is_ok());
+
+        let exact = ExactConfig::default().with_grid_step(0.05);
+        assert_eq!(exact.grid_step, 0.05);
+        assert!(exact.validate().is_ok());
+        assert_eq!(
+            details(ExactConfig::default().with_grid_step(0.0).validate()),
+            range(json!({ "parameter": "grid_step", "exclusive_min": 0.0, "got": 0.0 }))
+        );
+        assert_eq!(
+            details(ExactConfig::default().with_max_items(0).validate()),
+            range(json!({ "parameter": "max_items", "min": 1.0, "got": 0.0 }))
+        );
+        assert_eq!(
+            details(ExactConfig::default().with_rotation_steps(0).validate()),
+            range(json!({ "parameter": "rotation_steps", "min": 1.0, "got": 0.0 }))
+        );
+
+        let gdrr = GdrrConfig::default().with_ruin_weights(-1.0, 1.0, 1.0);
+        assert_eq!(gdrr.random_ruin_weight, -1.0);
+        assert_eq!(
+            details(gdrr.validate()),
+            range(json!({ "parameter": "random_ruin_weight", "min": 0.0, "got": -1.0 }))
+        );
+        let gdrr = GdrrConfig::default().with_ruin_weights(1.0, f64::NAN, 1.0);
+        assert!(gdrr.cluster_ruin_weight.is_nan(), "NaN is not 0");
+        assert!(gdrr.validate().is_err());
+
+        let alns = AlnsConfig::default().with_segment_size(0);
+        assert_eq!(alns.segment_size, 0);
+        assert_eq!(
+            details(alns.validate()),
+            range(json!({ "parameter": "segment_size", "min": 1.0, "got": 0.0 }))
+        );
+
+        let ga = GaConfig::default().with_population_size(1);
+        assert_eq!(ga.population_size, 1);
+        assert_eq!(
+            details(ga.validate()),
+            range(json!({ "parameter": "population_size", "min": 2.0, "got": 1.0 }))
+        );
+
+        // BRKGA used to raise anything below 4 to 4; 3 is a population.
+        let brkga = BrkgaConfig::default().with_population_size(3);
+        assert_eq!(brkga.population_size, 3);
+        assert!(brkga.validate().is_ok());
+        assert_eq!(
+            details(BrkgaConfig::default().with_population_size(1).validate()),
+            range(json!({ "parameter": "population_size", "min": 2.0, "got": 1.0 }))
+        );
+        // Each fraction rounds up to a whole individual: 2 elite and 2
+        // mutants do not fit in 3.
+        let crowded = BrkgaConfig::default()
+            .with_population_size(3)
+            .with_elite_fraction(0.5)
+            .with_mutant_fraction(0.5);
+        assert_eq!(
+            details(crowded.validate()),
+            ("invalid_option", json!({ "parameter": "population_size" }))
+        );
+    }
+
     #[test]
     fn a_successful_response_has_no_reason() {
         let v = serde_json::to_value(super::SolveResponse::from(crate::SolveResult::<f64>::new()))
@@ -1282,15 +1406,18 @@ mod dto_strictness_tests {
             "seed": u64::MAX, "spacing": null
         }))
         .expect("every value in range");
-        assert_eq!(ok.population_size, 2);
-        assert_eq!(ok.max_generations, u32::MAX);
+        assert_eq!(ok.population_size, Some(2));
+        assert_eq!(ok.max_generations, Some(u32::MAX));
+        let omitted = config(json!({})).expect("defaults");
+        assert_eq!(omitted.population_size, None, "the strategy's own");
+        assert_eq!(omitted.max_generations, None, "the strategy's own");
         assert_eq!(ok.seed, Some(u64::MAX));
         assert_eq!(config(json!({ "seed": 7.0 })).expect("7").seed, Some(7));
         assert_eq!(config(json!({ "seed": null })).expect("default").seed, None);
 
         // The configuration's own check is the same one.
         let own = crate::solver::Config {
-            population_size: 1,
+            population_size: Some(1),
             ..Default::default()
         };
         assert_eq!(

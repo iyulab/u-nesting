@@ -113,25 +113,30 @@ public class Config2D
     public double Margin { get; set; }
 
     /// <summary>
-    /// Time limit in milliseconds.
+    /// Time limit in milliseconds; 0 runs without one. When null the engine's
+    /// default, 30000, applies.
     /// </summary>
     [JsonPropertyName("time_limit_ms")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public int TimeLimitMs { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? TimeLimitMs { get; set; }
 
     /// <summary>
-    /// Population size for GA/BRKGA strategies.
+    /// Population size for the GA/BRKGA strategies, at least 2; the search runs
+    /// with the value given. When null each strategy uses the size it is tuned
+    /// for: 30.
     /// </summary>
     [JsonPropertyName("population_size")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public int PopulationSize { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? PopulationSize { get; set; }
 
     /// <summary>
-    /// Maximum number of generations for GA/BRKGA strategies.
+    /// Generation budget for the GA/BRKGA strategies (0 evaluates the first
+    /// population only); the search runs with the value given. When null each
+    /// strategy uses the budget it is tuned for: 50.
     /// </summary>
     [JsonPropertyName("max_generations")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
-    public int MaxGenerations { get; set; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public int? MaxGenerations { get; set; }
 
     /// <summary>
     /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA). When

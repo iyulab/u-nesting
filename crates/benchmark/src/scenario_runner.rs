@@ -29,10 +29,10 @@ pub struct ScenarioRunnerConfig {
     pub results_dir: PathBuf,
     /// Whether to show progress
     pub verbose: bool,
-    /// GA population size
-    pub population_size: usize,
-    /// GA max generations
-    pub max_generations: u32,
+    /// GA/BRKGA population size; `None` leaves it to each strategy
+    pub population_size: Option<usize>,
+    /// GA/BRKGA generation budget; `None` leaves it to each strategy
+    pub max_generations: Option<u32>,
     /// Synthetic dataset seed
     pub synthetic_seed: u64,
 }
@@ -43,8 +43,8 @@ impl Default for ScenarioRunnerConfig {
             datasets_dir: PathBuf::from("datasets"),
             results_dir: PathBuf::from("benchmark/results"),
             verbose: true,
-            population_size: 100,
-            max_generations: 500,
+            population_size: None,
+            max_generations: None,
             synthetic_seed: 42,
         }
     }
@@ -680,7 +680,7 @@ mod tests {
     #[test]
     fn test_scenario_runner_config() {
         let config = ScenarioRunnerConfig::default();
-        assert_eq!(config.population_size, 100);
+        assert_eq!(config.population_size, None);
         assert!(config.verbose);
     }
 

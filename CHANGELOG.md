@@ -11,6 +11,89 @@ Depends on u-geometry 0.5.
 
 ### Changed
 
+- **Breaking:** an empty `geometries` list is refused with the new code
+  `empty_input` (`details: { parameter: "geometries" }`) by `solve_2d`,
+  `solve_3d` and `solve` on every transport, and by `Solver::solve`,
+  `Solver::solve_with_progress` and `Nester2D::solve_multi_strip`. It used to
+  answer `success` with one sheet (or bin) used. `Error` gains
+  `EmptyInput { parameter }` (`Error::empty_input`).
+- **Breaking:** a boundary measure of 0 or below is `parameter_out_of_range`
+  with `exclusive_min: 0` and `got`, named by its place in the request:
+  `boundary.width`, `boundary.height`, `boundary.dimensions[0]` / `[1]` / `[2]`
+  (width, depth, height) and `boundary.max_mass`. It used to be
+  `invalid_boundary` with no bound and no value (and in 2D no `parameter`). A
+  strip's width is checked too (it was not), and a side that is not a number
+  (NaN) is refused (it passed). A boundary of a shape the engine cannot place
+  into -- both or neither of size and polygon, a polygon of no area or crossing
+  itself -- stays `invalid_boundary`. A box's own dimension of 0 or below and a
+  negative mass are `parameter_out_of_range` the same way
+  (`geometries[i].dimensions[j]`, `geometries[i].mass`, with the box's `id`;
+  `dimensions[j]` / `mass` from `Geometry3D::validate`), no longer
+  `invalid_geometry`.
+- **Breaking:** the cutting optimizer refuses a `cut_speed` or `rapid_speed`
+  that is not above 0 (`exclusive_min: 0`) and a `pierce_weight` or `tolerance`
+  below 0 (`min: 0`), as `parameter_out_of_range`. With both speeds above 0,
+  `estimated_time_seconds` is always a number -- the rapid distance at
+  `rapid_speed` plus the cut distance at `cut_speed`, 0 when nothing is cut and
+  on a refusal; a speed of 0 or below used to leave it `null`.
+  `CuttingPathResult::estimated_time_seconds` and
+  `CuttingResponse::estimated_time_seconds` are `f64`, and the npm type is
+  `number`. New builders `CuttingConfig::with_speeds` and `with_tolerance`.
+- **Breaking:** `Config::population_size` and `Config::max_generations` are
+  `Option<usize>` / `Option<u32>`. `None` -- the default, and a request that
+  leaves the field out -- runs each strategy with the budget it is tuned for:
+  2D GA and BRKGA 30 individuals and 50 generations, 3D GA 100 and 500, 3D
+  BRKGA 50 and 100 (the budgets an unset configuration ran with before).
+  `Some(n)` runs `n`. The 2D nester used to cut a population above 30 to 30
+  and a generation budget above 50 to 50, 2D BRKGA ran 50 generations and 3D
+  BRKGA 50 individuals for 100 generations whatever was asked.
+  `Config::with_population_size` and `Config::with_max_generations` set them;
+  the GA strategies also use `Config::elite_count`, which they ignored (its
+  default, 5, is the number they kept before).
+- **Breaking:** the algorithm builders store what they are given and
+  `validate` refuses a value out of range; they used to move it into range
+  without a word: `SaConfig::with_initial_temp` (raised to 0.001),
+  `with_final_temp` (0.0001), `with_iterations_per_temp` (1), `with_reheating`
+  (a factor below 1.1 became 1.1, so 1.05 is now run as given),
+  `ExactConfig::with_grid_step` (0.1 -- a step of 0.05 is now run as given),
+  `with_max_items` and `with_rotation_steps` (1), `GdrrConfig::with_ruin_weights`
+  (a negative weight, or NaN, became 0), `GaConfig::with_population_size` (2),
+  `BrkgaConfig::with_population_size` (4 -- a population of 2 or 3 is now run
+  as given), `AlnsConfig::with_segment_size` (1),
+  `CuttingConfig::with_pierce_candidates` (0 became 1), and in 3D
+  `PhysicsConfig::with_time_step`, `with_friction`, `with_restitution`,
+  `with_shaking` and `StabilityConstraint::partial_base`. `validate` gains the
+  checks those floors stood for: `SaConfig` `iterations_per_temp`,
+  `ExactConfig` `max_items` and `rotation_steps`, `AlnsConfig` `segment_size`
+  (each at least 1); `BrkgaConfig` refuses a population with no room for the
+  elite and mutants its fractions ask for (`invalid_option`,
+  `population_size`; it used to underflow). New `PhysicsConfig::validate` and
+  `StabilityConstraint::validate`; `PhysicsSimulator::new`,
+  `StabilityAnalyzer::new` and `Packer3D::validate_stability` return `Result`.
+- **Breaking:** `nfp_cm_solver::run_nfp_cm_nesting` returns `Result` and
+  refuses a `Config` or `ExactConfig` out of range before placing anything (it
+  read the grid step as given, 0 included). The stub for builds without `milp`
+  is removed; the module exists only with that feature.
+- 3D: every entry point judges the request the same way before a strategy
+  runs -- the configuration (`solve_with_progress` did not), the boundary, each
+  box and their ids.
+- `Boundary2D::from_request` and `Boundary3D::from_request` build a boundary
+  from its request; every binding uses them. `error::check_range`,
+  `check_at_least` and `check_above` are public.
+- C#: `Config2D` / `Config3D` `PopulationSize`, `MaxGenerations` and
+  `TimeLimitMs` are `int?`. `null` leaves the setting to the engine; 0 is sent
+  as a value -- 0 generations, or no time limit. A 0 used to be dropped, so
+  `TimeLimitMs = 0` ran with the 30-second default.
+- Python: a boundary given as both shapes, or half of a rectangle, raises
+  `ValueError` with the engine's message ("Invalid boundary: give either width
+  and height, or polygon -- not both, not one half").
+- The request JSON schemas no longer give `population_size` and
+  `max_generations` defaults of 100 and 500 -- each strategy's own, listed in
+  the descriptions, applies -- and the response schema lists `empty_input`.
+  The user guide's defaults (population 50, generations 100) and the npm
+  README's `crossover_rate` / `mutation_rate` defaults (0.8 / 0.1; they are
+  0.85 / 0.05) are corrected, and examples with keys the engine refuses
+  (`rotation_step`, `support_ratio`, `elite_ratio`) are fixed.
 - **Breaking:** a `parameter_out_of_range` refusal tells a closed bound from an
   open one. `min` / `max` are now only bounds the value may equal;
   a bound it may not equal goes out as the new `exclusive_min` /

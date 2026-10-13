@@ -20,7 +20,7 @@
     },
     "code": {
       "type": ["string", "null"],
-      "enum": ["parameter_out_of_range", "unknown_option", "invalid_option", "invalid_geometry", "duplicate_id", "invalid_boundary", "malformed_input", "cancelled", "internal", null],
+      "enum": ["parameter_out_of_range", "empty_input", "unknown_option", "invalid_option", "invalid_geometry", "duplicate_id", "invalid_boundary", "malformed_input", "cancelled", "internal", null],
       "description": "Stable reason a request was refused; null on success"
     },
     "details": {

@@ -1,5 +1,6 @@
 //! 3D geometry types.
 
+use u_nesting_core::error::{check_above, check_at_least};
 use u_nesting_core::geom::nalgebra_types::NaVector3 as Vector3;
 use u_nesting_core::geometry::{Geometry, GeometryId, RotationConstraint};
 use u_nesting_core::{Error, Result};
@@ -202,8 +203,10 @@ impl Geometry3D {
     ///
     /// # Errors
     ///
-    /// `parameter_out_of_range` (`geometries[index].quantity`, with the id)
-    /// for a quantity below 1, a negative one included; `unknown_option`
+    /// `parameter_out_of_range` (with the id) for a quantity below 1, a
+    /// negative one included (`geometries[index].quantity`), a dimension of 0
+    /// or below (`geometries[index].dimensions[axis]`) or a negative mass
+    /// (`geometries[index].mass`); `unknown_option`
     /// (`geometries[index].orientation`) for an orientation other than `any`,
     /// `upright` or `fixed`.
     pub fn from_request(
@@ -229,6 +232,7 @@ impl Geometry3D {
                 })?;
             geom = geom.with_orientation(constraint);
         }
+        geom.check_measures(&format!("geometries[{index}]."))?;
         Ok(geom)
     }
 
@@ -284,24 +288,30 @@ impl Geometry for Geometry3D {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.dimensions.x <= 0.0 || self.dimensions.y <= 0.0 || self.dimensions.z <= 0.0 {
-            return Err(Error::invalid_geometry(
-                Some(&self.id),
-                format!("All dimensions for '{}' must be positive", self.id),
-            ));
-        }
-
+        self.check_measures("")?;
         u_nesting_core::check_quantity("quantity", &self.id, self.quantity as i128)?;
+        Ok(())
+    }
+}
 
-        if let Some(mass) = self.mass {
-            if mass < 0.0 {
-                return Err(Error::invalid_geometry(
-                    Some(&self.id),
-                    format!("Mass for '{}' cannot be negative", self.id),
-                ));
+impl Geometry3D {
+    /// Each dimension (`dimensions[0]` width, `[1]` depth, `[2]` height) a
+    /// finite number above 0 and a mass, when there is one, a finite number at
+    /// least 0 -- or `parameter_out_of_range` naming the field after `at` and
+    /// the geometry's id.
+    fn check_measures(&self, at: &str) -> Result<()> {
+        let of_this = |mut e: Error| {
+            if let Error::OutOfRange { id, .. } = &mut e {
+                *id = Some(self.id.clone());
             }
+            e
+        };
+        for (axis, length) in self.dimensions.iter().enumerate() {
+            check_above(&format!("{at}dimensions[{axis}]"), *length, 0.0).map_err(of_this)?;
         }
-
+        if let Some(mass) = self.mass {
+            check_at_least(&format!("{at}mass"), mass, 0.0).map_err(of_this)?;
+        }
         Ok(())
     }
 }
@@ -373,5 +383,46 @@ mod tests {
 
         let zero_qty = Geometry3D::new("B3", 10.0, 20.0, 30.0).with_quantity(0);
         assert!(zero_qty.validate().is_err());
+    }
+
+    /// A dimension of 0 or below and a negative mass are values out of their
+    /// range, naming the field and the geometry.
+    #[test]
+    fn a_dimension_or_mass_out_of_range_names_the_field() {
+        let refused = |geometry: Geometry3D| match geometry.validate() {
+            Err(Error::OutOfRange {
+                parameter,
+                id,
+                min,
+                exclusive_min,
+                got,
+                ..
+            }) => (parameter, id, min, exclusive_min, got),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            refused(Geometry3D::new("crate", 10.0, 0.0, 30.0)),
+            (
+                "dimensions[1]".to_string(),
+                Some("crate".to_string()),
+                None,
+                Some(0.0),
+                0.0
+            )
+        );
+        assert_eq!(
+            refused(Geometry3D::new("crate", 10.0, 20.0, 30.0).with_mass(-1.0)),
+            (
+                "mass".to_string(),
+                Some("crate".to_string()),
+                Some(0.0),
+                None,
+                -1.0
+            )
+        );
+        assert!(Geometry3D::new("crate", 1.0, 1.0, 1.0)
+            .with_mass(0.0)
+            .validate()
+            .is_ok());
     }
 }

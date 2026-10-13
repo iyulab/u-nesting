@@ -201,12 +201,9 @@ where
 
     result.computation_time_ms = start.elapsed_ms();
 
-    // Estimate time if speeds are configured
-    if config.rapid_speed > 0.0 && config.cut_speed > 0.0 {
-        let rapid_time = result.total_rapid_distance / config.rapid_speed;
-        let cut_time = result.total_cut_distance / config.cut_speed;
-        result.estimated_time_seconds = Some(rapid_time + cut_time);
-    }
+    // Both speeds are above 0 (`validate`), so the estimate always exists.
+    result.estimated_time_seconds = result.total_rapid_distance / config.rapid_speed
+        + result.total_cut_distance / config.cut_speed;
 
     Ok(result)
 }

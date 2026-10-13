@@ -132,25 +132,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         Err(e) => return SolveResponse::refused(&e),
     };
 
-    // Convert boundary
-    // Exactly one shape: width and height together, or a polygon. Given
-    // both, or half of the rectangle, part of the request used to be dropped.
-    let boundary = match (
-        request.boundary.width,
-        request.boundary.height,
-        request.boundary.polygon,
-    ) {
-        (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
-        (None, None, Some(polygon)) => {
-            let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-            Boundary2D::new(vertices)
-        }
-        _ => {
-            return SolveResponse::refused(&Error::invalid_boundary(
-                Some("boundary"),
-                "give either width and height, or polygon -- not both, not one half".to_string(),
-            ))
-        }
+    // Exactly one shape: width and height together, or a polygon.
+    let boundary = match Boundary2D::from_request(request.boundary) {
+        Ok(b) => b,
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -219,20 +204,7 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         Err(e) => return Pack3DResponse::refused(&e),
     };
 
-    // Convert boundary
-    let mut boundary = Boundary3D::new(
-        request.boundary.dimensions[0],
-        request.boundary.dimensions[1],
-        request.boundary.dimensions[2],
-    );
-
-    if let Some(max_mass) = request.boundary.max_mass {
-        boundary = boundary.with_max_mass(max_mass);
-    }
-
-    boundary = boundary
-        .with_gravity(request.boundary.gravity)
-        .with_stability(request.boundary.stability);
+    let boundary = Boundary3D::from_request(request.boundary);
 
     // Build config
     let config = match request
@@ -362,6 +334,65 @@ mod tests {
         assert_eq!(
             r["details"],
             json!({ "parameter": "pierce_candidates", "min": 1.0, "got": -1.0 })
+        );
+    }
+
+    /// What the engine was given is what it judges: no geometries, a boundary
+    /// side of 0 and a machine speed of 0 are refusals naming the field, and
+    /// the time estimate is a number.
+    #[test]
+    fn requests_are_judged_as_given() {
+        for r in [
+            answer(solve_2d(
+                r#"{"geometries": [], "boundary": {"width": 50, "height": 50}}"#,
+            )),
+            answer(solve_3d(
+                r#"{"geometries": [], "boundary": {"dimensions": [5, 5, 5]}}"#,
+            )),
+        ] {
+            assert_eq!(r["code"], "empty_input", "{r}");
+            assert_eq!(r["details"], json!({ "parameter": "geometries" }));
+        }
+
+        let r = answer(solve_2d(
+            r#"{"geometries": [{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}],
+                "boundary": {"width": 0, "height": 50}}"#,
+        ));
+        assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+        assert_eq!(
+            r["details"],
+            json!({ "parameter": "boundary.width", "exclusive_min": 0.0, "got": 0.0 })
+        );
+        let r = answer(solve_3d(
+            r#"{"geometries": [{"id": "crate", "dimensions": [1, 1, 1]}],
+                "boundary": {"dimensions": [5, 5, 5], "max_mass": -1}}"#,
+        ));
+        assert_eq!(
+            r["details"],
+            json!({ "parameter": "boundary.max_mass", "exclusive_min": 0.0, "got": -1.0 })
+        );
+
+        let solved = solve_2d(
+            r#"{"geometries": [{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}],
+                "boundary": {"width": 50, "height": 50}}"#,
+        );
+        let cut = |config: &str| {
+            answer(optimize_cutting_path(&format!(
+                r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}}],
+                    "solve_result": {solved}, "cutting_config": {{{config}}}}}"#
+            )))
+        };
+        let r = cut(r#""cut_speed": 0"#);
+        assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+        assert_eq!(
+            r["details"],
+            json!({ "parameter": "cut_speed", "exclusive_min": 0.0, "got": 0.0 })
+        );
+        assert!(
+            cut("")["estimated_time_seconds"]
+                .as_f64()
+                .expect("a number")
+                > 0.0
         );
     }
 }

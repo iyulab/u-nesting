@@ -20,7 +20,7 @@
 //!     .with_gravity(-9.81)
 //!     .with_time_step(0.016);
 //!
-//! let simulator = PhysicsSimulator::new(config);
+//! let simulator = PhysicsSimulator::new(config)?;
 //! let boxes = /* ... */;
 //! let result = simulator.simulate_settlement(&boxes, floor_z);
 //! ```
@@ -92,7 +92,7 @@ impl PhysicsConfig {
 
     /// Sets the simulation time step.
     pub fn with_time_step(mut self, dt: f64) -> Self {
-        self.time_step = dt.max(0.001);
+        self.time_step = dt;
         self
     }
 
@@ -104,22 +104,46 @@ impl PhysicsConfig {
 
     /// Sets the friction coefficient.
     pub fn with_friction(mut self, friction: f64) -> Self {
-        self.friction = friction.clamp(0.0, 1.0);
+        self.friction = friction;
         self
     }
 
     /// Sets the restitution (bounciness).
     pub fn with_restitution(mut self, restitution: f64) -> Self {
-        self.restitution = restitution.clamp(0.0, 1.0);
+        self.restitution = restitution;
         self
     }
 
     /// Enables shaking compaction.
     pub fn with_shaking(mut self, amplitude: f64, frequency: f64) -> Self {
         self.enable_shaking = true;
-        self.shake_amplitude = amplitude.max(0.0);
-        self.shake_frequency = frequency.max(0.1);
+        self.shake_amplitude = amplitude;
+        self.shake_frequency = frequency;
         self
+    }
+
+    /// Checks every field against its range; the builders store what they are
+    /// given.
+    ///
+    /// # Errors
+    ///
+    /// `parameter_out_of_range` naming the first field out of range: a
+    /// `gravity` that is not finite, a `time_step` or `shake_frequency` that
+    /// is not above 0, a `max_simulation_time`, threshold or
+    /// `shake_amplitude` below 0, a `friction` or `restitution` outside
+    /// `[0, 1]`.
+    pub fn validate(&self) -> u_nesting_core::Result<()> {
+        use u_nesting_core::error::{check_above, check_at_least, check_range};
+        check_range("gravity", self.gravity, f64::MIN, f64::MAX)?;
+        check_above("time_step", self.time_step, 0.0)?;
+        check_at_least("max_simulation_time", self.max_simulation_time, 0.0)?;
+        check_at_least("rest_velocity_threshold", self.rest_velocity_threshold, 0.0)?;
+        check_at_least("convergence_threshold", self.convergence_threshold, 0.0)?;
+        check_range("friction", self.friction, 0.0, 1.0)?;
+        check_range("restitution", self.restitution, 0.0, 1.0)?;
+        check_at_least("shake_amplitude", self.shake_amplitude, 0.0)?;
+        check_above("shake_frequency", self.shake_frequency, 0.0)?;
+        Ok(())
     }
 }
 
@@ -230,14 +254,20 @@ impl Default for PhysicsResult {
 }
 
 /// Physics simulator for 3D bin packing.
+#[derive(Default)]
 pub struct PhysicsSimulator {
     config: PhysicsConfig,
 }
 
 impl PhysicsSimulator {
     /// Creates a new physics simulator.
-    pub fn new(config: PhysicsConfig) -> Self {
-        Self { config }
+    ///
+    /// # Errors
+    ///
+    /// The refusal of [`PhysicsConfig::validate`].
+    pub fn new(config: PhysicsConfig) -> u_nesting_core::Result<Self> {
+        config.validate()?;
+        Ok(Self { config })
     }
 
     /// Simulates settlement (gravity) until boxes reach rest.
@@ -376,7 +406,8 @@ impl PhysicsSimulator {
             })
             .collect();
 
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::partial_base(0.5));
+        let analyzer = StabilityAnalyzer::new(StabilityConstraint::partial_base(0.5))
+            .expect("a support ratio of 0.5 is in range");
         result.stability_report = Some(analyzer.analyze(&final_boxes, floor_z));
 
         result.computation_time_ms = start.elapsed_ms();
@@ -547,7 +578,10 @@ impl PhysicsSimulator {
         shake_config.enable_shaking = true;
         shake_config.max_simulation_time = shake_time;
 
-        let shaking_sim = PhysicsSimulator::new(shake_config);
+        // This simulator's own settings with shaking on: already judged.
+        let shaking_sim = PhysicsSimulator {
+            config: shake_config,
+        };
         let shake_result = shaking_sim.simulate_settlement(boxes, container_dims, floor_z);
 
         // Then settle without shaking
@@ -568,12 +602,6 @@ impl PhysicsSimulator {
 
         // Final settlement
         self.simulate_settlement(&final_boxes, container_dims, floor_z)
-    }
-}
-
-impl Default for PhysicsSimulator {
-    fn default() -> Self {
-        Self::new(PhysicsConfig::default())
     }
 }
 
@@ -644,7 +672,8 @@ mod tests {
             PhysicsConfig::default()
                 .with_max_time(5.0) // Longer simulation
                 .with_time_step(0.01),
-        );
+        )
+        .expect("valid physics settings");
 
         let boxes = vec![PlacedBox::new(
             "B1",
@@ -666,7 +695,8 @@ mod tests {
 
     #[test]
     fn test_stacked_boxes_settlement() {
-        let simulator = PhysicsSimulator::new(PhysicsConfig::default().with_max_time(3.0));
+        let simulator = PhysicsSimulator::new(PhysicsConfig::default().with_max_time(3.0))
+            .expect("valid physics settings");
 
         let boxes = vec![
             PlacedBox::new(
@@ -697,7 +727,8 @@ mod tests {
 
     #[test]
     fn test_container_collision() {
-        let simulator = PhysicsSimulator::new(PhysicsConfig::default().with_max_time(1.0));
+        let simulator = PhysicsSimulator::new(PhysicsConfig::default().with_max_time(1.0))
+            .expect("valid physics settings");
 
         // Box outside container should be pushed in
         let boxes = vec![PlacedBox::new(
@@ -719,7 +750,8 @@ mod tests {
     fn test_shaking_compaction() {
         let simulator = PhysicsSimulator::new(
             PhysicsConfig::default().with_shaking(1.0, 10.0), // amplitude=1.0, freq=10Hz
-        );
+        )
+        .expect("valid physics settings");
 
         let boxes = vec![
             PlacedBox::new(
@@ -789,7 +821,8 @@ mod tests {
 
     #[test]
     fn test_validate_stability() {
-        let simulator = PhysicsSimulator::new(PhysicsConfig::default().with_max_time(1.0));
+        let simulator = PhysicsSimulator::new(PhysicsConfig::default().with_max_time(1.0))
+            .expect("valid physics settings");
 
         let boxes = vec![
             PlacedBox::new(
@@ -821,5 +854,37 @@ mod tests {
 
         assert!(result.final_positions.is_empty());
         assert!(result.converged || result.steps == 0);
+    }
+
+    /// The builders store what they are given; `PhysicsSimulator::new`
+    /// refuses it. They used to clamp a friction of 1.5 to 1, a time step of
+    /// 0 to 0.001 and a shaking frequency of 0 to 0.1.
+    #[test]
+    fn settings_out_of_range_are_stored_and_refused() {
+        let refused = |config: PhysicsConfig| match PhysicsSimulator::new(config) {
+            Err(u_nesting_core::Error::OutOfRange { parameter, got, .. }) => (parameter, got),
+            Err(other) => panic!("{other:?}"),
+            Ok(_) => panic!("accepted"),
+        };
+        let config = PhysicsConfig::default().with_friction(1.5);
+        assert_eq!(config.friction, 1.5, "stored as given");
+        assert_eq!(refused(config), ("friction".to_string(), 1.5));
+        assert_eq!(
+            refused(PhysicsConfig::default().with_restitution(-0.1)),
+            ("restitution".to_string(), -0.1)
+        );
+        assert_eq!(
+            refused(PhysicsConfig::default().with_time_step(0.0)),
+            ("time_step".to_string(), 0.0)
+        );
+        assert_eq!(
+            refused(PhysicsConfig::default().with_shaking(-1.0, 5.0)),
+            ("shake_amplitude".to_string(), -1.0)
+        );
+        assert_eq!(
+            refused(PhysicsConfig::default().with_shaking(1.0, 0.0)),
+            ("shake_frequency".to_string(), 0.0)
+        );
+        assert!(PhysicsSimulator::new(PhysicsConfig::default().with_time_step(0.0005)).is_ok());
     }
 }

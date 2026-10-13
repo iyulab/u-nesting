@@ -1,5 +1,6 @@
 //! 2D boundary types.
 
+use u_nesting_core::error::check_above;
 use u_nesting_core::geom::polygon as geom_polygon;
 use u_nesting_core::geometry::{Boundary, Boundary2DExt};
 use u_nesting_core::transform::AABB2D;
@@ -111,6 +112,30 @@ impl Boundary2D {
     }
 }
 
+#[cfg(feature = "serde")]
+impl Boundary2D {
+    /// The boundary `request` describes: a rectangle (`width` and `height`)
+    /// or a polygon -- exactly one of the two. The sides are judged when the
+    /// boundary is validated, as for one built in code.
+    ///
+    /// # Errors
+    ///
+    /// `invalid_boundary` (`parameter: "boundary"`) for both shapes, or half
+    /// of the rectangle.
+    pub fn from_request(request: u_nesting_core::api_types::Boundary2DRequest) -> Result<Self> {
+        match (request.width, request.height, request.polygon) {
+            (Some(width), Some(height), None) => Ok(Self::rectangle(width, height)),
+            (None, None, Some(polygon)) => Ok(Self::new(
+                polygon.into_iter().map(|[x, y]| (x, y)).collect(),
+            )),
+            _ => Err(Error::invalid_boundary(
+                Some("boundary"),
+                "give either width and height, or polygon -- not both, not one half".to_string(),
+            )),
+        }
+    }
+}
+
 impl Boundary for Boundary2D {
     type Scalar = f64;
 
@@ -158,13 +183,12 @@ impl Boundary for Boundary2D {
             ));
         }
 
-        if let (Some(w), Some(h)) = (self.width, self.height) {
-            if w <= 0.0 || h <= 0.0 {
-                return Err(Error::invalid_boundary(
-                    None,
-                    "Width and height must be positive".into(),
-                ));
-            }
+        // A rectangle's sides, and a strip's width: a finite length above 0.
+        if let Some(width) = self.width {
+            check_above("boundary.width", width, 0.0)?;
+        }
+        if let Some(height) = self.height {
+            check_above("boundary.height", height, 0.0)?;
         }
 
         // Arbitrary boundary polygons (not a rectangle, not an infinite strip
@@ -322,5 +346,40 @@ mod tests {
 
         let invalid = Boundary2D::new(vec![(0.0, 0.0), (1.0, 0.0)]);
         assert!(invalid.validate().is_err());
+    }
+
+    /// A side of 0 or below -- a rectangle's, or a strip's width -- is a value
+    /// out of its range; a polygon that is no region stays `invalid_boundary`.
+    #[test]
+    fn a_side_not_above_zero_is_out_of_range() {
+        let refused = |boundary: Boundary2D| match boundary.validate() {
+            Err(Error::OutOfRange {
+                parameter,
+                min,
+                exclusive_min,
+                got,
+                ..
+            }) => (parameter, min, exclusive_min, got),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(
+            refused(Boundary2D::rectangle(0.0, 50.0)),
+            ("boundary.width".to_string(), None, Some(0.0), 0.0)
+        );
+        assert_eq!(
+            refused(Boundary2D::rectangle(10.0, -5.0)),
+            ("boundary.height".to_string(), None, Some(0.0), -5.0)
+        );
+        assert_eq!(
+            refused(Boundary2D::strip(-1.0)),
+            ("boundary.width".to_string(), None, Some(0.0), -1.0)
+        );
+        assert!(Boundary2D::rectangle(f64::NAN, 1.0).validate().is_err());
+
+        let flat = Boundary2D::new(vec![(0.0, 0.0), (5.0, 0.0), (10.0, 0.0)]);
+        assert_eq!(
+            flat.validate().expect_err("no area").code(),
+            "invalid_boundary"
+        );
     }
 }

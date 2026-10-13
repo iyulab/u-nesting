@@ -124,10 +124,13 @@ Classic genetic algorithm that evolves a population of placement sequences.
 6. Repeat for N generations
 
 **Parameters**:
-- `population_size`: Number of individuals (default: 50)
-- `max_generations`: Number of generations (default: 100)
-- `mutation_rate`: Probability of mutation (default: 0.1)
-- `elite_count`: Number of elites preserved (default: 2)
+- `population_size`: Number of individuals (default: 30 in 2D, 100 in 3D)
+- `max_generations`: Number of generations (default: 50 in 2D, 500 in 3D)
+- `crossover_rate`: Probability of crossover (default: 0.85)
+- `mutation_rate`: Probability of mutation (default: 0.05)
+
+A `population_size` or `max_generations` you set is the one the search runs
+with; the defaults apply only when you leave them out.
 
 **Pros**:
 - Good exploration of solution space
@@ -164,10 +167,11 @@ Advanced genetic algorithm using random keys for better search characteristics.
 6. Repeat for N generations
 
 **Parameters**:
-- `population_size`: Total population (default: 50)
-- `elite_ratio`: Fraction of elites (default: 0.2)
-- `mutant_ratio`: Fraction of random immigrants (default: 0.1)
-- `bias`: Bias toward elite parent (default: 0.7)
+- `population_size`: Total population (default: 30 in 2D, 50 in 3D)
+- `max_generations`: Number of generations (default: 50 in 2D, 100 in 3D)
+
+The elite fraction (0.2), the fraction of random immigrants (0.15) and the bias
+toward the elite parent (0.7) are fixed.
 
 **Pros**:
 - Better convergence than standard GA
@@ -182,8 +186,7 @@ Advanced genetic algorithm using random keys for better search characteristics.
 config = {
     "strategy": "brkga",
     "population_size": 100,
-    "max_generations": 300,
-    "elite_ratio": 0.25
+    "max_generations": 300
 }
 result = u_nesting.solve_2d(parts, sheet, config=config)
 ```

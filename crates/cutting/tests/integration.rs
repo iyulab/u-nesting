@@ -178,9 +178,32 @@ fn test_cutting_time_estimation() {
 
     let result = solve_and_cut(&geometries, &boundary, Config::default(), config);
 
-    assert!(result.estimated_time_seconds.is_some());
-    let time = result.estimated_time_seconds.unwrap();
-    assert!(time > 0.0, "estimated time should be positive");
+    // The rapid distance at 1000 units/s plus the cut distance at 100 units/s.
+    let expected = result.total_rapid_distance / 1000.0 + result.total_cut_distance / 100.0;
+    assert!(
+        result.estimated_time_seconds > 0.0,
+        "a part takes time to cut"
+    );
+    assert!((result.estimated_time_seconds - expected).abs() < 1e-9);
+}
+
+/// A speed of 0 or below has no time estimate: the optimizer refuses it
+/// rather than leaving the estimate out.
+#[test]
+fn a_speed_that_is_not_above_zero_is_refused() {
+    let geometries = vec![Geometry2D::rectangle("R1", 10.0, 5.0)];
+    let boundary = Boundary2D::rectangle(100.0, 50.0);
+    let solved = Nester2D::new(Config::default())
+        .solve(&geometries, &boundary)
+        .expect("solve");
+    for config in [
+        CuttingConfig::new().with_speeds(1000.0, 0.0),
+        CuttingConfig::new().with_speeds(-1.0, 100.0),
+    ] {
+        let e = u_nesting_cutting::optimize_cutting_path(&solved, &geometries, &config)
+            .expect_err("no speed");
+        assert_eq!(e.code(), "parameter_out_of_range", "{e}");
+    }
 }
 
 #[test]

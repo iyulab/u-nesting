@@ -100,11 +100,20 @@ pub struct Config {
     pub threads: usize,
 
     // GA-specific parameters
-    /// Population size for GA.
-    pub population_size: usize,
+    /// Population size for the population-based strategies (GA, BRKGA).
+    ///
+    /// `None` runs each strategy with the size it is tuned for -- 2D GA and
+    /// BRKGA 30, 3D GA 100, 3D BRKGA 50; `Some(n)` runs it with `n`, at least
+    /// 2. The other strategies have no population and do not read it.
+    pub population_size: Option<usize>,
 
-    /// Number of generations for GA.
-    pub max_generations: u32,
+    /// Generation budget for the population-based strategies (GA, BRKGA).
+    ///
+    /// `None` runs each strategy with the budget it is tuned for -- 2D GA and
+    /// BRKGA 50, 3D GA 500, 3D BRKGA 100; `Some(n)` allows `n` generations (0
+    /// evaluates the first population only). A run also ends on the time
+    /// limit, on cancellation and when the best layout stops improving.
+    pub max_generations: Option<u32>,
 
     /// Crossover rate for GA (0.0 - 1.0).
     pub crossover_rate: f64,
@@ -129,8 +138,8 @@ impl Default for Config {
             time_limit_ms: 30000,
             target_utilization: None,
             threads: 0,
-            population_size: 100,
-            max_generations: 500,
+            population_size: None,
+            max_generations: None,
             crossover_rate: 0.85,
             mutation_rate: 0.05,
             elite_count: 5,
@@ -151,12 +160,14 @@ impl Config {
     /// # Errors
     /// `ConfigError` naming the first field out of range: `spacing` or
     /// `margin` negative or not finite, `crossover_rate`/`mutation_rate` or
-    /// `target_utilization` outside `[0, 1]`, `population_size` below 2.
+    /// `target_utilization` outside `[0, 1]`, a `population_size` set below 2.
     pub fn validate(&self) -> Result<()> {
         use crate::error::{check_at_least, check_range};
         check_at_least("spacing", self.spacing, 0.0)?;
         check_at_least("margin", self.margin, 0.0)?;
-        Self::check_population_size(self.population_size as i128)?;
+        if let Some(size) = self.population_size {
+            Self::check_population_size(size as i128)?;
+        }
         check_range("crossover_rate", self.crossover_rate, 0.0, 1.0)?;
         check_range("mutation_rate", self.mutation_rate, 0.0, 1.0)?;
         if let Some(util) = self.target_utilization {
@@ -204,6 +215,20 @@ impl Config {
     /// Sets the RNG seed for reproducible stochastic runs (GA, BRKGA, SA).
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
+        self
+    }
+
+    /// Sets the population size of the population-based strategies, in place
+    /// of each strategy's own (see [`Config::population_size`]).
+    pub fn with_population_size(mut self, size: usize) -> Self {
+        self.population_size = Some(size);
+        self
+    }
+
+    /// Sets the generation budget of the population-based strategies, in
+    /// place of each strategy's own (see [`Config::max_generations`]).
+    pub fn with_max_generations(mut self, generations: u32) -> Self {
+        self.max_generations = Some(generations);
         self
     }
 }
@@ -344,5 +369,31 @@ mod config_tests {
             ..Config::default()
         };
         assert!(nan_rate.validate().is_err());
+    }
+
+    /// A budget left unset is the strategy's to choose; one that is set is
+    /// stored as given and judged by `validate`.
+    #[test]
+    fn a_population_is_stored_as_given_and_judged_by_validate() {
+        let unset = Config::default();
+        assert_eq!(unset.population_size, None);
+        assert_eq!(unset.max_generations, None);
+        assert!(unset.validate().is_ok());
+
+        let set = Config::default()
+            .with_population_size(100)
+            .with_max_generations(0);
+        assert_eq!(set.population_size, Some(100));
+        assert_eq!(set.max_generations, Some(0), "0 generations is a budget");
+        assert!(set.validate().is_ok());
+
+        let one = Config::default().with_population_size(1);
+        assert_eq!(one.population_size, Some(1), "stored as given");
+        let err = one.validate().expect_err("a population of 1 cannot cross");
+        assert_eq!(err.code(), "parameter_out_of_range");
+        assert_eq!(
+            err.to_string(),
+            "population_size must be a whole number >= 2, got 1"
+        );
     }
 }

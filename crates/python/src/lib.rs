@@ -232,21 +232,9 @@ fn solve_2d<'py>(
         Err(e) => return SolveOutput::refused(&e).into_py(py),
     };
 
-    let rust_boundary =
-        match (
-            boundary_input.width,
-            boundary_input.height,
-            boundary_input.polygon,
-        ) {
-            (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
-            (None, None, Some(polygon)) => {
-                let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-                Boundary2D::new(vertices)
-            }
-            _ => return Err(PyValueError::new_err(
-                "Boundary must give either width and height, or polygon -- not both, not one half",
-            )),
-        };
+    // Exactly one shape: width and height together, or a polygon.
+    let rust_boundary = Boundary2D::from_request(boundary_input)
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
     // Read the multi-sheet flag before `build_config` consumes the config.
     let multi_sheet = config_input
@@ -373,19 +361,7 @@ fn solve_3d<'py>(
         Err(e) => return SolveOutput::refused(&e).into_py(py),
     };
 
-    let mut rust_boundary = Boundary3D::new(
-        boundary_input.dimensions[0],
-        boundary_input.dimensions[1],
-        boundary_input.dimensions[2],
-    );
-
-    if let Some(max_mass) = boundary_input.max_mass {
-        rust_boundary = rust_boundary.with_max_mass(max_mass);
-    }
-
-    rust_boundary = rust_boundary
-        .with_gravity(boundary_input.gravity)
-        .with_stability(boundary_input.stability);
+    let rust_boundary = Boundary3D::from_request(boundary_input);
 
     let rust_config = config_input
         .as_ref()
@@ -625,8 +601,8 @@ mod tests {
         };
         let config = build_config(Some(input)).expect("valid tuning parameters");
         assert_eq!(config.time_limit_ms, 1_234);
-        assert_eq!(config.population_size, 42);
-        assert_eq!(config.max_generations, 7);
+        assert_eq!(config.population_size, Some(42));
+        assert_eq!(config.max_generations, Some(7));
         assert_eq!(config.crossover_rate, 0.5);
         assert_eq!(config.mutation_rate, 0.25);
         assert_eq!(config.seed, Some(99));
@@ -806,6 +782,11 @@ mod tests {
             "{e}"
         );
 
+        // A budget left out is left to the strategy.
+        let omitted = build_config(Some(config_input())).expect("defaults");
+        assert_eq!(omitted.population_size, None);
+        assert_eq!(omitted.max_generations, None);
+
         let e = from_json::<ConfigRequest>(r#"{"population_size":-1}"#)
             .expect("a whole number is the right shape")
             .to_config()
@@ -813,6 +794,39 @@ mod tests {
         assert_eq!(
             e.to_string(),
             "population_size must be a whole number >= 2, got -1"
+        );
+    }
+
+    /// No geometries, and a boundary side of 0, come back as refusals in the
+    /// result dict, naming the field -- the solver's refusals.
+    #[test]
+    fn the_solver_refuses_an_empty_list_and_a_flat_boundary() {
+        let refused = |e: Error| serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+        let e = Nester2D::new(Config::default())
+            .solve(&[], &Boundary2D::rectangle(10.0, 10.0))
+            .expect_err("nothing to place");
+        let out = refused(e);
+        assert_eq!(out["code"], "empty_input");
+        assert_eq!(
+            out["details"],
+            serde_json::json!({ "parameter": "geometries" })
+        );
+        let e = Packer3D::new(Config::default())
+            .solve(&[], &Boundary3D::new(1.0, 1.0, 1.0))
+            .expect_err("nothing to pack");
+        assert_eq!(refused(e)["code"], "empty_input");
+
+        let flat: Boundary2DRequest =
+            from_json(r#"{"width": 0, "height": 10}"#).expect("the right shape");
+        let e = Nester2D::new(Config::default())
+            .solve(
+                &[Geometry2D::rectangle("a", 1.0, 1.0)],
+                &Boundary2D::from_request(flat).expect("a rectangle"),
+            )
+            .expect_err("no width");
+        assert_eq!(
+            refused(e)["details"],
+            serde_json::json!({ "parameter": "boundary.width", "exclusive_min": 0.0, "got": 0.0 })
         );
     }
 }

@@ -459,25 +459,10 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         Err(e) => return SolveResponse::refused(&e),
     };
 
-    // Convert boundary
-    // Exactly one shape: width and height together, or a polygon. Given
-    // both, or half of the rectangle, part of the request used to be dropped.
-    let boundary = match (
-        request.boundary.width,
-        request.boundary.height,
-        request.boundary.polygon,
-    ) {
-        (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
-        (None, None, Some(polygon)) => {
-            let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-            Boundary2D::new(vertices)
-        }
-        _ => {
-            return SolveResponse::refused(&Error::invalid_boundary(
-                Some("boundary"),
-                "give either width and height, or polygon -- not both, not one half".to_string(),
-            ))
-        }
+    // Exactly one shape: width and height together, or a polygon.
+    let boundary = match Boundary2D::from_request(request.boundary) {
+        Ok(b) => b,
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Read the multi-sheet flag before `build_config` consumes the config.
@@ -529,20 +514,7 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         Err(e) => return Pack3DResponse::refused(&e),
     };
 
-    // Convert boundary
-    let mut boundary = Boundary3D::new(
-        request.boundary.dimensions[0],
-        request.boundary.dimensions[1],
-        request.boundary.dimensions[2],
-    );
-
-    if let Some(max_mass) = request.boundary.max_mass {
-        boundary = boundary.with_max_mass(max_mass);
-    }
-
-    boundary = boundary
-        .with_gravity(request.boundary.gravity)
-        .with_stability(request.boundary.stability);
+    let boundary = Boundary3D::from_request(request.boundary);
 
     // Build config
     let config = match request
@@ -591,25 +563,10 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
         return SolveResponse::refused(&Error::Cancelled);
     }
 
-    // Convert boundary
-    // Exactly one shape: width and height together, or a polygon. Given
-    // both, or half of the rectangle, part of the request used to be dropped.
-    let boundary = match (
-        request.boundary.width,
-        request.boundary.height,
-        request.boundary.polygon,
-    ) {
-        (Some(w), Some(h), None) => Boundary2D::rectangle(w, h),
-        (None, None, Some(polygon)) => {
-            let vertices: Vec<(f64, f64)> = polygon.into_iter().map(|p| (p[0], p[1])).collect();
-            Boundary2D::new(vertices)
-        }
-        _ => {
-            return SolveResponse::refused(&Error::invalid_boundary(
-                Some("boundary"),
-                "give either width and height, or polygon -- not both, not one half".to_string(),
-            ))
-        }
+    // Exactly one shape: width and height together, or a polygon.
+    let boundary = match Boundary2D::from_request(request.boundary) {
+        Ok(b) => b,
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Send progress before solving
@@ -708,20 +665,7 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
         return Pack3DResponse::refused(&Error::Cancelled);
     }
 
-    // Convert boundary
-    let mut boundary = Boundary3D::new(
-        request.boundary.dimensions[0],
-        request.boundary.dimensions[1],
-        request.boundary.dimensions[2],
-    );
-
-    if let Some(max_mass) = request.boundary.max_mass {
-        boundary = boundary.with_max_mass(max_mass);
-    }
-
-    boundary = boundary
-        .with_gravity(request.boundary.gravity)
-        .with_stability(request.boundary.stability);
+    let boundary = Boundary3D::from_request(request.boundary);
 
     // Send progress before solving
     let solving_progress = ProgressJson {
@@ -1461,8 +1405,8 @@ mod tests {
         assert_eq!(config.margin, 1.0);
         assert_eq!(config.time_limit_ms, 5000);
         assert_eq!(config.target_utilization, Some(0.8));
-        assert_eq!(config.population_size, 200);
-        assert_eq!(config.max_generations, 100);
+        assert_eq!(config.population_size, Some(200));
+        assert_eq!(config.max_generations, Some(100));
         assert_eq!(config.crossover_rate, 0.9);
         assert_eq!(config.mutation_rate, 0.1);
         assert!(matches!(config.strategy, Strategy::NfpGuided));
@@ -2437,5 +2381,229 @@ mod tests {
         }
         let r = cut(r#""pierce_candidates": 2, "max_2opt_iterations": 10, "time_limit_ms": 0"#);
         assert_eq!(r["success"], true, "{r}");
+    }
+
+    /// `c_abi` for the entry points that take a progress callback, called
+    /// without one.
+    fn c_abi_with_progress(
+        entry: unsafe extern "C" fn(
+            *const c_char,
+            UnestingProgressCallback,
+            *mut c_void,
+            *mut *mut c_char,
+        ) -> i32,
+        request: &str,
+    ) -> serde_json::Value {
+        let request = CString::new(request).expect("no NUL in a request");
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            entry(
+                request.as_ptr(),
+                None,
+                std::ptr::null_mut(),
+                &mut result_ptr,
+            );
+            assert!(!result_ptr.is_null(), "every request gets an answer");
+            let json = serde_json::from_str(CStr::from_ptr(result_ptr).to_str().expect("UTF-8"))
+                .expect("the answer is JSON");
+            unesting_free_string(result_ptr);
+            json
+        }
+    }
+
+    /// Nothing to place is refused on every entry point, 2D and 3D -- it used
+    /// to answer `success` with one sheet (or bin) used.
+    #[test]
+    fn an_empty_list_of_geometries_is_empty_input() {
+        let two = r#"{"geometries": [], "boundary": {"width": 50, "height": 50}}"#;
+        let three = r#"{"geometries": [], "boundary": {"dimensions": [5, 5, 5]}}"#;
+        let auto3 = r#"{"mode": "3d", "geometries": [], "boundary": {"dimensions": [5, 5, 5]}}"#;
+        for r in [
+            c_abi(unesting_solve_2d, two),
+            c_abi(unesting_solve, two),
+            c_abi_with_progress(unesting_solve_2d_with_progress, two),
+            c_abi(unesting_solve_3d, three),
+            c_abi(unesting_solve, auto3),
+            c_abi_with_progress(unesting_solve_3d_with_progress, three),
+        ] {
+            assert_eq!(r["success"], false, "{r}");
+            assert_eq!(r["code"], "empty_input", "{r}");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": "geometries" })
+            );
+            assert_eq!(r["error"], "geometries is empty; give at least one");
+        }
+    }
+
+    /// A boundary side, dimension or mass limit of 0 or below is a value out
+    /// of its range, named by its place in the request -- it used to be
+    /// `invalid_boundary` with no bound and no value.
+    #[test]
+    fn a_boundary_measure_not_above_zero_is_out_of_range() {
+        let two = |boundary: &str| {
+            c_abi(
+                unesting_solve_2d,
+                &format!(
+                    r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}}],
+                        "boundary": {boundary}}}"#
+                ),
+            )
+        };
+        for (boundary, parameter, got) in [
+            (r#"{"width": 0, "height": 50}"#, "boundary.width", 0.0),
+            (r#"{"width": 50, "height": -5}"#, "boundary.height", -5.0),
+        ] {
+            let r = two(boundary);
+            assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": parameter, "exclusive_min": 0.0, "got": got })
+            );
+        }
+        let r = two(r#"{"polygon": [[0,0],[5,0],[10,0]]}"#);
+        assert_eq!(r["code"], "invalid_boundary", "a shape, not a range: {r}");
+
+        let three = |boundary: &str| {
+            c_abi(
+                unesting_solve_3d,
+                &format!(
+                    r#"{{"geometries": [{{"id": "crate", "dimensions": [1, 1, 1]}}],
+                        "boundary": {boundary}}}"#
+                ),
+            )
+        };
+        for (boundary, parameter, got) in [
+            (
+                r#"{"dimensions": [0, 5, 5]}"#,
+                "boundary.dimensions[0]",
+                0.0,
+            ),
+            (
+                r#"{"dimensions": [5, 5, -1]}"#,
+                "boundary.dimensions[2]",
+                -1.0,
+            ),
+            (
+                r#"{"dimensions": [5, 5, 5], "max_mass": 0}"#,
+                "boundary.max_mass",
+                0.0,
+            ),
+        ] {
+            let r = three(boundary);
+            assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": parameter, "exclusive_min": 0.0, "got": got })
+            );
+        }
+
+        // A box's own dimensions and mass, named with the geometry.
+        let r = c_abi(
+            unesting_solve_3d,
+            r#"{"geometries": [{"id": "crate", "dimensions": [1, 0, 1]}],
+                "boundary": {"dimensions": [5, 5, 5]}}"#,
+        );
+        assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+        assert_eq!(
+            r["details"],
+            serde_json::json!({
+                "parameter": "geometries[0].dimensions[1]", "id": "crate", "exclusive_min": 0.0,
+                "got": 0.0
+            })
+        );
+        let r = c_abi(
+            unesting_solve_3d,
+            r#"{"geometries": [{"id": "crate", "dimensions": [1, 1, 1], "mass": -2}],
+                "boundary": {"dimensions": [5, 5, 5]}}"#,
+        );
+        assert_eq!(
+            r["details"],
+            serde_json::json!({
+                "parameter": "geometries[0].mass", "id": "crate", "min": 0.0, "got": -2.0
+            })
+        );
+    }
+
+    /// The machine speeds divide the distances in the time estimate, so they
+    /// must be above 0; with them, the estimate is always a number.
+    #[test]
+    fn cutting_speeds_are_judged_and_the_estimate_is_a_number() {
+        let solved = c_abi(unesting_solve_2d, &rectangle_with("", ""));
+        let cut = |config: &str| {
+            c_abi(
+                unesting_optimize_cutting_path,
+                &format!(
+                    r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}}],
+                        "solve_result": {solved}, "cutting_config": {{{config}}}}}"#
+                ),
+            )
+        };
+        for (setting, value, got) in [
+            ("cut_speed", "0", 0.0),
+            ("cut_speed", "-1", -1.0),
+            ("rapid_speed", "0", 0.0),
+            ("rapid_speed", "-1", -1.0),
+        ] {
+            let r = cut(&format!(r#""{setting}": {value}"#));
+            assert_eq!(r["success"], false, "{r}");
+            assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": setting, "exclusive_min": 0.0, "got": got })
+            );
+            assert_eq!(
+                r["estimated_time_seconds"], 0.0,
+                "a number, also on a refusal"
+            );
+        }
+        for (setting, got) in [("pierce_weight", -1.0), ("tolerance", -0.001)] {
+            let r = cut(&format!(r#""{setting}": {got}"#));
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": setting, "min": 0.0, "got": got }),
+                "{r}"
+            );
+        }
+
+        let r = cut(r#""cut_speed": 10, "rapid_speed": 100"#);
+        assert_eq!(r["success"], true, "{r}");
+        let expected = r["total_cut_distance"].as_f64().expect("a number") / 10.0
+            + r["total_rapid_distance"].as_f64().expect("a number") / 100.0;
+        let estimate = r["estimated_time_seconds"]
+            .as_f64()
+            .expect("always a number");
+        assert!((estimate - expected).abs() < 1e-9, "{r}");
+        assert!(
+            cut("")["estimated_time_seconds"].is_f64(),
+            "with the default speeds too"
+        );
+    }
+
+    /// A population or generation budget the request sets is the one the
+    /// configuration holds; omitted, the strategy chooses.
+    #[test]
+    fn a_set_budget_is_kept_and_an_omitted_one_is_left_to_the_strategy() {
+        let request = |body: &str| -> ConfigRequest {
+            u_nesting_core::api_types::from_json(&format!("{{{body}}}")).expect("a config")
+        };
+        let set = config_of(Some(request(
+            r#""strategy": "ga", "population_size": 100, "max_generations": 120"#,
+        )))
+        .expect("in range");
+        assert_eq!(set.population_size, Some(100));
+        assert_eq!(set.max_generations, Some(120));
+        let omitted = config_of(Some(request(r#""strategy": "ga""#))).expect("in range");
+        assert_eq!(omitted.population_size, None);
+        assert_eq!(omitted.max_generations, None);
+
+        let r = c_abi(
+            unesting_solve_2d,
+            &rectangle_with(
+                "",
+                r#""strategy": "brkga", "population_size": 3, "max_generations": 2"#,
+            ),
+        );
+        assert_eq!(r["success"], true, "a population of 3 is run as given: {r}");
     }
 }

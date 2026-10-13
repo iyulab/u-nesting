@@ -113,8 +113,34 @@ struct NfpCmSolution {
 ///
 /// This formulation uses NFPs to define valid placement regions and selects
 /// from discretized candidate positions.
+///
+/// # Errors
+///
+/// `parameter_out_of_range` (or `invalid_option`) for a `config` or an
+/// `exact_config` its `validate` refuses -- a `grid_step` of 0 or below, no
+/// rotation step, ...; both are judged before anything is placed.
 #[cfg(feature = "milp")]
 pub fn run_nfp_cm_nesting(
+    geometries: &[Geometry2D],
+    boundary: &Boundary2D,
+    config: &Config,
+    exact_config: &ExactConfig,
+    cancelled: Arc<AtomicBool>,
+) -> u_nesting_core::Result<SolveResult<f64>> {
+    config.validate()?;
+    exact_config.validate()?;
+    Ok(nfp_cm_nesting(
+        geometries,
+        boundary,
+        config,
+        exact_config,
+        cancelled,
+    ))
+}
+
+/// [`run_nfp_cm_nesting`] on configurations already judged.
+#[cfg(feature = "milp")]
+fn nfp_cm_nesting(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
     config: &Config,
@@ -821,26 +847,6 @@ fn solve_nfp_cm_milp(
     }
 }
 
-/// Run NFP-CM nesting without the `milp` feature (stub).
-#[cfg(not(feature = "milp"))]
-pub fn run_nfp_cm_nesting(
-    geometries: &[Geometry2D],
-    boundary: &Boundary2D,
-    _config: &Config,
-    _exact_config: &ExactConfig,
-    _cancelled: Arc<AtomicBool>,
-) -> SolveResult<f64> {
-    log::warn!("NFP-CM solver not available (compile with 'milp' feature)");
-    let mut result = SolveResult::new();
-    for geom in geometries {
-        for _ in 0..geom.quantity() {
-            result.unplaced.push(geom.id().to_string());
-        }
-    }
-    result.strategy = Some("NfpCm (disabled)".to_string());
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -894,7 +900,8 @@ mod tests {
             &Config::default(),
             &exact_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("a valid configuration");
 
         assert_eq!(
             result.placements.len(),
@@ -925,7 +932,8 @@ mod tests {
             &Config::default(),
             &exact_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("a valid configuration");
 
         assert_eq!(
             result.placements.len(),
@@ -966,7 +974,8 @@ mod tests {
             &Config::default().with_spacing(spacing),
             &exact_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("a valid configuration");
 
         assert_eq!(
             result.placements.len(),
@@ -1041,7 +1050,8 @@ mod tests {
             &Config::default(),
             &exact_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("a valid configuration");
 
         assert_eq!(
             result.placements.len(),
@@ -1065,7 +1075,8 @@ mod tests {
             .with_grid_step(5.0); // Coarse grid for faster test
 
         let cancelled = Arc::new(AtomicBool::new(false));
-        let result = run_nfp_cm_nesting(&geometries, &boundary, &config, &exact_config, cancelled);
+        let result = run_nfp_cm_nesting(&geometries, &boundary, &config, &exact_config, cancelled)
+            .expect("a valid configuration");
 
         // Should find a solution
         assert!(!result.placements.is_empty());
@@ -1132,9 +1143,51 @@ mod tests {
         false
     }
 
+    /// The exact configuration is judged before anything is placed: a grid
+    /// step of 0 used to be read as is, and a builder used to raise 0.05 to
+    /// 0.1 without a word.
+    #[test]
+    fn an_exact_configuration_out_of_range_is_refused() {
+        let geometries = vec![Geometry2D::rectangle("A", 10.0, 10.0)];
+        let boundary = Boundary2D::rectangle(50.0, 50.0);
+        let run = |exact_config: ExactConfig| {
+            run_nfp_cm_nesting(
+                &geometries,
+                &boundary,
+                &Config::default(),
+                &exact_config,
+                Arc::new(AtomicBool::new(false)),
+            )
+        };
+        for (exact_config, parameter) in [
+            (ExactConfig::default().with_grid_step(0.0), "grid_step"),
+            (
+                ExactConfig::default().with_rotation_steps(0),
+                "rotation_steps",
+            ),
+            (ExactConfig::default().with_max_items(0), "max_items"),
+        ] {
+            match run(exact_config) {
+                Err(u_nesting_core::Error::OutOfRange { parameter: p, .. }) => {
+                    assert_eq!(p, parameter)
+                }
+                other => panic!("{parameter}: {other:?}"),
+            }
+        }
+        assert_eq!(ExactConfig::default().with_grid_step(0.05).grid_step, 0.05);
+        let solver_config = Config::default().with_spacing(-1.0);
+        assert!(run_nfp_cm_nesting(
+            &geometries,
+            &boundary,
+            &solver_config,
+            &ExactConfig::default(),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .is_err());
+    }
+
     /// `allow_flip`/mirroring, NFP-CM (MILP) strategy — the last of the 7
-    /// placement strategies. `run_nfp_cm_nesting` calls no `.validate()`, so
-    /// this is a genuine end-to-end run (not a lower-level bypass).
+    /// placement strategies, run end to end through `run_nfp_cm_nesting`.
     #[test]
     #[cfg(feature = "milp")]
     fn test_nfp_cm_mirror_no_overlap() {
@@ -1149,7 +1202,8 @@ mod tests {
             .with_grid_step(5.0);
 
         let cancelled = Arc::new(AtomicBool::new(false));
-        let result = run_nfp_cm_nesting(&geometries, &boundary, &config, &exact_config, cancelled);
+        let result = run_nfp_cm_nesting(&geometries, &boundary, &config, &exact_config, cancelled)
+            .expect("a valid configuration");
 
         assert_eq!(
             result.placements.len(),

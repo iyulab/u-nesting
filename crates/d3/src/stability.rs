@@ -18,7 +18,7 @@
 //! use u_nesting_d3::stability::{StabilityConstraint, StabilityAnalyzer};
 //! use u_nesting_d3::{Geometry3D, Boundary3D, Packer3D, Config};
 //!
-//! let analyzer = StabilityAnalyzer::new(StabilityConstraint::PartialBase { min_ratio: 0.75 });
+//! let analyzer = StabilityAnalyzer::new(StabilityConstraint::PartialBase { min_ratio: 0.75 })?;
 //! let placements = /* ... */;
 //! let report = analyzer.analyze(&placements, &geometries);
 //! ```
@@ -65,10 +65,30 @@ pub enum StabilityConstraint {
 }
 
 impl StabilityConstraint {
-    /// Creates a partial base support constraint with the given ratio.
+    /// Creates a partial base support constraint with the given ratio, a
+    /// number in `[0, 1]` ([`StabilityAnalyzer::new`] judges it).
     pub fn partial_base(min_ratio: f64) -> Self {
-        Self::PartialBase {
-            min_ratio: min_ratio.clamp(0.0, 1.0),
+        Self::PartialBase { min_ratio }
+    }
+
+    /// Checks the constraint's values against their ranges.
+    ///
+    /// # Errors
+    ///
+    /// `parameter_out_of_range` for a `min_ratio` outside `[0, 1]` or a
+    /// tolerance that is negative or not finite.
+    pub fn validate(&self) -> u_nesting_core::Result<()> {
+        use u_nesting_core::error::{check_at_least, check_range};
+        match *self {
+            Self::PartialBase { min_ratio } => check_range("min_ratio", min_ratio, 0.0, 1.0),
+            Self::StaticEquilibrium {
+                force_tolerance,
+                moment_tolerance,
+            } => {
+                check_at_least("force_tolerance", force_tolerance, 0.0)?;
+                check_at_least("moment_tolerance", moment_tolerance, 0.0)
+            }
+            Self::None | Self::FullBase | Self::CogPolygon => Ok(()),
         }
     }
 
@@ -305,12 +325,17 @@ pub struct StabilityAnalyzer {
 
 impl StabilityAnalyzer {
     /// Creates a new stability analyzer with the given constraint.
-    pub fn new(constraint: StabilityConstraint) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// The refusal of [`StabilityConstraint::validate`].
+    pub fn new(constraint: StabilityConstraint) -> u_nesting_core::Result<Self> {
+        constraint.validate()?;
+        Ok(Self {
             constraint,
             contact_tolerance: 1e-6,
             gravity: Vector3::new(0.0, 0.0, -9.81),
-        }
+        })
     }
 
     /// Sets the contact detection tolerance.
@@ -674,7 +699,7 @@ impl StabilityAnalyzer {
 
 impl Default for StabilityAnalyzer {
     fn default() -> Self {
-        Self::new(StabilityConstraint::default())
+        Self::new(StabilityConstraint::default()).expect("no constraint has no value to judge")
     }
 }
 
@@ -732,7 +757,8 @@ mod tests {
 
     #[test]
     fn test_box_on_floor_is_stable() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::FullBase);
+        let analyzer =
+            StabilityAnalyzer::new(StabilityConstraint::FullBase).expect("a valid constraint");
 
         let boxes = vec![PlacedBox::new(
             "B1",
@@ -750,7 +776,8 @@ mod tests {
 
     #[test]
     fn test_stacked_boxes_full_support() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::FullBase);
+        let analyzer =
+            StabilityAnalyzer::new(StabilityConstraint::FullBase).expect("a valid constraint");
 
         let boxes = vec![
             PlacedBox::new(
@@ -775,7 +802,8 @@ mod tests {
 
     #[test]
     fn test_stacked_box_partial_support() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::partial_base(0.5));
+        let analyzer = StabilityAnalyzer::new(StabilityConstraint::partial_base(0.5))
+            .expect("a valid constraint");
 
         let boxes = vec![
             // Base box
@@ -803,7 +831,8 @@ mod tests {
 
     #[test]
     fn test_unsupported_box_is_unstable() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::FullBase);
+        let analyzer =
+            StabilityAnalyzer::new(StabilityConstraint::FullBase).expect("a valid constraint");
 
         let boxes = vec![
             // Base box
@@ -831,7 +860,8 @@ mod tests {
 
     #[test]
     fn test_cog_stability_check() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::CogPolygon);
+        let analyzer =
+            StabilityAnalyzer::new(StabilityConstraint::CogPolygon).expect("a valid constraint");
 
         let boxes = vec![PlacedBox::new(
             "B1",
@@ -848,7 +878,8 @@ mod tests {
 
     #[test]
     fn test_equilibrium_check() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::static_equilibrium());
+        let analyzer = StabilityAnalyzer::new(StabilityConstraint::static_equilibrium())
+            .expect("a valid constraint");
 
         let boxes = vec![PlacedBox::new(
             "B1",
@@ -866,7 +897,8 @@ mod tests {
 
     #[test]
     fn test_stability_report_summary() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::partial_base(0.8));
+        let analyzer = StabilityAnalyzer::new(StabilityConstraint::partial_base(0.8))
+            .expect("a valid constraint");
 
         let boxes = vec![
             PlacedBox::new(
@@ -893,7 +925,8 @@ mod tests {
 
     #[test]
     fn test_no_constraint_always_stable() {
-        let analyzer = StabilityAnalyzer::new(StabilityConstraint::None);
+        let analyzer =
+            StabilityAnalyzer::new(StabilityConstraint::None).expect("a valid constraint");
 
         let boxes = vec![
             // Floating box - normally unstable
@@ -926,5 +959,26 @@ mod tests {
         // No overlap
         let area3 = analyzer.compute_face_overlap((0.0, 0.0, 10.0, 10.0), (20.0, 20.0, 30.0, 30.0));
         assert!(area3 < 0.001);
+    }
+
+    /// A support ratio outside `[0, 1]` is stored as given and refused; it
+    /// used to be clamped (1.5 became a full base).
+    #[test]
+    fn a_support_ratio_out_of_range_is_refused() {
+        let constraint = StabilityConstraint::partial_base(1.5);
+        assert_eq!(
+            constraint,
+            StabilityConstraint::PartialBase { min_ratio: 1.5 },
+            "stored as given"
+        );
+        match StabilityAnalyzer::new(constraint) {
+            Err(u_nesting_core::Error::OutOfRange { parameter, got, .. }) => {
+                assert_eq!((parameter.as_str(), got), ("min_ratio", 1.5))
+            }
+            Err(other) => panic!("{other:?}"),
+            Ok(_) => panic!("accepted"),
+        }
+        assert!(StabilityAnalyzer::new(StabilityConstraint::partial_base(-0.1)).is_err());
+        assert!(StabilityAnalyzer::new(StabilityConstraint::partial_base(1.0)).is_ok());
     }
 }

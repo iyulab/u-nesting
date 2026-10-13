@@ -97,7 +97,6 @@ When `stability: true`:
 {
   "strategy": "ep",
   "time_limit_ms": 30000,
-  "support_ratio": 0.7,
   "population_size": 50,
   "max_generations": 100
 }
@@ -107,9 +106,8 @@ When `stability: true`:
 |--------|------|---------|-------------|
 | `strategy` | string | "ep" | Algorithm strategy |
 | `time_limit_ms` | integer | 30000 | Maximum solving time |
-| `support_ratio` | number | 0.75 | Min support area ratio for stability |
-| `population_size` | integer | 50 | GA/BRKGA population |
-| `max_generations` | integer | 100 | GA/BRKGA generations |
+| `population_size` | integer | 100 (`ga`), 50 (`brkga`) | GA/BRKGA population, at least 2; a value you set is run as given |
+| `max_generations` | integer | 500 (`ga`), 100 (`brkga`) | GA/BRKGA generation budget; a value you set is run as given |
 
 ## Output Format
 

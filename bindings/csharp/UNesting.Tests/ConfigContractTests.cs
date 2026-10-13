@@ -100,6 +100,23 @@ public class ConfigContractTests
     }
 
     [Fact]
+    public void A_budget_is_sent_when_set_zero_included_and_left_out_when_null()
+    {
+        using var set = JsonDocument.Parse(JsonSerializer.Serialize(
+            new Config2D { MaxGenerations = 0, TimeLimitMs = 0, PopulationSize = 2 },
+            NestingJson.Default.Config2D));
+        // 0 generations and 0 ms (no limit) are values, not "not set".
+        Assert.Equal(0, set.RootElement.GetProperty("max_generations").GetInt32());
+        Assert.Equal(0, set.RootElement.GetProperty("time_limit_ms").GetInt32());
+        Assert.Equal(2, set.RootElement.GetProperty("population_size").GetInt32());
+
+        var unset = SerializedKeys(new Config3D(), NestingJson.Default.Config3D).ToHashSet();
+        Assert.DoesNotContain("population_size", unset);
+        Assert.DoesNotContain("max_generations", unset);
+        Assert.DoesNotContain("time_limit_ms", unset);
+    }
+
+    [Fact]
     public void NestingResult_deserializes_canonical_response()
     {
         // A canonical 2D wire response (multi-sheet) must round-trip into the DTO,

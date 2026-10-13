@@ -118,6 +118,14 @@ Solve a 2D nesting problem.
 > `details` `parameter` `geometries[i].quantity` and the geometry's `id`; a
 > `config` count (`population_size` below 2, `seed` below 0, ...) raises
 > `ValueError` naming the setting and its range.
+>
+> What the solver refuses comes back in the result dict (`success: False`,
+> `code`, `details`): an empty `geometries` list is `empty_input`
+> (`parameter` `geometries`); a boundary side, dimension or `max_mass` of 0 or
+> below is `parameter_out_of_range` naming it (`boundary.width`,
+> `boundary.height`, `boundary.dimensions[i]`, `boundary.max_mass`, with
+> `exclusive_min` 0). A boundary given as both a rectangle and a polygon, or
+> half of a rectangle, raises `ValueError`.
 
 - `geometries`: List of geometry definitions
   - `id` (str): Unique identifier
@@ -134,8 +142,10 @@ Solve a 2D nesting problem.
   - `spacing` (float): Gap between geometries
   - `margin` (float): Gap from boundary
   - `time_limit_ms` (int): Timeout in milliseconds
-  - `population_size` (int): GA/BRKGA population
-  - `max_generations` (int): GA/BRKGA generations
+  - `population_size` (int): GA/BRKGA population, at least 2, run as given.
+    Omitted, each search uses the size it is tuned for: 30 in 2D
+  - `max_generations` (int): GA/BRKGA generation budget, at least 0, run as
+    given. Omitted, 50 in 2D
   - `multi_sheet` (bool): Distribute overflow across multiple sheets (default:
     `False`). When `True`, parts that do not fit on one sheet spill onto extra
     sheets instead of becoming unplaced; `boundaries_used` reports the sheet count
@@ -169,14 +179,16 @@ Solve a 3D bin packing problem.
   - `id` (str): Unique identifier
   - `dimensions` (list): [width, depth, height]
   - `quantity` (int): Number of copies
-  - `mass` (float): Weight (optional)
+  - `mass` (float): Weight, at least 0 (optional)
 - `boundary`: Container definition
-  - `dimensions` (list): [width, depth, height]
-  - `max_mass` (float): Weight limit (optional)
+  - `dimensions` (list): [width, depth, height], each above 0
+  - `max_mass` (float): Weight limit, above 0 (optional)
   - `gravity` (bool): Enable gravity constraint
   - `stability` (bool): Enable stability constraint
 - `config`: Same as solve_2d, plus:
   - `strategy`: "blf", "ep", "ga", "brkga", "sa"
+  - `population_size` / `max_generations` omitted: 100 / 500 for `ga`, 50 /
+    100 for `brkga`
 
 **Returns:** Same structure as solve_2d
 

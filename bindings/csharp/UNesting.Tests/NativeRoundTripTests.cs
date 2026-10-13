@@ -113,6 +113,51 @@ public class NativeRoundTripTests
     }
 
     [Fact]
+    public void Nothing_to_place_and_a_flat_boundary_are_refused()
+    {
+        using var nester = new Nester2D();
+        var empty = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [],
+            Boundary = new Boundary2D { Width = 100, Height = 100 },
+        }));
+        Assert.Equal("empty_input", empty.Reason);
+        Assert.Equal("geometries", empty.Details!.Value.GetProperty("parameter").GetString());
+
+        var flat = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10)],
+            Boundary = new Boundary2D { Width = 0, Height = 100 },
+        }));
+        Assert.Equal("parameter_out_of_range", flat.Reason);
+        Assert.Equal("boundary.width", flat.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(0.0, flat.Details!.Value.GetProperty("exclusive_min").GetDouble());
+        Assert.Equal(0.0, flat.Details!.Value.GetProperty("got").GetDouble());
+
+        using var packer = new Packer3D();
+        var none = Assert.Throws<NestingException>(() => packer.Solve(new PackingRequest
+        {
+            Geometries = [],
+            Boundary = new Boundary3D { Dimensions = [40, 40, 40] },
+        }));
+        Assert.Equal("empty_input", none.Reason);
+    }
+
+    [Fact]
+    public void A_budget_that_is_set_is_run_and_zero_generations_is_a_budget()
+    {
+        using var nester = new Nester2D();
+        var result = nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10, 3)],
+            Boundary = new Boundary2D { Width = 50, Height = 50 },
+            Config = new Config2D { Strategy = "brkga", PopulationSize = 3, MaxGenerations = 0, Seed = 1 },
+        });
+        Assert.True(result.Success);
+        Assert.Equal(3, result.Placements.Count);
+    }
+
+    [Fact]
     public void Packing_solves_and_reads_the_result()
     {
         using var packer = new Packer3D();

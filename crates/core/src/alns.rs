@@ -110,7 +110,7 @@ impl AlnsConfig {
 
     /// Set segment size for weight updates.
     pub fn with_segment_size(mut self, size: usize) -> Self {
-        self.segment_size = size.max(1);
+        self.segment_size = size;
         self
     }
 
@@ -142,9 +142,11 @@ impl AlnsConfig {
     /// # Errors
     /// `ConfigError` naming the first field out of range: `reaction_factor`
     /// outside `[0, 1]`, `cooling_rate` outside `[0.9, 1]`, `initial_temperature`
-    /// below 0.01, `final_temperature` below 0.001, `min_weight` negative.
+    /// below 0.01, `final_temperature` below 0.001, `min_weight` negative,
+    /// `segment_size` below 1.
     pub fn validate(&self) -> crate::error::Result<()> {
         use crate::error::{check_at_least, check_range};
+        check_at_least("segment_size", self.segment_size as f64, 1.0)?;
         check_range("reaction_factor", self.reaction_factor, 0.0, 1.0)?;
         check_range("cooling_rate", self.cooling_rate, 0.9, 1.0)?;
         check_at_least("initial_temperature", self.initial_temperature, 0.01)?;

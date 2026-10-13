@@ -7,7 +7,11 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 /// `value` inside `[min, max]` (a NaN is outside every range), or an
 /// [`Error::OutOfRange`] naming the field and the range.
-pub(crate) fn check_range(name: &str, value: f64, min: f64, max: f64) -> Result<()> {
+///
+/// # Errors
+///
+/// [`Error::OutOfRange`] with the closed bounds `min` and `max`.
+pub fn check_range(name: &str, value: f64, min: f64, max: f64) -> Result<()> {
     if value >= min && value <= max {
         Ok(())
     } else {
@@ -26,7 +30,11 @@ pub(crate) fn check_range(name: &str, value: f64, min: f64, max: f64) -> Result<
 
 /// `value` finite and at least `min`, or an [`Error::OutOfRange`] naming the
 /// field.
-pub(crate) fn check_at_least(name: &str, value: f64, min: f64) -> Result<()> {
+///
+/// # Errors
+///
+/// [`Error::OutOfRange`] with the closed lower bound `min`.
+pub fn check_at_least(name: &str, value: f64, min: f64) -> Result<()> {
     if value.is_finite() && value >= min {
         Ok(())
     } else {
@@ -45,7 +53,11 @@ pub(crate) fn check_at_least(name: &str, value: f64, min: f64) -> Result<()> {
 
 /// `value` finite and strictly above `bound`, or an [`Error::OutOfRange`]
 /// naming the field with `bound` as its open lower bound (`exclusive_min`).
-pub(crate) fn check_above(name: &str, value: f64, bound: f64) -> Result<()> {
+///
+/// # Errors
+///
+/// [`Error::OutOfRange`] with the open lower bound `bound`.
+pub fn check_above(name: &str, value: f64, bound: f64) -> Result<()> {
     if value.is_finite() && value > bound {
         Ok(())
     } else {
@@ -139,6 +151,11 @@ pub enum Error {
         range: String,
     },
 
+    /// A list the request must not leave empty -- `parameter` names it
+    /// (`geometries`): there is nothing to solve.
+    #[error("{parameter} is empty; give at least one")]
+    EmptyInput { parameter: String },
+
     /// A setting that cannot be used as given (a strategy this build or this
     /// dimension does not offer, ...).
     #[error("{parameter}: {message}")]
@@ -198,12 +215,13 @@ pub enum Error {
 
 impl Error {
     /// The stable name of the reason: `parameter_out_of_range`,
-    /// `invalid_option`, `unknown_option`, `malformed_input`,
+    /// `empty_input`, `invalid_option`, `unknown_option`, `malformed_input`,
     /// `invalid_geometry`, `duplicate_id`, `invalid_boundary`, `cancelled`
     /// or `internal`.
     pub fn code(&self) -> &'static str {
         match self {
             Error::OutOfRange { .. } => "parameter_out_of_range",
+            Error::EmptyInput { .. } => "empty_input",
             Error::InvalidOption { .. } => "invalid_option",
             Error::UnknownOption { .. } => "unknown_option",
             Error::MalformedInput { .. } => "malformed_input",
@@ -212,6 +230,13 @@ impl Error {
             Error::DuplicateId { .. } => "duplicate_id",
             Error::InvalidBoundary { .. } => "invalid_boundary",
             Error::Internal(_) => "internal",
+        }
+    }
+
+    /// A list the request must not leave empty.
+    pub fn empty_input(parameter: &str) -> Self {
+        Error::EmptyInput {
+            parameter: parameter.to_string(),
         }
     }
 

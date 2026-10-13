@@ -18,7 +18,8 @@ pub struct CuttingConfig {
     /// Used for kerf compensation. Set to 0.0 to disable.
     pub kerf_width: f64,
 
-    /// Weight factor for pierce count in the cost function.
+    /// Weight factor for pierce count in the cost function, a finite number
+    /// at least 0 (0 ignores pierces; a negative weight would reward them).
     /// Cost = total_rapid_distance + pierce_weight * pierce_count
     pub pierce_weight: f64,
 
@@ -39,11 +40,11 @@ pub struct CuttingConfig {
     /// `max_2opt_iterations`). Default: `5000` (5 seconds).
     pub time_limit_ms: u64,
 
-    /// Machine rapid traverse speed (mm/s or units/s).
-    /// Used only for time estimation, not for optimization.
+    /// Machine rapid traverse speed (mm/s or units/s), a finite number above
+    /// 0. Used only for time estimation, not for optimization.
     pub rapid_speed: f64,
 
-    /// Machine cutting speed (mm/s or units/s).
+    /// Machine cutting speed (mm/s or units/s), a finite number above 0.
     /// Used only for time estimation, not for optimization.
     pub cut_speed: f64,
 
@@ -62,7 +63,10 @@ pub struct CuttingConfig {
     /// Default: 1 (use nearest point on contour to previous endpoint).
     pub pierce_candidates: usize,
 
-    /// Tolerance for geometric comparisons.
+    /// Tolerance for geometric comparisons, a finite number at least 0: the
+    /// slack allowed when a gap between two parts is compared with the kerf
+    /// width (a gap within `tolerance` of the kerf is wide enough) and when
+    /// edges are matched as shared.
     pub tolerance: f64,
 
     /// Lead-in/lead-out configuration.
@@ -137,10 +141,15 @@ impl CuttingConfig {
         Self::default()
     }
 
-    /// Refuses a configuration the optimizer would otherwise reinterpret: a
-    /// kerf width that is negative or not finite (a negative one used to turn
-    /// compensation off) and fewer than one pierce candidate.
+    /// Refuses a configuration the optimizer would otherwise reinterpret, as
+    /// `parameter_out_of_range`: a kerf width that is negative or not finite
+    /// (a negative one used to turn compensation off), a `pierce_weight` or
+    /// `tolerance` that is negative or not finite, a `cut_speed` or
+    /// `rapid_speed` that is not above 0 (the time estimate divides by them),
+    /// and fewer than one pierce candidate. The builders store what they are
+    /// given; this is where a value is judged.
     pub fn validate(&self) -> u_nesting_core::Result<()> {
+        use u_nesting_core::error::{check_above, check_at_least};
         if !(self.kerf_width.is_finite() && self.kerf_width >= 0.0) {
             return Err(Error::OutOfRange {
                 parameter: "kerf_width".to_string(),
@@ -153,7 +162,11 @@ impl CuttingConfig {
                 range: "finite and >= 0 (0 disables compensation)".to_string(),
             });
         }
+        check_at_least("pierce_weight", self.pierce_weight, 0.0)?;
+        check_above("rapid_speed", self.rapid_speed, 0.0)?;
+        check_above("cut_speed", self.cut_speed, 0.0)?;
         Self::check_pierce_candidates(self.pierce_candidates as i128)?;
+        check_at_least("tolerance", self.tolerance, 0.0)?;
         Ok(())
     }
 
@@ -244,7 +257,20 @@ impl CuttingConfig {
 
     /// Sets the number of pierce candidates per contour.
     pub fn with_pierce_candidates(mut self, candidates: usize) -> Self {
-        self.pierce_candidates = candidates.max(1);
+        self.pierce_candidates = candidates;
+        self
+    }
+
+    /// Sets the machine speeds (units/s) the time estimate uses.
+    pub fn with_speeds(mut self, rapid_speed: f64, cut_speed: f64) -> Self {
+        self.rapid_speed = rapid_speed;
+        self.cut_speed = cut_speed;
+        self
+    }
+
+    /// Sets the tolerance for geometric comparisons.
+    pub fn with_tolerance(mut self, tolerance: f64) -> Self {
+        self.tolerance = tolerance;
         self
     }
 
@@ -293,9 +319,56 @@ mod tests {
         assert_eq!(config.home_position, (10.0, 10.0));
     }
 
+    /// The builders store what they are given; `validate` refuses it.
     #[test]
-    fn test_pierce_candidates_minimum() {
+    fn a_setting_out_of_range_is_stored_and_refused() {
         let config = CuttingConfig::new().with_pierce_candidates(0);
-        assert_eq!(config.pierce_candidates, 1);
+        assert_eq!(config.pierce_candidates, 0, "stored as given");
+        let e = config.validate().expect_err("no pierce candidate");
+        assert_eq!(e.code(), "parameter_out_of_range");
+
+        let refused = |config: CuttingConfig| match config.validate() {
+            Err(Error::OutOfRange {
+                parameter,
+                min,
+                exclusive_min,
+                got,
+                ..
+            }) => (parameter, min, exclusive_min, got),
+            other => panic!("{other:?}"),
+        };
+        for (rapid, cut, parameter) in [
+            (0.0, 100.0, "rapid_speed"),
+            (-1.0, 100.0, "rapid_speed"),
+            (1000.0, 0.0, "cut_speed"),
+            (1000.0, -1.0, "cut_speed"),
+        ] {
+            let got = if parameter == "rapid_speed" {
+                rapid
+            } else {
+                cut
+            };
+            assert_eq!(
+                refused(CuttingConfig::new().with_speeds(rapid, cut)),
+                (parameter.to_string(), None, Some(0.0), got)
+            );
+        }
+        assert_eq!(
+            refused(CuttingConfig::new().with_pierce_weight(-1.0)),
+            ("pierce_weight".to_string(), Some(0.0), None, -1.0)
+        );
+        assert_eq!(
+            refused(CuttingConfig::new().with_tolerance(-1e-6)),
+            ("tolerance".to_string(), Some(0.0), None, -1e-6)
+        );
+        assert!(CuttingConfig::new()
+            .with_tolerance(f64::NAN)
+            .validate()
+            .is_err());
+        assert!(CuttingConfig::new()
+            .with_pierce_weight(0.0)
+            .with_tolerance(0.0)
+            .validate()
+            .is_ok());
     }
 }

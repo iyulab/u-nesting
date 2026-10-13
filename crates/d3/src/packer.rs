@@ -20,6 +20,23 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
 
+/// The GA population when the caller leaves [`Config::population_size`]
+/// unset. A 3D individual is decoded by layer placement, cheap next to a 2D
+/// no-fit-polygon layout, so the run is larger than the 2D one.
+const GA_POPULATION: usize = 100;
+
+/// The GA generation budget when the caller leaves
+/// [`Config::max_generations`] unset.
+const GA_GENERATIONS: u32 = 500;
+
+/// The BRKGA population when the caller leaves [`Config::population_size`]
+/// unset.
+const BRKGA_POPULATION: usize = 50;
+
+/// The BRKGA generation budget when the caller leaves
+/// [`Config::max_generations`] unset.
+const BRKGA_GENERATIONS: u32 = 100;
+
 /// Best fit candidate for 3D placement.
 /// (orientation_idx, width, depth, height, place_x, place_y, place_z, new_row_depth, new_layer_height)
 type BestFit3D = Option<(usize, f64, f64, f64, f64, f64, f64, f64, f64)>;
@@ -67,20 +84,63 @@ impl Packer3D {
         Self::new(Config::default())
     }
 
+    /// The GA run the configuration asks for: the caller's population and
+    /// generation budget, [`GA_POPULATION`] / [`GA_GENERATIONS`] for the ones
+    /// left unset.
+    fn ga_config(&self) -> GaConfig {
+        GaConfig::default()
+            .with_population_size(self.config.population_size.unwrap_or(GA_POPULATION))
+            .with_max_generations(self.config.max_generations.unwrap_or(GA_GENERATIONS))
+            .with_crossover_rate(self.config.crossover_rate)
+            .with_mutation_rate(self.config.mutation_rate)
+            .with_elite_count(self.config.elite_count)
+    }
+
+    /// The BRKGA run the configuration asks for: the caller's population and
+    /// generation budget, [`BRKGA_POPULATION`] / [`BRKGA_GENERATIONS`] for the
+    /// ones left unset.
+    fn brkga_config(&self) -> BrkgaConfig {
+        BrkgaConfig::default()
+            .with_population_size(self.config.population_size.unwrap_or(BRKGA_POPULATION))
+            .with_max_generations(self.config.max_generations.unwrap_or(BRKGA_GENERATIONS))
+            .with_elite_fraction(0.2)
+            .with_mutant_fraction(0.15)
+            .with_elite_bias(0.7)
+    }
+
+    /// Judges the request once, at the solve entry point, whichever strategy
+    /// runs: the configuration, the boundary, the geometries -- an empty list
+    /// is `empty_input`, there is nothing to pack -- and their ids.
+    fn validate_inputs(&self, geometries: &[Geometry3D], boundary: &Boundary3D) -> Result<()> {
+        boundary.validate()?;
+        if geometries.is_empty() {
+            return Err(Error::empty_input("geometries"));
+        }
+        self.config.validate()?;
+        for geom in geometries {
+            geom.validate()?;
+        }
+        u_nesting_core::geometry::ensure_unique_ids(geometries)
+    }
+
     /// Validates the stability of a packing result.
     ///
     /// Analyzes each placement to ensure boxes are properly supported.
+    ///
+    /// # Errors
+    ///
+    /// The refusal of [`StabilityConstraint::validate`].
     pub fn validate_stability(
         &self,
         result: &SolveResult<f64>,
         geometries: &[Geometry3D],
         _boundary: &Boundary3D,
         constraint: StabilityConstraint,
-    ) -> StabilityReport {
+    ) -> Result<StabilityReport> {
         // Convert placements to PlacedBox format
         let placed_boxes = self.placements_to_boxes(result, geometries);
-        let analyzer = StabilityAnalyzer::new(constraint);
-        analyzer.analyze(&placed_boxes, 0.0)
+        let analyzer = StabilityAnalyzer::new(constraint)?;
+        Ok(analyzer.analyze(&placed_boxes, 0.0))
     }
 
     /// Validates stability using physics simulation.
@@ -96,7 +156,8 @@ impl Packer3D {
         let container = Vector3::new(boundary.width(), boundary.depth(), boundary.height());
 
         let config = PhysicsConfig::default().with_max_time(2.0);
-        let simulator = PhysicsSimulator::new(config);
+        let simulator =
+            PhysicsSimulator::new(config).expect("the default physics settings are in range");
         simulator.validate_stability(&placed_boxes, container, 0.0)
     }
 
@@ -128,7 +189,8 @@ impl Packer3D {
         // must use that as the floor — checking against z = 0 would read every bottom
         // box as floating and drop the whole pack when margin > 0.
         let floor_z = self.config.margin;
-        let analyzer = StabilityAnalyzer::new(constraint);
+        let analyzer = StabilityAnalyzer::new(constraint)
+            .expect("the support ratios used here, 0.7 and 1e-6, are in range");
         while !result.placements.is_empty() {
             let placed_boxes = self.placements_to_boxes(result, geometries);
             let report = analyzer.analyze(&placed_boxes, floor_z);
@@ -383,18 +445,11 @@ impl Packer3D {
         geometries: &[Geometry3D],
         boundary: &Boundary3D,
     ) -> Result<SolveResult<f64>> {
-        // Configure GA from solver config
-        let ga_config = GaConfig::default()
-            .with_population_size(self.config.population_size)
-            .with_max_generations(self.config.max_generations)
-            .with_crossover_rate(self.config.crossover_rate)
-            .with_mutation_rate(self.config.mutation_rate);
-
         let result = run_ga_packing(
             geometries,
             boundary,
             &self.config,
-            ga_config,
+            self.ga_config(),
             self.cancelled.clone(),
         )?;
 
@@ -405,19 +460,11 @@ impl Packer3D {
     ///
     /// Uses random-key encoding and biased crossover for robust optimization.
     fn brkga(&self, geometries: &[Geometry3D], boundary: &Boundary3D) -> Result<SolveResult<f64>> {
-        // Configure BRKGA with reasonable defaults
-        let brkga_config = BrkgaConfig::default()
-            .with_population_size(50)
-            .with_max_generations(100)
-            .with_elite_fraction(0.2)
-            .with_mutant_fraction(0.15)
-            .with_elite_bias(0.7);
-
         let result = run_brkga_packing(
             geometries,
             boundary,
             &self.config,
-            brkga_config,
+            self.brkga_config(),
             self.cancelled.clone(),
         )?;
 
@@ -735,9 +782,7 @@ impl Solver for Packer3D {
         geometries: &[Self::Geometry],
         boundary: &Self::Boundary,
     ) -> Result<SolveResult<f64>> {
-        self.config.validate()?;
-        boundary.validate()?;
-        u_nesting_core::geometry::ensure_unique_ids(geometries)?;
+        self.validate_inputs(geometries, boundary)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
@@ -763,8 +808,7 @@ impl Solver for Packer3D {
         boundary: &Self::Boundary,
         callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
-        boundary.validate()?;
-        u_nesting_core::geometry::ensure_unique_ids(geometries)?;
+        self.validate_inputs(geometries, boundary)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
@@ -823,6 +867,71 @@ mod tests {
             assert!(msg.contains("'B'"), "{msg}");
             assert!(msg.contains("positions 0 and 1"), "{msg}");
         }
+    }
+
+    /// Nothing to pack is refused, and every entry point judges the whole
+    /// request the same way -- the progress entry point used to skip the
+    /// configuration, and no entry point judged the boxes before the strategy
+    /// ran.
+    #[test]
+    fn every_entry_point_judges_the_whole_request() {
+        let boundary = Boundary3D::new(100.0, 100.0, 100.0);
+        let packer = Packer3D::default_config();
+        let empty = Error::EmptyInput {
+            parameter: "geometries".into(),
+        };
+        assert_eq!(packer.solve(&[], &boundary).expect_err("solve"), empty);
+        assert_eq!(
+            packer
+                .solve_with_progress(&[], &boundary, Box::new(|_| {}))
+                .expect_err("solve_with_progress"),
+            empty
+        );
+
+        let boxes = [Geometry3D::new("B", 10.0, 10.0, 10.0)];
+        let bad_config = Packer3D::new(Config::default().with_spacing(-1.0));
+        for err in [
+            bad_config.solve(&boxes, &boundary).expect_err("solve"),
+            bad_config
+                .solve_with_progress(&boxes, &boundary, Box::new(|_| {}))
+                .expect_err("solve_with_progress"),
+        ] {
+            assert_eq!(err.code(), "parameter_out_of_range", "{err}");
+        }
+
+        let flat = [Geometry3D::new("flat", 10.0, 0.0, 10.0)];
+        for strategy in [Strategy::ExtremePoint, Strategy::GeneticAlgorithm] {
+            let packer = Packer3D::new(Config::default().with_strategy(strategy));
+            match packer.solve(&flat, &boundary) {
+                Err(Error::OutOfRange { parameter, id, .. }) => {
+                    assert_eq!(parameter, "dimensions[1]");
+                    assert_eq!(id.as_deref(), Some("flat"));
+                }
+                other => panic!("{strategy:?}: {other:?}"),
+            }
+        }
+    }
+
+    /// A population or generation budget the caller sets is the one the
+    /// search runs with -- BRKGA used to run 50 x 100 whatever was asked;
+    /// left unset, each search runs with its own.
+    #[test]
+    fn a_set_budget_is_run_and_an_unset_one_is_the_strategy_s() {
+        let unset = Packer3D::default_config();
+        assert_eq!(unset.ga_config().population_size, 100);
+        assert_eq!(unset.ga_config().max_generations, 500);
+        assert_eq!(unset.brkga_config().population_size, 50);
+        assert_eq!(unset.brkga_config().max_generations, 100);
+
+        let set = Packer3D::new(
+            Config::default()
+                .with_population_size(12)
+                .with_max_generations(3),
+        );
+        assert_eq!(set.ga_config().population_size, 12);
+        assert_eq!(set.ga_config().max_generations, 3);
+        assert_eq!(set.brkga_config().population_size, 12);
+        assert_eq!(set.brkga_config().max_generations, 3);
     }
 
     #[test]

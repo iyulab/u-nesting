@@ -948,7 +948,8 @@ mod bucket_b_tests {
             &config,
             &exact_config,
             Arc::new(AtomicBool::new(false)),
-        );
+        )
+        .expect("a valid configuration");
         assert!(
             result.unplaced.is_empty(),
             "both mirrored/rotated instances should fit in this boundary"

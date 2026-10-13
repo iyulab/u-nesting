@@ -82,7 +82,7 @@ impl BrkgaConfig {
 
     /// Sets the population size.
     pub fn with_population_size(mut self, size: usize) -> Self {
-        self.population_size = size.max(4);
+        self.population_size = size;
         self
     }
 
@@ -115,13 +115,28 @@ impl BrkgaConfig {
     ///
     /// # Errors
     /// `ConfigError` naming the first field out of range: `elite_fraction`
-    /// outside `[0.01, 0.5]`, `mutant_fraction` outside `[0, 0.5]`, the two
-    /// together above 1, `elite_bias` outside `[0.5, 1]`, a population below 2.
+    /// outside `[0.01, 0.5]`, `mutant_fraction` outside `[0, 0.5]`,
+    /// `elite_bias` outside `[0.5, 1]`, a population below 2; and
+    /// `invalid_option` (`population_size`) for a population too small to hold
+    /// the elite and the mutants the two fractions ask for (each is rounded
+    /// up to a whole individual).
     pub fn validate(&self) -> Result<()> {
         check_range("elite_fraction", self.elite_fraction, 0.01, 0.5)?;
         check_range("mutant_fraction", self.mutant_fraction, 0.0, 0.5)?;
         check_range("elite_bias", self.elite_bias, 0.5, 1.0)?;
         check_at_least("population_size", self.population_size as f64, 2.0)?;
+        let (elite, mutants) = (self.elite_count(), self.mutant_count());
+        if elite + mutants > self.population_size {
+            return Err(crate::Error::invalid_option(
+                "population_size",
+                format!(
+                    "a population of {} has no room for {elite} elite (elite_fraction {}) \
+                     and {mutants} mutant (mutant_fraction {}) individuals; give a larger \
+                     population or smaller fractions",
+                    self.population_size, self.elite_fraction, self.mutant_fraction
+                ),
+            ));
+        }
         Ok(())
     }
 

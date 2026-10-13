@@ -90,8 +90,7 @@ For multiple sheets with different sizes:
   "margin": 5.0,
   "time_limit_ms": 30000,
   "population_size": 100,
-  "max_generations": 200,
-  "rotation_step": 90
+  "max_generations": 200
 }
 ```
 
@@ -101,9 +100,8 @@ For multiple sheets with different sizes:
 | `spacing` | number | 0 | Minimum distance between parts |
 | `margin` | number | 0 | Distance from sheet edges |
 | `time_limit_ms` | integer | 30000 | Maximum solving time |
-| `population_size` | integer | 50 | GA/BRKGA population size |
-| `max_generations` | integer | 100 | GA/BRKGA generations |
-| `rotation_step` | number | 90 | Default rotation increment |
+| `population_size` | integer | 30 | GA/BRKGA population size, at least 2; a value you set is run as given |
+| `max_generations` | integer | 50 | GA/BRKGA generation budget; a value you set is run as given |
 | `multi_sheet` | boolean | false | Spill overflow onto additional sheets (sheet-local coords; `sheet_index` selects the sheet) |
 
 ## Output Format

@@ -17,10 +17,10 @@ pub struct BenchmarkConfig {
     pub runs_per_config: usize,
     /// Whether to show progress.
     pub show_progress: bool,
-    /// GA population size.
-    pub population_size: usize,
-    /// GA max generations.
-    pub max_generations: u32,
+    /// GA/BRKGA population size; `None` leaves it to each strategy.
+    pub population_size: Option<usize>,
+    /// GA/BRKGA generation budget; `None` leaves it to each strategy.
+    pub max_generations: Option<u32>,
 }
 
 impl Default for BenchmarkConfig {
@@ -34,8 +34,8 @@ impl Default for BenchmarkConfig {
             time_limit_ms: 60_000, // 60 seconds
             runs_per_config: 1,
             show_progress: true,
-            population_size: 100,
-            max_generations: 500,
+            population_size: None,
+            max_generations: None,
         }
     }
 }
@@ -71,8 +71,8 @@ impl BenchmarkConfig {
             time_limit_ms: 5_000,
             runs_per_config: 1,
             show_progress: true,
-            population_size: 50,
-            max_generations: 100,
+            population_size: None,
+            max_generations: None,
         }
     }
 
@@ -89,8 +89,8 @@ impl BenchmarkConfig {
             time_limit_ms: 60_000,
             runs_per_config: 3,
             show_progress: true,
-            population_size: 100,
-            max_generations: 500,
+            population_size: None,
+            max_generations: None,
         }
     }
 }

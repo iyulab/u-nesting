@@ -24,8 +24,9 @@ pub struct CuttingPathResult {
     /// Computation time in milliseconds.
     pub computation_time_ms: u64,
 
-    /// Estimated total cutting time in seconds (if speeds are configured).
-    pub estimated_time_seconds: Option<f64>,
+    /// Estimated total time in seconds: the rapid distance at `rapid_speed`
+    /// plus the cut distance at `cut_speed` (0 when there is nothing to cut).
+    pub estimated_time_seconds: f64,
 
     /// Contours of placed parts that are not in `sequence`, and why. A part
     /// with a skipped contour is not fully cut by this plan.
@@ -78,7 +79,7 @@ impl CuttingPathResult {
             total_rapid_distance: 0.0,
             total_pierces: 0,
             computation_time_ms: 0,
-            estimated_time_seconds: None,
+            estimated_time_seconds: 0.0,
             skipped: Vec::new(),
         }
     }

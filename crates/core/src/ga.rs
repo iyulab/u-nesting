@@ -77,7 +77,7 @@ impl GaConfig {
 
     /// Sets the population size.
     pub fn with_population_size(mut self, size: usize) -> Self {
-        self.population_size = size.max(2);
+        self.population_size = size;
         self
     }
 

@@ -125,17 +125,17 @@ interface CuttingRequest {
   solve_result: SolveResult;       // The parsed result returned by solve_2d
   cutting_config?: {
     kerf_width?: number;           // Kerf compensation width (default: 0 = off)
-    pierce_weight?: number;        // Pierce-count weight in cost (default: 10)
+    pierce_weight?: number;        // Pierce-count weight in cost, >= 0 (default: 10)
     max_2opt_iterations?: number;  // 2-opt iteration cap (default: 1000)
     time_limit_ms?: number;        // Wall-clock budget (ms) for the 2-opt phase.
                                    //   0 = unlimited. Default: 5000.
-    rapid_speed?: number;          // For time estimation only (default: 1000)
-    cut_speed?: number;            // For time estimation only (default: 100)
+    rapid_speed?: number;          // Units/s, > 0; for time estimation only (default: 1000)
+    cut_speed?: number;            // Units/s, > 0; for time estimation only (default: 100)
     exterior_direction?: string;   // "ccw" | "cw" | "auto" (default: "auto")
     interior_direction?: string;   // "ccw" | "cw" | "auto" (default: "auto")
     home_position?: [number, number]; // Head start/end point (default: [0,0])
     pierce_candidates?: number;    // Candidate pierce points per contour (default: 1)
-    tolerance?: number;            // Geometric comparison tolerance (default: 1e-6)
+    tolerance?: number;            // Geometric comparison tolerance, >= 0 (default: 1e-6)
   };
 }
 ```
@@ -168,7 +168,7 @@ interface CuttingResponse {
   total_cut_distance: number;
   total_rapid_distance: number;
   total_pierces: number;
-  estimated_time_seconds: number | null;
+  estimated_time_seconds: number;  // rapid distance / rapid_speed + cut distance / cut_speed
   efficiency: number;
   computation_time_ms: number;
   // Contours the plan cannot cut. A part listed here is NOT fully cut by `sequence`.
@@ -216,16 +216,31 @@ interface Request2D {
     spacing?: number;                  // Minimum distance between parts (default: 0)
     margin?: number;                   // Minimum distance from a part to the boundary edge (default: 0)
     strategy?: string;                 // See available strategies
-    population_size?: number;          // GA/BRKGA population (default: 50)
-    max_generations?: number;          // GA/BRKGA generations (default: 100)
-    crossover_rate?: number;           // Crossover rate (default: 0.8)
-    mutation_rate?: number;            // Mutation rate (default: 0.1)
+    population_size?: number;          // GA/BRKGA population, >= 2, run as given
+                                       //   (omitted: 30, what the 2D searches are tuned for)
+    max_generations?: number;          // GA/BRKGA generation budget, >= 0, run as given
+                                       //   (omitted: 50)
+    crossover_rate?: number;           // GA crossover rate (default: 0.85)
+    mutation_rate?: number;            // GA mutation rate (default: 0.05)
     time_limit_ms?: number;            // Time limit in ms for the whole solve
     target_utilization?: number;       // Stop early if reached
     multi_sheet?: boolean;             // Spill overflow onto extra sheets (default: false)
   };
 }
 ```
+
+`solve_3d` takes the same `config` (without `multi_sheet`). A `population_size`
+or `max_generations` you set is the one the search runs with; omitted, each
+search uses the budget it is tuned for:
+
+| Strategy | `population_size` omitted | `max_generations` omitted |
+|---|---|---|
+| 2D `ga`, `brkga` | 30 | 50 |
+| 3D `ga` | 100 | 500 |
+| 3D `brkga` | 50 | 100 |
+
+The other strategies have no population and do not read them. A run also ends on
+`time_limit_ms` and when the best layout stops improving.
 
 ### Multi-Sheet Nesting
 
@@ -349,12 +364,13 @@ interface RefusalDetails {
 
 | `code` | `details` | Meaning |
 |---|---|---|
-| `parameter_out_of_range` | `parameter`, `got`, and per side `min` / `max` (closed) or `exclusive_min` / `exclusive_max` (open); an unbounded side has neither; `id` for a geometry's quantity | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, ...); a count below its least value, a negative one included (`geometries[i].quantity` below 1, `population_size` below 2, `pierce_candidates` below 1, `seed` or `time_limit_ms` below 0) |
+| `parameter_out_of_range` | `parameter`, `got`, and per side `min` / `max` (closed) or `exclusive_min` / `exclusive_max` (open); an unbounded side has neither; `id` for a geometry's own value | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, `cut_speed` / `rapid_speed` not above 0, `pierce_weight` / `tolerance` below 0, ...); a count below its least value, a negative one included (`geometries[i].quantity` below 1, `population_size` below 2, `pierce_candidates` below 1, `seed` or `time_limit_ms` below 0); a boundary measure not above 0 (`boundary.width`, `boundary.height`, `boundary.dimensions[i]`, `boundary.max_mass`, each with `exclusive_min: 0`); a box's `geometries[i].dimensions[j]` not above 0 or `geometries[i].mass` below 0 |
+| `empty_input` | `parameter` | A list with nothing in it: `geometries` (nothing to place or pack) |
 | `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `strategy`, a geometry's `orientation`, a cut direction, the C ABI's `mode` |
 | `invalid_option` | `parameter` | A setting that cannot be used here: a strategy this build or this dimension does not offer, a failed `solve_result` given to cut |
 | `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a placement naming no geometry |
 | `duplicate_id` | `parameter`, `id`, `first`, `index` | Two geometries share an id |
-| `invalid_boundary` | `parameter` (when one field is at fault) | A boundary the engine cannot place into (both or neither of size and polygon, non-positive dimensions, ...) |
+| `invalid_boundary` | `parameter` (when one field is at fault) | A boundary of a shape the engine cannot place into: both or neither of size and polygon, a polygon with fewer than 3 vertices, of no area or crossing itself |
 | `malformed_input` | `parameter` (the path of the field, e.g. `geometries[2].quantity`, when there is one) | Not JSON, or a missing, unknown or mistyped key -- a count given as a fraction (`2.5`) included |
 | `cancelled` | — | The caller stopped the run (C ABI progress callback) |
 | `internal` | — | A failure inside the engine, not caused by the request |

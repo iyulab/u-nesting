@@ -31,6 +31,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
 
+/// The population the genetic searches (GA, BRKGA) run with when the caller
+/// leaves [`Config::population_size`] unset. Each individual is decoded by
+/// placing every part against the no-fit polygons of the parts placed before
+/// it, so a generation costs one such layout per individual.
+const SEARCH_POPULATION: usize = 30;
+
+/// The generation budget of the genetic searches (GA, BRKGA) when the caller
+/// leaves [`Config::max_generations`] unset.
+const SEARCH_GENERATIONS: u32 = 50;
+
 /// Mirror candidates to try for a geometry (`allow_flip` support): `[false,
 /// true]` when mirroring is allowed, `[false]` otherwise — same shape as an
 /// empty-vs-populated rotation list, so callers can nest a nested loop over
@@ -215,6 +225,29 @@ impl Nester2D {
     /// Creates a nester with default configuration.
     pub fn default_config() -> Self {
         Self::new(Config::default())
+    }
+
+    /// The GA run the configuration asks for: the caller's population and
+    /// generation budget, [`SEARCH_POPULATION`] / [`SEARCH_GENERATIONS`] for
+    /// the ones left unset.
+    fn ga_config(&self) -> GaConfig {
+        GaConfig::default()
+            .with_population_size(self.config.population_size.unwrap_or(SEARCH_POPULATION))
+            .with_max_generations(self.config.max_generations.unwrap_or(SEARCH_GENERATIONS))
+            .with_crossover_rate(self.config.crossover_rate)
+            .with_mutation_rate(self.config.mutation_rate)
+            .with_elite_count(self.config.elite_count)
+    }
+
+    /// The BRKGA run the configuration asks for, with the same population
+    /// and generation budget as [`Self::ga_config`].
+    fn brkga_config(&self) -> BrkgaConfig {
+        BrkgaConfig::default()
+            .with_population_size(self.config.population_size.unwrap_or(SEARCH_POPULATION))
+            .with_max_generations(self.config.max_generations.unwrap_or(SEARCH_GENERATIONS))
+            .with_elite_fraction(0.2)
+            .with_mutant_fraction(0.15)
+            .with_elite_bias(0.7)
     }
 
     /// Bottom-Left Fill algorithm implementation with rotation optimization.
@@ -554,11 +587,8 @@ impl Nester2D {
             (remaining, greedy)
         };
 
-        let ga_config = GaConfig::default()
-            .with_population_size(self.config.population_size.min(30)) // Limit population
-            .with_max_generations(self.config.max_generations.min(50)) // Limit generations
-            .with_crossover_rate(self.config.crossover_rate)
-            .with_mutation_rate(self.config.mutation_rate)
+        let ga_config = self
+            .ga_config()
             .with_time_limit(std::time::Duration::from_millis(time_limit_ms));
 
         let result = run_ga_nesting(
@@ -583,15 +613,8 @@ impl Nester2D {
             (remaining, greedy)
         };
 
-        let brkga_config = BrkgaConfig::default()
-            // Honor the caller's population_size (was hardcoded to 30, silently
-            // ignoring config). Capped at 30 as a performance ceiling, matching
-            // the GA path — each decode is an O(N²) NFP evaluation.
-            .with_population_size(self.config.population_size.min(30))
-            .with_max_generations(50) // Fewer generations
-            .with_elite_fraction(0.2)
-            .with_mutant_fraction(0.15)
-            .with_elite_bias(0.7)
+        let brkga_config = self
+            .brkga_config()
             .with_time_limit(std::time::Duration::from_millis(time_limit_ms));
 
         let result = run_brkga_nesting(
@@ -719,15 +742,13 @@ impl Nester2D {
             .with_rotation_steps(4)
             .with_grid_step(milp_grid_step(geometries, boundary));
 
-        let result = run_nfp_cm_nesting(
+        run_nfp_cm_nesting(
             geometries,
             boundary,
             &self.config,
             &exact_config,
             self.cancelled.clone(),
-        );
-
-        Ok(result)
+        )
     }
 
     /// Hybrid exact solver: try MILP first, fallback to heuristic.
@@ -755,7 +776,7 @@ impl Nester2D {
                 &self.config,
                 &exact_config,
                 self.cancelled.clone(),
-            );
+            )?;
 
             // If got a good solution, return it
             if !exact_result.placements.is_empty() {
@@ -1289,8 +1310,14 @@ impl Nester2D {
     /// guarantees no dispatch path — including the progress/callback path and
     /// every metaheuristic — can bypass input rejection of degenerate,
     /// self-intersecting, or `allow_flip` geometries.
+    ///
+    /// An empty list is refused (`empty_input`): there is nothing to place,
+    /// and a layout of no parts on one sheet answers a question nobody asked.
     fn validate_geometries(&self, geometries: &[Geometry2D]) -> Result<()> {
         use u_nesting_core::geometry::Geometry;
+        if geometries.is_empty() {
+            return Err(Error::empty_input("geometries"));
+        }
         self.config.validate()?;
         for geom in geometries {
             geom.validate()?;
@@ -1515,19 +1542,11 @@ impl Solver for Nester2D {
                 self.nfp_guided_blf_with_progress(geometries, boundary, &callback)?
             }
             Strategy::GeneticAlgorithm => {
-                // Cap population/generations to match the non-progress
-                // `genetic_algorithm` path. Without this the callback path ran the
-                // full default 500 generations × 100 population (vs 50 × 30),
-                // making a progress-driven solve dramatically slower for no quality
-                // gain and letting it overrun a modest time budget.
-                // Same greedy start as the non-progress path, inside the limit.
+                // The same run as the non-progress `genetic_algorithm` path,
+                // after the same greedy start, inside the limit.
                 let (greedy, remaining) =
                     self.greedy_start(geometries, boundary, self.config.time_limit_ms);
-                let mut ga_config = GaConfig::default()
-                    .with_population_size(self.config.population_size.min(30))
-                    .with_max_generations(self.config.max_generations.min(50))
-                    .with_crossover_rate(self.config.crossover_rate)
-                    .with_mutation_rate(self.config.mutation_rate);
+                let mut ga_config = self.ga_config();
 
                 // Apply time limit if specified
                 if self.config.time_limit_ms > 0 {
@@ -1660,6 +1679,96 @@ mod tests {
             assert!(msg.contains("'P'"), "{msg}");
             assert!(msg.contains("positions 0 and 2"), "{msg}");
         }
+    }
+
+    /// Nothing to place is a request to refuse, not an empty layout on one
+    /// sheet.
+    #[test]
+    fn an_empty_list_of_geometries_is_refused_by_every_entry_point() {
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        let nester = Nester2D::default_config();
+        let errors = [
+            nester.solve(&[], &boundary).expect_err("solve"),
+            nester
+                .solve_multi_strip(&[], &boundary)
+                .expect_err("solve_multi_strip"),
+            nester
+                .solve_with_progress(&[], &boundary, Box::new(|_| {}))
+                .expect_err("solve_with_progress"),
+        ];
+        for err in errors {
+            assert_eq!(
+                err,
+                Error::EmptyInput {
+                    parameter: "geometries".into()
+                }
+            );
+        }
+    }
+
+    /// A population or generation budget the caller sets is the one the
+    /// search runs with -- they used to be cut to 30 and 50, and BRKGA ran 50
+    /// generations whatever was asked; left unset, the search runs with its
+    /// own.
+    #[test]
+    fn a_set_budget_is_run_and_an_unset_one_is_the_strategy_s() {
+        assert_eq!((SEARCH_POPULATION, SEARCH_GENERATIONS), (30, 50));
+        let unset = Nester2D::default_config();
+        assert_eq!(unset.ga_config().population_size, SEARCH_POPULATION);
+        assert_eq!(unset.ga_config().max_generations, SEARCH_GENERATIONS);
+        assert_eq!(unset.brkga_config().population_size, SEARCH_POPULATION);
+        assert_eq!(unset.brkga_config().max_generations, SEARCH_GENERATIONS);
+
+        let set = Nester2D::new(
+            Config::default()
+                .with_population_size(100)
+                .with_max_generations(200),
+        );
+        assert_eq!(set.ga_config().population_size, 100);
+        assert_eq!(set.ga_config().max_generations, 200);
+        assert_eq!(set.brkga_config().population_size, 100);
+        assert_eq!(set.brkga_config().max_generations, 200);
+
+        let small = Nester2D::new(Config::default().with_population_size(3));
+        assert_eq!(small.brkga_config().population_size, 3, "was raised to 4");
+        assert!(small.brkga_config().validate().is_ok());
+    }
+
+    /// The generation budget reaches the running search: every report of the
+    /// genetic search carries it as the total.
+    #[test]
+    fn the_generation_budget_reaches_the_running_search() {
+        use std::sync::Mutex;
+        let reports = |config: Config| {
+            let seen = Arc::new(Mutex::new(Vec::new()));
+            let sink = seen.clone();
+            Nester2D::new(
+                config
+                    .with_strategy(Strategy::GeneticAlgorithm)
+                    .with_seed(7),
+            )
+            .solve_with_progress(
+                &[Geometry2D::rectangle("R", 10.0, 10.0).with_quantity(4)],
+                &Boundary2D::rectangle(50.0, 50.0),
+                Box::new(move |info| {
+                    sink.lock()
+                        .expect("no report panicked")
+                        .push((info.iteration, info.total_iterations))
+                }),
+            )
+            .expect("solve");
+            let seen = seen.lock().expect("no report panicked").clone();
+            seen
+        };
+        let set = reports(Config::default().with_max_generations(80));
+        assert!(!set.is_empty(), "the search reports its progress");
+        assert!(
+            set.iter().all(|&(at, total)| total == 80 && at <= 80),
+            "{set:?}"
+        );
+        let unset = reports(Config::default());
+        assert!(!unset.is_empty());
+        assert!(unset.iter().all(|&(_, total)| total == 50), "{unset:?}");
     }
 
     #[test]

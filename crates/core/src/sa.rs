@@ -98,13 +98,13 @@ impl SaConfig {
 
     /// Sets the initial temperature.
     pub fn with_initial_temp(mut self, temp: f64) -> Self {
-        self.initial_temp = temp.max(0.001);
+        self.initial_temp = temp;
         self
     }
 
     /// Sets the final temperature.
     pub fn with_final_temp(mut self, temp: f64) -> Self {
-        self.final_temp = temp.max(0.0001);
+        self.final_temp = temp;
         self
     }
 
@@ -120,19 +120,21 @@ impl SaConfig {
     /// # Errors
     /// `ConfigError` naming the first field out of range: `cooling_rate`
     /// outside `[0.001, 0.9999]`, temperatures that are not finite and
-    /// positive, `final_temp` above `initial_temp`, `reheat_factor` below 1.
+    /// positive, `final_temp` above `initial_temp`, `iterations_per_temp`
+    /// below 1, `reheat_factor` below 1.
     pub fn validate(&self) -> Result<()> {
         check_range("cooling_rate", self.cooling_rate, 0.001, 0.9999)?;
         check_above("initial_temp", self.initial_temp, 0.0)?;
         check_above("final_temp", self.final_temp, 0.0)?;
         check_range("final_temp", self.final_temp, 0.0, self.initial_temp)?;
+        check_at_least("iterations_per_temp", self.iterations_per_temp as f64, 1.0)?;
         check_at_least("reheat_factor", self.reheat_factor, 1.0)?;
         Ok(())
     }
 
     /// Sets the iterations per temperature level.
     pub fn with_iterations_per_temp(mut self, iterations: usize) -> Self {
-        self.iterations_per_temp = iterations.max(1);
+        self.iterations_per_temp = iterations;
         self
     }
 
@@ -164,7 +166,7 @@ impl SaConfig {
     pub fn with_reheating(mut self, threshold: u64, factor: f64) -> Self {
         self.enable_reheating = true;
         self.reheat_threshold = threshold;
-        self.reheat_factor = factor.max(1.1);
+        self.reheat_factor = factor;
         self
     }
 }

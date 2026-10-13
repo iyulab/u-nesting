@@ -117,30 +117,33 @@ impl ExactConfig {
     /// given.
     ///
     /// # Errors
-    /// `ConfigError` for a `gap_tolerance` outside `[0, 1]` or a `grid_step`
-    /// that is not finite and positive.
+    /// `ConfigError` for a `gap_tolerance` outside `[0, 1]`, a `grid_step`
+    /// that is not finite and positive, or a `max_items` or `rotation_steps`
+    /// below 1.
     pub fn validate(&self) -> crate::error::Result<()> {
-        use crate::error::{check_above, check_range};
+        use crate::error::{check_above, check_at_least, check_range};
         check_range("gap_tolerance", self.gap_tolerance, 0.0, 1.0)?;
         check_above("grid_step", self.grid_step, 0.0)?;
+        check_at_least("max_items", self.max_items as f64, 1.0)?;
+        check_at_least("rotation_steps", self.rotation_steps as f64, 1.0)?;
         Ok(())
     }
 
     /// Set maximum number of items for exact solving.
     pub fn with_max_items(mut self, max: usize) -> Self {
-        self.max_items = max.max(1);
+        self.max_items = max;
         self
     }
 
     /// Set grid discretization step.
     pub fn with_grid_step(mut self, step: f64) -> Self {
-        self.grid_step = step.max(0.1);
+        self.grid_step = step;
         self
     }
 
     /// Set number of discrete rotation angles.
     pub fn with_rotation_steps(mut self, steps: usize) -> Self {
-        self.rotation_steps = steps.max(1);
+        self.rotation_steps = steps;
         self
     }
 

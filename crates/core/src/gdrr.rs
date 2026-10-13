@@ -161,9 +161,9 @@ impl GdrrConfig {
 
     /// Set ruin operator weights.
     pub fn with_ruin_weights(mut self, random: f64, cluster: f64, worst: f64) -> Self {
-        self.random_ruin_weight = random.max(0.0);
-        self.cluster_ruin_weight = cluster.max(0.0);
-        self.worst_ruin_weight = worst.max(0.0);
+        self.random_ruin_weight = random;
+        self.cluster_ruin_weight = cluster;
+        self.worst_ruin_weight = worst;
         self
     }
 }
