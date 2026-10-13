@@ -3,7 +3,7 @@
 // Presets are tuned so the sheet is genuinely constrained: a naive strategy (BLF)
 // leaves parts unplaced while metaheuristics (GA/SA/ALNS) pack more into the same
 // sheet. This makes the strategy dropdown a real comparison rather than showing an
-// identical "everything fits" result for every algorithm. See cycle-logs/cycle-01.md.
+// identical "everything fits" result for every algorithm.
 export const presets2d = {
   rectangles: {
     label: 'Rectangles',
@@ -60,7 +60,7 @@ export const presets3d = {
     ],
     // 85x85x80 container is tight enough that strategies differentiate:
     // BLF ~13/63%, GA ~17/67%, SA fills all 18 (~69%). A 100^3 box fit everything
-    // for every strategy (degenerate 40%). See cycle-logs/cycle-02.md.
+    // for every strategy (degenerate 40%).
     boundary: { dimensions: [85, 85, 80] },
   },
 };
