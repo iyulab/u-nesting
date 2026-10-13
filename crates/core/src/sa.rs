@@ -12,13 +12,10 @@
 //! - `PermutationSolution` with built-in swap/relocate/inversion/rotation/chain
 //! - Reheating with configurable threshold and factor
 //! - Adaptive cooling schedule
-//! - Parallel multi-restart via `run_parallel()`
 //!
 //! The rand 0.9 API is shared with u-metaheur for ecosystem compatibility.
 
 use rand::prelude::*;
-#[cfg(feature = "parallel")]
-use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -499,46 +496,6 @@ impl<P: SaProblem> SaRunner<P> {
                 current_temp / (1.0 + self.config.cooling_rate * current_temp)
             }
         }
-    }
-
-    /// Runs multiple SA instances in parallel and returns the best result.
-    ///
-    /// This is useful for escaping local optima by exploring different regions
-    /// of the solution space simultaneously.
-    ///
-    /// # Arguments
-    /// * `num_restarts` - Number of parallel SA runs to perform
-    ///
-    /// # Returns
-    /// The best result among all parallel runs
-    ///
-    /// Requires the `parallel` feature to be enabled.
-    #[cfg(feature = "parallel")]
-    pub fn run_parallel(&self, num_restarts: usize) -> SaResult<P::Solution>
-    where
-        P: Clone,
-    {
-        let num_restarts = num_restarts.max(1);
-
-        // Run SA instances in parallel
-        let results: Vec<SaResult<P::Solution>> = (0..num_restarts)
-            .into_par_iter()
-            .map(|_| {
-                let mut rng = rand::rng();
-                self.run_with_rng(&mut rng)
-            })
-            .collect();
-
-        // Find the best result
-        results
-            .into_iter()
-            .max_by(|a, b| {
-                a.best
-                    .objective()
-                    .partial_cmp(&b.best.objective())
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .expect("At least one result should exist")
     }
 }
 

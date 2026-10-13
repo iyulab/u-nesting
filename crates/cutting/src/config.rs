@@ -172,7 +172,7 @@ impl CuttingConfig {
 
     /// A number of pierce candidates: at least 1. A request's value and a
     /// configuration's own are judged here alike.
-    fn check_pierce_candidates(value: i128) -> u_nesting_core::Result<usize> {
+    pub(crate) fn check_pierce_candidates(value: i128) -> u_nesting_core::Result<usize> {
         whole_at_least("pierce_candidates", value, 1)
     }
 

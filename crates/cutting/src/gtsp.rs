@@ -98,16 +98,24 @@ impl GtspInstance {
 /// Discretizes contours into GTSP clusters with equidistant pierce candidates.
 ///
 /// Each contour gets `config.pierce_candidates` equidistant points along its
-/// perimeter. If `pierce_candidates == 1`, uses the centroid-facing vertex.
+/// perimeter. If `pierce_candidates == 1`, uses the contour's first vertex.
 ///
 /// # Arguments
 ///
 /// * `contours` - Cut contours to discretize
 /// * `config` - Cutting configuration (pierce_candidates, direction preferences)
-pub fn discretize_contours(contours: &[CutContour], config: &CuttingConfig) -> Vec<GtspCluster> {
-    let n_candidates = config.pierce_candidates.max(1);
+///
+/// # Errors
+///
+/// [`Error::OutOfRange`](u_nesting_core::Error::OutOfRange) naming
+/// `pierce_candidates` when it is 0: a contour needs a point to pierce at.
+pub fn discretize_contours(
+    contours: &[CutContour],
+    config: &CuttingConfig,
+) -> u_nesting_core::Result<Vec<GtspCluster>> {
+    let n_candidates = CuttingConfig::check_pierce_candidates(config.pierce_candidates as i128)?;
 
-    contours
+    Ok(contours
         .iter()
         .map(|contour| {
             let direction = determine_direction(contour.contour_type, config);
@@ -130,7 +138,7 @@ pub fn discretize_contours(contours: &[CutContour], config: &CuttingConfig) -> V
                 candidates,
             }
         })
-        .collect()
+        .collect())
 }
 
 /// Builds a GTSP instance with asymmetric distance matrix.
@@ -561,18 +569,38 @@ mod tests {
     fn test_discretize_single_candidate() {
         let contours = vec![make_rect(0, 0.0, 0.0, 10.0, 10.0)];
         let config = CuttingConfig::new().with_pierce_candidates(1);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
 
         assert_eq!(clusters.len(), 1);
         assert_eq!(clusters[0].candidates.len(), 1);
         assert_eq!(clusters[0].candidates[0].point, (0.0, 0.0));
     }
 
+    /// No pierce candidate is refused, not read as one.
+    #[test]
+    fn zero_pierce_candidates_are_refused() {
+        let contours = vec![make_rect(0, 0.0, 0.0, 10.0, 10.0)];
+        let config = CuttingConfig::new().with_pierce_candidates(0);
+        match discretize_contours(&contours, &config) {
+            Err(u_nesting_core::Error::OutOfRange {
+                parameter,
+                min,
+                got,
+                ..
+            }) => {
+                assert_eq!(parameter, "pierce_candidates");
+                assert_eq!(min, Some(1.0));
+                assert_eq!(got, 0.0);
+            }
+            other => panic!("expected a range refusal, got {other:?}"),
+        }
+    }
+
     #[test]
     fn test_discretize_four_candidates_on_square() {
         let contours = vec![make_rect(0, 0.0, 0.0, 10.0, 10.0)];
         let config = CuttingConfig::new().with_pierce_candidates(4);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
 
         assert_eq!(clusters.len(), 1);
         let cands = &clusters[0].candidates;
@@ -595,7 +623,7 @@ mod tests {
     fn test_discretize_eight_candidates_midpoints() {
         let contours = vec![make_rect(0, 0.0, 0.0, 10.0, 10.0)];
         let config = CuttingConfig::new().with_pierce_candidates(8);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
 
         let cands = &clusters[0].candidates;
         assert_eq!(cands.len(), 8);
@@ -615,7 +643,7 @@ mod tests {
             make_rect(1, 20.0, 0.0, 10.0, 10.0),
         ];
         let config = CuttingConfig::new().with_pierce_candidates(1);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         assert_eq!(instance.total_candidates, 2);
@@ -642,7 +670,7 @@ mod tests {
             make_rect(1, 20.0, 0.0, 10.0, 10.0),
         ];
         let config = CuttingConfig::new().with_pierce_candidates(4);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         assert_eq!(instance.total_candidates, 8);
@@ -659,7 +687,7 @@ mod tests {
             make_rect(1, 30.0, 0.0, 10.0, 10.0),
         ];
         let config = CuttingConfig::new().with_pierce_candidates(1);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         // Solution: visit cluster 0 first (candidate 0), then cluster 1 (candidate 1)
@@ -677,7 +705,7 @@ mod tests {
             make_rect(2, 30.0, 0.0, 10.0, 10.0),
         ];
         let config = CuttingConfig::new().with_pierce_candidates(1);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         let solution = solve_nn(&instance);
@@ -710,7 +738,7 @@ mod tests {
             make_rect(1, 12.0, 0.0, 10.0, 10.0),
         ];
         let config = CuttingConfig::new().with_pierce_candidates(4);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         let solution = solve_nn(&instance);
@@ -734,7 +762,7 @@ mod tests {
         contours[0].contour_type = ContourType::Interior;
 
         let config = CuttingConfig::default();
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
 
         // Interior with Auto should be CW
         assert_eq!(clusters[0].candidates[0].direction, CutDirection::Cw);
@@ -752,14 +780,16 @@ mod tests {
 
         // Single candidate
         let config1 = CuttingConfig::new().with_pierce_candidates(1);
-        let clusters1 = discretize_contours(&contours, &config1);
+        let clusters1 =
+            discretize_contours(&contours, &config1).expect("pierce candidates in range");
         let inst1 = build_gtsp_instance(clusters1, (0.0, 0.0));
         let sol1 = solve_nn(&inst1);
         let cost1 = evaluate_solution(&inst1, &sol1);
 
         // 8 candidates per contour
         let config8 = CuttingConfig::new().with_pierce_candidates(8);
-        let clusters8 = discretize_contours(&contours, &config8);
+        let clusters8 =
+            discretize_contours(&contours, &config8).expect("pierce candidates in range");
         let inst8 = build_gtsp_instance(clusters8, (0.0, 0.0));
         let sol8 = solve_nn(&inst8);
         let cost8 = evaluate_solution(&inst8, &sol8);
@@ -801,7 +831,7 @@ mod tests {
 
         let dag = CuttingDag::build(&contours);
         let config = CuttingConfig::new().with_pierce_candidates(4);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         let solution = solve_constrained(&instance, &dag, &config);
@@ -830,7 +860,7 @@ mod tests {
 
         let dag = CuttingDag::build(&contours);
         let config = CuttingConfig::new().with_pierce_candidates(4);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         let solution = solve_constrained(&instance, &dag, &config);
@@ -860,7 +890,7 @@ mod tests {
 
         let dag = CuttingDag::build(&contours);
         let config = CuttingConfig::new().with_pierce_candidates(4);
-        let clusters = discretize_contours(&contours, &config);
+        let clusters = discretize_contours(&contours, &config).expect("pierce candidates in range");
         let instance = build_gtsp_instance(clusters, (0.0, 0.0));
 
         let solution = solve_constrained(&instance, &dag, &config);

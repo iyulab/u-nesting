@@ -126,7 +126,7 @@ where
 
     if config.pierce_candidates > 1 {
         // GTSP path: discretize → build instance → solve with precedence
-        let clusters = gtsp::discretize_contours(&contours, config);
+        let clusters = gtsp::discretize_contours(&contours, config)?;
         let instance = gtsp::build_gtsp_instance(clusters, config.home_position);
         let solution = gtsp::solve_constrained(&instance, &dag, config);
 
