@@ -157,7 +157,7 @@
         },
         "seed": {
           "type": "integer",
-          "description": "RNG seed for reproducible stochastic runs (GA, BRKGA, SA); omit it to seed from entropy",
+          "description": "RNG seed for the stochastic strategies (GA, BRKGA, SA): the same request with the same seed returns the same packing when the run ends on its own budget rather than on time_limit_ms. Omit it to seed from entropy",
           "minimum": 0,
           "maximum": 18446744073709551615
         }

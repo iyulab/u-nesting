@@ -158,6 +158,8 @@
 
 mod api;
 mod callback;
+#[cfg(test)]
+mod request_schema;
 mod types;
 
 pub use api::*;

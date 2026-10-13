@@ -183,7 +183,7 @@
         },
         "seed": {
           "type": "integer",
-          "description": "RNG seed for reproducible stochastic runs (GA, BRKGA, SA); omit it to seed from entropy",
+          "description": "RNG seed for the stochastic strategies (GA, BRKGA, SA, GDRR, ALNS): the same request with the same seed returns the same layout when the run ends on its own budget rather than on time_limit_ms (a search keeps a time budget of its own when time_limit_ms is 0). Omit it to seed from entropy",
           "minimum": 0,
           "maximum": 18446744073709551615
         },

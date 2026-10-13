@@ -22,6 +22,9 @@ pub enum OrientationConstraint {
 }
 
 impl OrientationConstraint {
+    /// The names [`OrientationConstraint::parse`] reads.
+    pub const NAMES: [&'static str; 3] = ["any", "upright", "fixed"];
+
     /// Parses `"any"`, `"upright"` or `"fixed"` (case-insensitive); `None`
     /// for any other name, so a misspelling is refused rather than ignored.
     pub fn parse(name: &str) -> Option<Self> {
@@ -228,7 +231,7 @@ impl Geometry3D {
                 OrientationConstraint::parse(&name).ok_or_else(|| Error::UnknownOption {
                     parameter: format!("geometries[{index}].orientation"),
                     got: name.clone(),
-                    expected: vec!["any".into(), "upright".into(), "fixed".into()],
+                    expected: OrientationConstraint::NAMES.map(String::from).to_vec(),
                 })?;
             geom = geom.with_orientation(constraint);
         }

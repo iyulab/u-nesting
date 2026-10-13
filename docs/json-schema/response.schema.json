@@ -4,7 +4,7 @@
   "title": "U-Nesting 2D Solve Response",
   "description": "Wire response schema for solve_2d (SolveResponse). The 3D response (Pack3DResponse) is structurally similar but uses bins_used instead of sheets_used and each placement carries z and an orientation label.",
   "type": "object",
-  "required": ["version", "success", "placements", "sheets_used", "utilization", "total_requested", "unplaced", "elapsed_ms"],
+  "required": ["version", "success", "placements", "sheets_used", "utilization", "total_requested", "unplaced", "unplaced_count", "all_placed", "used_bounding_box", "used_utilization", "elapsed_ms"],
   "properties": {
     "version": {
       "type": "string",
@@ -67,6 +67,27 @@
       "type": "array",
       "description": "Deduplicated unique IDs of geometries that could not be fully placed (NOT per-instance)",
       "items": { "type": "string" }
+    },
+    "unplaced_count": {
+      "type": "integer",
+      "description": "Instance-level count of geometry instances that could not be placed (total_requested - placements.length), so placements.length + unplaced_count == total_requested. 0 on error responses.",
+      "minimum": 0
+    },
+    "all_placed": {
+      "type": "boolean",
+      "description": "Whether every requested instance was placed. 'success' only means the solve completed without error, not that all pieces fit. false on error responses."
+    },
+    "used_bounding_box": {
+      "type": "array",
+      "description": "Axis-aligned bounding box [width, height] of the placed pieces' footprint, independent of boundary padding. [0, 0] for multi-sheet solves, when nothing was placed, and on error responses.",
+      "items": { "type": "number", "minimum": 0 },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "used_utilization": {
+      "type": "number",
+      "description": "Placed area over the used bounding box's area: how tightly the pieces pack within their own extent (not a fixed-width stock efficiency). 0 when nothing was placed, in multi-sheet solves and on error responses.",
+      "minimum": 0
     },
     "elapsed_ms": {
       "type": "integer",
