@@ -12,6 +12,9 @@ categories = ["algorithms", "mathematics"]
 
 [dependencies]
 serde = { workspace = true, optional = true }
+# Request reading (`api_types::from_json`): the path of a refused field.
+serde_json = { workspace = true, optional = true }
+serde_path_to_error = { version = "0.1", optional = true }
 thiserror.workspace = true
 rayon = { workspace = true, optional = true }
 rand.workspace = true
@@ -26,7 +29,12 @@ approx.workspace = true
 
 [features]
 default = []
-serde = ["dep:serde", "u-geometry/serde"]
+serde = [
+    "dep:serde",
+    "dep:serde_json",
+    "dep:serde_path_to_error",
+    "u-geometry/serde",
+]
 parallel = ["dep:rayon"]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

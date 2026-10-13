@@ -151,17 +151,24 @@ impl Config {
     /// # Errors
     /// `ConfigError` naming the first field out of range: `spacing` or
     /// `margin` negative or not finite, `crossover_rate`/`mutation_rate` or
-    /// `target_utilization` outside `[0, 1]`.
+    /// `target_utilization` outside `[0, 1]`, `population_size` below 2.
     pub fn validate(&self) -> Result<()> {
         use crate::error::{check_at_least, check_range};
         check_at_least("spacing", self.spacing, 0.0)?;
         check_at_least("margin", self.margin, 0.0)?;
+        Self::check_population_size(self.population_size as i128)?;
         check_range("crossover_rate", self.crossover_rate, 0.0, 1.0)?;
         check_range("mutation_rate", self.mutation_rate, 0.0, 1.0)?;
         if let Some(util) = self.target_utilization {
             check_range("target_utilization", util, 0.0, 1.0)?;
         }
         Ok(())
+    }
+
+    /// A population size: at least 2, the fewest a generation can cross. A
+    /// request's value and a configuration's own are judged here alike.
+    pub(crate) fn check_population_size(value: i128) -> Result<usize> {
+        crate::error::whole_at_least("population_size", value, 2)
     }
 
     /// Sets the optimization strategy.

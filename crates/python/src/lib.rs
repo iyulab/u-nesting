@@ -38,13 +38,14 @@ use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use u_nesting_core::api_types::{
-    Boundary2DRequest, Boundary3DRequest, ConfigRequest, Geometry2DRequest, Geometry3DRequest,
-    RefusalDetails,
+    from_json, Boundary2DRequest, Boundary3DRequest, ConfigRequest, Geometry2DRequest,
+    Geometry3DRequest, RefusalDetails,
 };
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
+use u_nesting_core::Error;
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
-use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
+use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
 
 // Inputs use the canonical request types from `u-nesting-core::api_types`, the
 // same contract the C and WebAssembly bindings deserialize. Sharing them means a
@@ -113,6 +114,34 @@ struct SolveOutput {
 }
 
 impl SolveOutput {
+    /// The output for a refused problem: the message, its `code` and the
+    /// values behind it.
+    fn refused(e: &Error) -> Self {
+        SolveOutput {
+            success: false,
+            placements: vec![],
+            boundaries_used: 0,
+            utilization: 0.0,
+            total_requested: 0,
+            unplaced: vec![],
+            unplaced_count: 0,
+            all_placed: false,
+            used_bounding_box: [0.0, 0.0],
+            used_utilization: 0.0,
+            computation_time_ms: 0,
+            error: Some(e.to_string()),
+            code: Some(e.code().to_string()),
+            details: Some(RefusalDetails::of(e)),
+        }
+    }
+
+    /// The output as the Python dict a solve returns.
+    fn into_py(self, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+        let output_json = serde_json::to_string(&self)
+            .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
+        py.import("json")?.call_method1("loads", (output_json,))
+    }
+
     /// Fills the derived accounting/metric fields from a solved result, applying
     /// the same instance-level invariant as the FFI/WASM `From` impl.
     fn accounting(result: &u_nesting_core::SolveResult<f64>) -> (usize, bool, [f64; 2], f64) {
@@ -171,16 +200,16 @@ fn solve_2d<'py>(
         .import("json")?
         .call_method1("dumps", (geometries,))?
         .extract()?;
-    let geom_inputs: Vec<Geometry2DRequest> = serde_json::from_str(&geom_json)
-        .map_err(|e| PyValueError::new_err(format!("Invalid geometries: {}", e)))?;
+    let geom_inputs: Vec<Geometry2DRequest> = from_json(&geom_json)
+        .map_err(|e| PyValueError::new_err(format!("Invalid geometries: {e}")))?;
 
     // Parse boundary
     let boundary_json: String = py
         .import("json")?
         .call_method1("dumps", (boundary,))?
         .extract()?;
-    let boundary_input: Boundary2DRequest = serde_json::from_str(&boundary_json)
-        .map_err(|e| PyValueError::new_err(format!("Invalid boundary: {}", e)))?;
+    let boundary_input: Boundary2DRequest = from_json(&boundary_json)
+        .map_err(|e| PyValueError::new_err(format!("Invalid boundary: {e}")))?;
 
     // Parse config
     let config_input: Option<ConfigRequest> = if let Some(cfg) = config {
@@ -189,38 +218,19 @@ fn solve_2d<'py>(
             .call_method1("dumps", (cfg,))?
             .extract()?;
         Some(
-            serde_json::from_str(&cfg_json)
-                .map_err(|e| PyValueError::new_err(format!("Invalid config: {}", e)))?,
+            from_json(&cfg_json)
+                .map_err(|e| PyValueError::new_err(format!("Invalid config: {e}")))?,
         )
     } else {
         None
     };
 
-    // Convert to internal types
-    let rust_geometries: Vec<Geometry2D> = geom_inputs
-        .into_iter()
-        .map(|g| {
-            let vertices: Vec<(f64, f64)> = g.polygon.into_iter().map(|p| (p[0], p[1])).collect();
-            let mut geom = Geometry2D::new(&g.id)
-                .with_polygon(vertices)
-                .with_quantity(g.quantity)
-                .with_flip(g.allow_flip);
-
-            if let Some(rotations) = g.rotations {
-                geom = geom.with_rotations_deg(rotations);
-            }
-
-            if let Some(holes) = g.holes {
-                for hole in holes {
-                    let hole_vertices: Vec<(f64, f64)> =
-                        hole.into_iter().map(|p| (p[0], p[1])).collect();
-                    geom = geom.with_hole(hole_vertices);
-                }
-            }
-
-            geom
-        })
-        .collect();
+    // Convert to internal types; a geometry the engine refuses (a quantity
+    // below 1) is a refusal in the result, like one the solver refuses.
+    let rust_geometries = match Geometry2D::from_requests(geom_inputs) {
+        Ok(g) => g,
+        Err(e) => return SolveOutput::refused(&e).into_py(py),
+    };
 
     let rust_boundary =
         match (
@@ -292,30 +302,10 @@ fn solve_2d<'py>(
                 details: None,
             }
         }
-        Err(e) => SolveOutput {
-            success: false,
-            placements: vec![],
-            boundaries_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: vec![],
-            unplaced_count: 0,
-            all_placed: false,
-            used_bounding_box: [0.0, 0.0],
-            used_utilization: 0.0,
-            computation_time_ms: 0,
-            error: Some(e.to_string()),
-            code: Some(e.code().to_string()),
-            details: Some(RefusalDetails::of(&e)),
-        },
+        Err(e) => SolveOutput::refused(&e),
     };
 
-    // Convert to Python dict
-    let output_json = serde_json::to_string(&output)
-        .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
-    let json_module = py.import("json")?;
-    let result = json_module.call_method1("loads", (output_json,))?;
-    Ok(result)
+    output.into_py(py)
 }
 
 /// Solve a 3D bin packing problem.
@@ -350,16 +340,16 @@ fn solve_3d<'py>(
         .import("json")?
         .call_method1("dumps", (geometries,))?
         .extract()?;
-    let geom_inputs: Vec<Geometry3DRequest> = serde_json::from_str(&geom_json)
-        .map_err(|e| PyValueError::new_err(format!("Invalid geometries: {}", e)))?;
+    let geom_inputs: Vec<Geometry3DRequest> = from_json(&geom_json)
+        .map_err(|e| PyValueError::new_err(format!("Invalid geometries: {e}")))?;
 
     // Parse boundary
     let boundary_json: String = py
         .import("json")?
         .call_method1("dumps", (boundary,))?
         .extract()?;
-    let boundary_input: Boundary3DRequest = serde_json::from_str(&boundary_json)
-        .map_err(|e| PyValueError::new_err(format!("Invalid boundary: {}", e)))?;
+    let boundary_input: Boundary3DRequest = from_json(&boundary_json)
+        .map_err(|e| PyValueError::new_err(format!("Invalid boundary: {e}")))?;
 
     // Parse config
     let config_input: Option<ConfigRequest> = if let Some(cfg) = config {
@@ -368,36 +358,20 @@ fn solve_3d<'py>(
             .call_method1("dumps", (cfg,))?
             .extract()?;
         Some(
-            serde_json::from_str(&cfg_json)
-                .map_err(|e| PyValueError::new_err(format!("Invalid config: {}", e)))?,
+            from_json(&cfg_json)
+                .map_err(|e| PyValueError::new_err(format!("Invalid config: {e}")))?,
         )
     } else {
         None
     };
 
-    // Convert to internal types
-    let rust_geometries: Vec<Geometry3D> = geom_inputs
-        .into_iter()
-        .map(|g| {
-            let mut geom =
-                Geometry3D::new(&g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
-                    .with_quantity(g.quantity);
-
-            if let Some(mass) = g.mass {
-                geom = geom.with_mass(mass);
-            }
-            if let Some(name) = g.orientation {
-                let constraint = OrientationConstraint::parse(&name).ok_or_else(|| {
-                    PyValueError::new_err(format!(
-                        "unknown orientation '{name}'; expected any, upright or fixed"
-                    ))
-                })?;
-                geom = geom.with_orientation(constraint);
-            }
-
-            Ok(geom)
-        })
-        .collect::<PyResult<_>>()?;
+    // Convert to internal types; a geometry the engine refuses (a quantity
+    // below 1, an unknown orientation) is a refusal in the result, like one
+    // the solver refuses.
+    let rust_geometries = match Geometry3D::from_requests(geom_inputs) {
+        Ok(g) => g,
+        Err(e) => return SolveOutput::refused(&e).into_py(py),
+    };
 
     let mut rust_boundary = Boundary3D::new(
         boundary_input.dimensions[0],
@@ -451,30 +425,10 @@ fn solve_3d<'py>(
                 details: None,
             }
         }
-        Err(e) => SolveOutput {
-            success: false,
-            placements: vec![],
-            boundaries_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: vec![],
-            unplaced_count: 0,
-            all_placed: false,
-            used_bounding_box: [0.0, 0.0],
-            used_utilization: 0.0,
-            computation_time_ms: 0,
-            error: Some(e.to_string()),
-            code: Some(e.code().to_string()),
-            details: Some(RefusalDetails::of(&e)),
-        },
+        Err(e) => SolveOutput::refused(&e),
     };
 
-    // Convert to Python dict
-    let output_json = serde_json::to_string(&output)
-        .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
-    let json_module = py.import("json")?;
-    let result = json_module.call_method1("loads", (output_json,))?;
-    Ok(result)
+    output.into_py(py)
 }
 
 /// Get the library version.
@@ -817,5 +771,48 @@ mod tests {
         let input: ConfigRequest =
             serde_json::from_str(r#"{"multi_sheet":true}"#).expect("multi_sheet is a known key");
         assert_eq!(input.multi_sheet, Some(true));
+    }
+
+    /// A quantity is read as a number: a negative one reaches the same range
+    /// check as 0 and comes back as a refusal in the result, naming the
+    /// geometry; a fraction is the wrong shape, named by its path.
+    #[test]
+    fn counts_are_read_as_given() {
+        for (quantity, got) in [("-1", -1.0), ("0", 0.0)] {
+            let inputs: Vec<Geometry3DRequest> = from_json(&format!(
+                r#"[{{"id":"crate","dimensions":[1,1,1],"quantity":{quantity}}}]"#
+            ))
+            .expect("a whole number is the right shape");
+            let e = Geometry3D::from_requests(inputs).expect_err("below 1");
+            let out = serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+            assert_eq!(out["success"], false);
+            assert_eq!(out["code"], "parameter_out_of_range");
+            assert_eq!(
+                out["details"],
+                serde_json::json!({
+                    "parameter": "geometries[0].quantity", "id": "crate", "min": 1.0, "got": got
+                })
+            );
+        }
+
+        let e = from_json::<Vec<Geometry2DRequest>>(
+            r#"[{"id":"a","polygon":[[0,0],[1,0],[1,1]],"quantity":2.5}]"#,
+        )
+        .expect_err("a fraction is not a count");
+        assert_eq!(e.code(), "malformed_input");
+        assert!(
+            e.to_string()
+                .starts_with("[0].quantity: must be a whole number"),
+            "{e}"
+        );
+
+        let e = from_json::<ConfigRequest>(r#"{"population_size":-1}"#)
+            .expect("a whole number is the right shape")
+            .to_config()
+            .expect_err("below 2");
+        assert_eq!(
+            e.to_string(),
+            "population_size must be a whole number >= 2, got -1"
+        );
     }
 }

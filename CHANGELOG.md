@@ -23,6 +23,50 @@ Depends on u-geometry 0.5.
   `min: 2.2250738585072014e-308`; they now report `exclusive_min: 0`, and the
   message reads "a finite number > 0". The response JSON schema lists the two
   keys under `details`.
+- **Breaking:** counts and other whole-number settings in a request are read
+  as numbers, not into unsigned types: a geometry's `quantity`, and in `config`
+  `time_limit_ms`, `population_size`, `max_generations` and `seed`, and in
+  `cutting_config` `max_2opt_iterations`, `time_limit_ms` and
+  `pierce_candidates`. A negative value used to be refused as
+  `malformed_input` ("invalid value: integer `-1`, expected usize"); it is now
+  `parameter_out_of_range`, with the same bound as a too-small positive value:
+  `population_size` -1 and 1 are both `{ parameter: "population_size", min: 2,
+  got }`, and a setting with no lower limit beyond its type (`seed`,
+  `time_limit_ms`, `max_generations`, `max_2opt_iterations`) has `min: 0`. A
+  value above what the setting holds (`max_generations` above 4294967295) also
+  carries `max`. A fraction (`2.5`) is `malformed_input`, "must be a whole
+  number"; a whole number written with a fraction part (`3.0`) is that number.
+- **Breaking:** a quantity below 1 -- 0 or negative -- is
+  `parameter_out_of_range` (`parameter: "geometries[i].quantity"`, `min: 1`,
+  `got`, and the geometry's `id`), no longer `invalid_geometry`.
+  `Geometry2D::validate` / `Geometry3D::validate` refuse a quantity of 0 the
+  same way (`parameter: "quantity"`). `Error::OutOfRange` gains
+  `id: Option<String>`, the geometry a setting belongs to, sent as `details.id`.
+- **Breaking:** `Config::validate` refuses a `population_size` below 2 as
+  `parameter_out_of_range`; a request's `population_size` of 0 or 1 used to be
+  raised to 2 without a word.
+- **Breaking:** a `malformed_input` refusal names the field at fault by its path
+  in `details.parameter` (`geometries[2].quantity`, `config.seed`,
+  `cutting_config.time_limit_ms`); text that is not JSON names none. The
+  message is the path and the reason ("geometries[2].quantity: must be a whole
+  number, got 2.5", then where in the text); only text that is not JSON still
+  starts "Invalid JSON". `api_types::from_json` reads any request type this
+  way, and every binding uses it.
+- **Breaking:** the request DTOs hold those settings as `i128`
+  (`Geometry2DRequest::quantity`, `ConfigRequest::seed`, ...) -- wide enough for
+  every `u64` and its negatives -- and judge them when they are converted:
+  `ConfigRequest::to_config`, `CuttingConfig::from_request`, and the new
+  `Geometry2D::from_request` / `Geometry3D::from_request` (`from_requests` for
+  a list), which every binding now builds its geometries with. The cutting
+  optimizer's geometries are built the same way, so a cutting request's
+  geometry `rotations` and `allow_flip` are read as for a solve.
+- Python: a geometry the engine refuses before solving -- a quantity below 1,
+  a 3D `orientation` nobody knows -- comes back in the result dict (`success:
+  False`, `code`, `details`) like a refusal from the solver; an unknown
+  orientation used to raise `ValueError`.
+- The request JSON schemas list `seed` and give `population_size` (`minimum`
+  2) and `max_generations` (`minimum` 0, `maximum` 4294967295) the ranges the
+  engine accepts; they said 10 and 1.
 
 ### Fixed
 

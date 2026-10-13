@@ -133,13 +133,14 @@
         "population_size": {
           "type": "integer",
           "description": "Population size for GA/BRKGA",
-          "minimum": 10,
+          "minimum": 2,
           "default": 100
         },
         "max_generations": {
           "type": "integer",
           "description": "Maximum generations for GA/BRKGA",
-          "minimum": 1,
+          "minimum": 0,
+          "maximum": 4294967295,
           "default": 500
         },
         "crossover_rate": {
@@ -155,6 +156,12 @@
           "minimum": 0,
           "maximum": 1,
           "default": 0.05
+        },
+        "seed": {
+          "type": "integer",
+          "description": "RNG seed for reproducible stochastic runs (GA, BRKGA, SA); omit it to seed from entropy",
+          "minimum": 0,
+          "maximum": 18446744073709551615
         }
       }
     }

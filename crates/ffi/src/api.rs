@@ -7,11 +7,11 @@ use crate::types::*;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_void};
 
-use u_nesting_core::geometry::Boundary;
+use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::{Config, Solver};
 use u_nesting_core::Error;
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
-use u_nesting_d3::{Boundary3D, Geometry3D, OrientationConstraint, Packer3D};
+use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
 
 /// Error codes.
 pub const UNESTING_OK: i32 = 0;
@@ -448,40 +448,16 @@ fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveRespon
 }
 
 fn solve_2d_internal(json_str: &str) -> SolveResponse {
-    let request: Request2D = match serde_json::from_str(json_str) {
+    let request: Request2D = match from_json(json_str) {
         Ok(r) => r,
-        Err(e) => {
-            return SolveResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")));
-        }
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Convert geometries
-    let geometries: Vec<Geometry2D> = request
-        .geometries
-        .into_iter()
-        .map(|g| {
-            let vertices: Vec<(f64, f64)> = g.polygon.into_iter().map(|p| (p[0], p[1])).collect();
-
-            let mut geom = Geometry2D::new(g.id)
-                .with_polygon(vertices)
-                .with_quantity(g.quantity)
-                .with_flip(g.allow_flip);
-
-            if let Some(rotations) = g.rotations {
-                geom = geom.with_rotations_deg(rotations);
-            }
-
-            if let Some(holes) = g.holes {
-                for hole in holes {
-                    let hole_vertices: Vec<(f64, f64)> =
-                        hole.into_iter().map(|p| (p[0], p[1])).collect();
-                    geom = geom.with_hole(hole_vertices);
-                }
-            }
-
-            geom
-        })
-        .collect();
+    let geometries = match Geometry2D::from_requests(request.geometries) {
+        Ok(g) => g,
+        Err(e) => return SolveResponse::refused(&e),
+    };
 
     // Convert boundary
     // Exactly one shape: width and height together, or a polygon. Given
@@ -542,39 +518,13 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
 }
 
 fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
-    let request: Request3D = match serde_json::from_str(json_str) {
+    let request: Request3D = match from_json(json_str) {
         Ok(r) => r,
-        Err(e) => {
-            return Pack3DResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")))
-        }
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Convert geometries
-    let geometries: u_nesting_core::Result<Vec<Geometry3D>> = request
-        .geometries
-        .into_iter()
-        .enumerate()
-        .map(|(i, g)| {
-            let mut geom = Geometry3D::new(g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
-                .with_quantity(g.quantity);
-
-            if let Some(mass) = g.mass {
-                geom = geom.with_mass(mass);
-            }
-            if let Some(name) = g.orientation {
-                let constraint =
-                    OrientationConstraint::parse(&name).ok_or_else(|| Error::UnknownOption {
-                        parameter: format!("geometries[{i}].orientation"),
-                        got: name.clone(),
-                        expected: vec!["any".into(), "upright".into(), "fixed".into()],
-                    })?;
-                geom = geom.with_orientation(constraint);
-            }
-
-            Ok(geom)
-        })
-        .collect::<u_nesting_core::Result<_>>();
-    let geometries = match geometries {
+    let geometries = match Geometry3D::from_requests(request.geometries) {
         Ok(g) => g,
         Err(e) => return Pack3DResponse::refused(&e),
     };
@@ -613,15 +563,19 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
 }
 
 fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveResponse {
-    let request: Request2D = match serde_json::from_str(json_str) {
+    let request: Request2D = match from_json(json_str) {
         Ok(r) => r,
-        Err(e) => {
-            return SolveResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")));
-        }
+        Err(e) => return SolveResponse::refused(&e),
+    };
+
+    // Convert geometries
+    let geometries = match Geometry2D::from_requests(request.geometries) {
+        Ok(g) => g,
+        Err(e) => return SolveResponse::refused(&e),
     };
 
     // Send initial progress
-    let total_items: usize = request.geometries.iter().map(|g| g.quantity).sum();
+    let total_items: usize = geometries.iter().map(Geometry::quantity).sum();
     let initial_progress = ProgressJson {
         iteration: 0,
         total_iterations: 0,
@@ -636,34 +590,6 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
     if !callback.invoke(&initial_progress) {
         return SolveResponse::refused(&Error::Cancelled);
     }
-
-    // Convert geometries
-    let geometries: Vec<Geometry2D> = request
-        .geometries
-        .into_iter()
-        .map(|g| {
-            let vertices: Vec<(f64, f64)> = g.polygon.into_iter().map(|p| (p[0], p[1])).collect();
-
-            let mut geom = Geometry2D::new(g.id)
-                .with_polygon(vertices)
-                .with_quantity(g.quantity)
-                .with_flip(g.allow_flip);
-
-            if let Some(rotations) = g.rotations {
-                geom = geom.with_rotations_deg(rotations);
-            }
-
-            if let Some(holes) = g.holes {
-                for hole in holes {
-                    let hole_vertices: Vec<(f64, f64)> =
-                        hole.into_iter().map(|p| (p[0], p[1])).collect();
-                    geom = geom.with_hole(hole_vertices);
-                }
-            }
-
-            geom
-        })
-        .collect();
 
     // Convert boundary
     // Exactly one shape: width and height together, or a polygon. Given
@@ -754,15 +680,19 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
 }
 
 fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DResponse {
-    let request: Request3D = match serde_json::from_str(json_str) {
+    let request: Request3D = match from_json(json_str) {
         Ok(r) => r,
-        Err(e) => {
-            return Pack3DResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")))
-        }
+        Err(e) => return Pack3DResponse::refused(&e),
+    };
+
+    // Convert geometries
+    let geometries = match Geometry3D::from_requests(request.geometries) {
+        Ok(g) => g,
+        Err(e) => return Pack3DResponse::refused(&e),
     };
 
     // Send initial progress
-    let total_items: usize = request.geometries.iter().map(|g| g.quantity).sum();
+    let total_items: usize = geometries.iter().map(Geometry::quantity).sum();
     let initial_progress = ProgressJson {
         iteration: 0,
         total_iterations: 0,
@@ -777,36 +707,6 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
     if !callback.invoke(&initial_progress) {
         return Pack3DResponse::refused(&Error::Cancelled);
     }
-
-    // Convert geometries
-    let geometries: u_nesting_core::Result<Vec<Geometry3D>> = request
-        .geometries
-        .into_iter()
-        .enumerate()
-        .map(|(i, g)| {
-            let mut geom = Geometry3D::new(g.id, g.dimensions[0], g.dimensions[1], g.dimensions[2])
-                .with_quantity(g.quantity);
-
-            if let Some(mass) = g.mass {
-                geom = geom.with_mass(mass);
-            }
-            if let Some(name) = g.orientation {
-                let constraint =
-                    OrientationConstraint::parse(&name).ok_or_else(|| Error::UnknownOption {
-                        parameter: format!("geometries[{i}].orientation"),
-                        got: name.clone(),
-                        expected: vec!["any".into(), "upright".into(), "fixed".into()],
-                    })?;
-                geom = geom.with_orientation(constraint);
-            }
-
-            Ok(geom)
-        })
-        .collect::<u_nesting_core::Result<_>>();
-    let geometries = match geometries {
-        Ok(g) => g,
-        Err(e) => return Pack3DResponse::refused(&e),
-    };
 
     // Convert boundary
     let mut boundary = Boundary3D::new(
@@ -920,11 +820,9 @@ pub unsafe extern "C" fn unesting_optimize_cutting_path(
 }
 
 fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
-    let request: CuttingRequest = match serde_json::from_str(json_str) {
+    let request: CuttingRequest = match from_json(json_str) {
         Ok(r) => r,
-        Err(e) => {
-            return CuttingResponse::refused(&Error::malformed(None, format!("Invalid JSON: {e}")));
-        }
+        Err(e) => return CuttingResponse::refused(&e),
     };
 
     // Validate the solve result
@@ -937,27 +835,10 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     }
 
     // Convert geometries
-    let geometries: Vec<Geometry2D> = request
-        .geometries
-        .iter()
-        .map(|g| {
-            let vertices: Vec<(f64, f64)> = g.polygon.iter().map(|p| (p[0], p[1])).collect();
-
-            let mut geom = Geometry2D::new(&g.id)
-                .with_polygon(vertices)
-                .with_quantity(g.quantity);
-
-            if let Some(ref holes) = g.holes {
-                for hole in holes {
-                    let hole_vertices: Vec<(f64, f64)> =
-                        hole.iter().map(|p| (p[0], p[1])).collect();
-                    geom = geom.with_hole(hole_vertices);
-                }
-            }
-
-            geom
-        })
-        .collect();
+    let geometries = match Geometry2D::from_requests(request.geometries) {
+        Ok(g) => g,
+        Err(e) => return CuttingResponse::refused(&e),
+    };
 
     // Reconstruct SolveResult from the response
     let mut solve_result = u_nesting_core::SolveResult::<f64>::new();
@@ -2369,5 +2250,192 @@ mod tests {
 
             unesting_free_string(result_ptr);
         }
+    }
+
+    /// What a C ABI entry point answers `request` with, as JSON.
+    fn c_abi(
+        entry: unsafe extern "C" fn(*const c_char, *mut *mut c_char) -> i32,
+        request: &str,
+    ) -> serde_json::Value {
+        let request = CString::new(request).expect("no NUL in a request");
+        let mut result_ptr: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            entry(request.as_ptr(), &mut result_ptr);
+            assert!(!result_ptr.is_null(), "every request gets an answer");
+            let json = serde_json::from_str(CStr::from_ptr(result_ptr).to_str().expect("UTF-8"))
+                .expect("the answer is JSON");
+            unesting_free_string(result_ptr);
+            json
+        }
+    }
+
+    /// A 2D request for one rectangle, `field` added to the geometry and
+    /// `config` given as the config object's body.
+    fn rectangle_with(field: &str, config: &str) -> String {
+        format!(
+            r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]{field}}}],
+                "boundary": {{"width": 50, "height": 50}}, "config": {{{config}}}}}"#
+        )
+    }
+
+    /// A count is read as a number: a negative one is out of range, refused
+    /// with the same bound as a too-small positive one -- not a request of the
+    /// wrong shape.
+    #[test]
+    fn a_negative_count_is_out_of_range_not_malformed() {
+        for quantity in ["-1", "0"] {
+            let r = c_abi(
+                unesting_solve,
+                &rectangle_with(&format!(r#", "quantity": {quantity}"#), ""),
+            );
+            assert_eq!(r["success"], false);
+            assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+            let got: f64 = quantity.parse().expect("a number");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({
+                    "parameter": "geometries[0].quantity", "id": "plate", "min": 1.0, "got": got
+                })
+            );
+        }
+
+        let r = c_abi(
+            unesting_solve,
+            r#"{"mode": "3d", "geometries": [{"id": "crate", "dimensions": [1, 1, 1], "quantity": -1}],
+                "boundary": {"dimensions": [5, 5, 5]}}"#,
+        );
+        assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+        assert_eq!(
+            r["details"],
+            serde_json::json!({
+                "parameter": "geometries[0].quantity", "id": "crate", "min": 1.0, "got": -1.0
+            })
+        );
+
+        let config = |setting: &str| c_abi(unesting_solve_2d, &rectangle_with("", setting));
+        for population in ["-1", "1"] {
+            let r = config(&format!(r#""population_size": {population}"#));
+            assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+            let got: f64 = population.parse().expect("a number");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": "population_size", "min": 2.0, "got": got })
+            );
+        }
+        for setting in ["time_limit_ms", "max_generations", "seed"] {
+            let r = config(&format!(r#""{setting}": -1"#));
+            assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": setting, "min": 0.0, "got": -1.0 })
+            );
+        }
+        // Above what the setting holds: the ceiling is named too.
+        let r = config(r#""max_generations": 4294967296"#);
+        assert_eq!(
+            r["details"],
+            serde_json::json!({
+                "parameter": "max_generations", "min": 0.0, "max": 4294967295.0, "got": 4294967296.0
+            })
+        );
+        assert!(
+            r["error"]
+                .as_str()
+                .expect("a message")
+                .contains("a whole number in [0, 4294967295]"),
+            "{r}"
+        );
+
+        // Whole numbers in range pass, a seed up to the largest u64 included.
+        let r = config(
+            r#""strategy": "ga", "population_size": 2, "max_generations": 0, "time_limit_ms": 0,
+               "seed": 18446744073709551615"#,
+        );
+        assert_eq!(r["success"], true, "{r}");
+        let r = c_abi(unesting_solve, &rectangle_with(r#", "quantity": 3"#, ""));
+        assert_eq!(r["total_requested"], 3, "{r}");
+    }
+
+    /// A fraction for a count is a request of the wrong shape, named by its
+    /// path.
+    #[test]
+    fn a_fractional_count_is_malformed_with_its_path() {
+        let r = c_abi(unesting_solve, &rectangle_with(r#", "quantity": 2.5"#, ""));
+        assert_eq!(r["success"], false);
+        assert_eq!(r["code"], "malformed_input", "{r}");
+        assert_eq!(
+            r["details"],
+            serde_json::json!({ "parameter": "geometries[0].quantity" })
+        );
+        let error = r["error"].as_str().expect("a message");
+        assert!(error.contains("must be a whole number, got 2.5"), "{error}");
+
+        let r = c_abi(unesting_solve_2d, &rectangle_with("", r#""seed": 1.5"#));
+        assert_eq!(r["code"], "malformed_input", "{r}");
+        assert_eq!(r["details"]["parameter"], "config.seed");
+
+        // A string is the wrong shape as before, now with its path; text that is
+        // not JSON names no field.
+        let r = c_abi(
+            unesting_solve_2d,
+            &rectangle_with(r#", "quantity": "2""#, ""),
+        );
+        assert_eq!(r["code"], "malformed_input", "{r}");
+        assert_eq!(r["details"]["parameter"], "geometries[0].quantity");
+        let r = c_abi(unesting_solve_2d, r#"{"geometries": ["#);
+        assert_eq!(r["code"], "malformed_input", "{r}");
+        assert_eq!(r["details"], serde_json::json!({}));
+        assert!(r["error"]
+            .as_str()
+            .expect("a message")
+            .starts_with("Invalid JSON"));
+
+        // A whole number written with a fraction part is that whole number;
+        // null for an optional setting is its default.
+        let r = c_abi(
+            unesting_solve,
+            &rectangle_with(r#", "quantity": 2.0"#, r#""seed": null"#),
+        );
+        assert_eq!(r["total_requested"], 2, "{r}");
+    }
+
+    #[test]
+    fn cutting_counts_are_read_as_given() {
+        let solved = c_abi(unesting_solve_2d, &rectangle_with("", ""));
+        assert_eq!(solved["success"], true);
+        let cut = |config: &str| {
+            c_abi(
+                unesting_optimize_cutting_path,
+                &format!(
+                    r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}}],
+                        "solve_result": {solved}, "cutting_config": {{{config}}}}}"#
+                ),
+            )
+        };
+        for candidates in ["-1", "0"] {
+            let r = cut(&format!(r#""pierce_candidates": {candidates}"#));
+            assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+            let got: f64 = candidates.parse().expect("a number");
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": "pierce_candidates", "min": 1.0, "got": got })
+            );
+        }
+        for setting in ["max_2opt_iterations", "time_limit_ms"] {
+            let r = cut(&format!(r#""{setting}": -1"#));
+            assert_eq!(
+                r["details"],
+                serde_json::json!({ "parameter": setting, "min": 0.0, "got": -1.0 }),
+                "{r}"
+            );
+            let r = cut(&format!(r#""{setting}": 0.5"#));
+            assert_eq!(r["code"], "malformed_input", "{r}");
+            assert_eq!(
+                r["details"]["parameter"],
+                format!("cutting_config.{setting}")
+            );
+        }
+        let r = cut(r#""pierce_candidates": 2, "max_2opt_iterations": 10, "time_limit_ms": 0"#);
+        assert_eq!(r["success"], true, "{r}");
     }
 }

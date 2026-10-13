@@ -82,8 +82,8 @@ pub use gdrr::{
     RecreateType, RuinResult, RuinType, RuinedItem,
 };
 pub use geometry::{
-    Boundary, Boundary2DExt, Boundary3DExt, Geometry, Geometry2DExt, Geometry3DExt, GeometryId,
-    RotationConstraint,
+    check_quantity, Boundary, Boundary2DExt, Boundary3DExt, Geometry, Geometry2DExt, Geometry3DExt,
+    GeometryId, RotationConstraint,
 };
 pub use placement::Placement;
 pub use result::{SolveResult, SolveSummary};

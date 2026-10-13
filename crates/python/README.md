@@ -111,7 +111,13 @@ Solve a 2D nesting problem.
 
 > Keys are validated strictly: an unrecognized key in `geometries`, `boundary`
 > or `config` raises `ValueError` naming it, rather than being ignored. A typo
-> can therefore never silently fall back to a default.
+> can therefore never silently fall back to a default. So does a value of the
+> wrong type -- a count given as a fraction (`2.5`) included. A count outside
+> its range (a negative one included) is a range refusal: a geometry's
+> `quantity` below 1 comes back as `code` `parameter_out_of_range` with
+> `details` `parameter` `geometries[i].quantity` and the geometry's `id`; a
+> `config` count (`population_size` below 2, `seed` below 0, ...) raises
+> `ValueError` naming the setting and its range.
 
 - `geometries`: List of geometry definitions
   - `id` (str): Unique identifier

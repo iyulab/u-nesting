@@ -217,6 +217,22 @@ pub trait Boundary3DExt: Boundary {
     fn effective_volume(&self, margin: Self::Scalar) -> Self::Scalar;
 }
 
+/// How many copies of the geometry `id` to place: `value` when it is at least
+/// 1. A request's quantity and a geometry's own are judged here alike.
+///
+/// # Errors
+///
+/// [`Error::OutOfRange`](crate::Error::OutOfRange) naming `parameter` and the
+/// geometry `id`, with `min` 1 -- for 0 and for a negative quantity.
+pub fn check_quantity(parameter: &str, id: &str, value: i128) -> Result<usize> {
+    crate::error::whole_at_least(parameter, value, 1).map_err(|mut e| {
+        if let crate::Error::OutOfRange { id: of, .. } = &mut e {
+            *of = Some(id.to_string());
+        }
+        e
+    })
+}
+
 /// Refuses a geometry id given to two geometries.
 ///
 /// [`Geometry::id`] is the geometry's identity: a result names each placement

@@ -79,6 +79,7 @@ where
         {
             return Err(Error::OutOfRange {
                 parameter: "kerf_width".to_string(),
+                id: None,
                 min: Some(0.0),
                 max: Some(gap),
                 exclusive_min: None,

@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::error::whole_at_least;
 use crate::solver::{Config, Strategy};
 use crate::Error;
 
@@ -87,9 +88,9 @@ pub struct Geometry2DRequest {
     #[serde(default)]
     pub holes: Option<Vec<Vec<[f64; 2]>>>,
 
-    /// Quantity to place.
-    #[serde(default = "default_quantity")]
-    pub quantity: usize,
+    /// Quantity to place: a whole number, at least 1.
+    #[serde(default = "default_quantity", deserialize_with = "whole::required")]
+    pub quantity: i128,
 
     /// Allowed rotation angles in degrees.
     #[serde(default)]
@@ -124,9 +125,9 @@ pub struct Geometry3DRequest {
     /// Dimensions [width, depth, height].
     pub dimensions: [f64; 3],
 
-    /// Quantity to place.
-    #[serde(default = "default_quantity")]
-    pub quantity: usize,
+    /// Quantity to place: a whole number, at least 1.
+    #[serde(default = "default_quantity", deserialize_with = "whole::required")]
+    pub quantity: i128,
 
     /// Mass (optional).
     pub mass: Option<f64>,
@@ -168,17 +169,20 @@ pub struct ConfigRequest {
     /// Optimization strategy.
     pub strategy: Option<String>,
 
-    /// Time limit in milliseconds.
-    pub time_limit_ms: Option<u64>,
+    /// Time limit in milliseconds: a whole number, at least 0.
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub time_limit_ms: Option<i128>,
 
     /// Target utilization (0.0 - 1.0).
     pub target_utilization: Option<f64>,
 
-    /// GA population size.
-    pub population_size: Option<usize>,
+    /// GA population size: a whole number, at least 2.
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub population_size: Option<i128>,
 
-    /// GA max generations.
-    pub max_generations: Option<u32>,
+    /// GA max generations: a whole number from 0 to 4294967295.
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub max_generations: Option<i128>,
 
     /// GA crossover rate.
     pub crossover_rate: Option<f64>,
@@ -186,8 +190,10 @@ pub struct ConfigRequest {
     /// GA mutation rate.
     pub mutation_rate: Option<f64>,
 
-    /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA).
-    pub seed: Option<u64>,
+    /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA): a
+    /// whole number from 0 to 18446744073709551615.
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub seed: Option<i128>,
 
     /// Distribute overflow across multiple sheets (2D only).
     ///
@@ -323,8 +329,121 @@ pub struct PlacementResponse {
     pub flipped: bool,
 }
 
-fn default_quantity() -> usize {
+fn default_quantity() -> i128 {
     1
+}
+
+/// Reads a request's whole numbers -- counts, time budgets, seeds -- as given.
+///
+/// A count is read as a number, not into an unsigned type: `-1` is a value
+/// out of range (refused where the field is judged, as
+/// `parameter_out_of_range`), not a request of the wrong shape. A fraction is
+/// the wrong shape -- refused here, so as `malformed_input` naming the field.
+/// `i128` holds every `u64` (a seed) and its negatives.
+mod whole {
+    use serde::de::{self, Deserializer, Visitor};
+    use std::fmt;
+
+    struct Whole;
+
+    impl<'de> Visitor<'de> for Whole {
+        type Value = i128;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a whole number")
+        }
+
+        fn visit_i64<E: de::Error>(self, v: i64) -> Result<i128, E> {
+            Ok(v.into())
+        }
+
+        fn visit_u64<E: de::Error>(self, v: u64) -> Result<i128, E> {
+            Ok(v.into())
+        }
+
+        fn visit_i128<E: de::Error>(self, v: i128) -> Result<i128, E> {
+            Ok(v)
+        }
+
+        fn visit_u128<E: de::Error>(self, v: u128) -> Result<i128, E> {
+            // Beyond i128 is beyond every range: read it as the largest.
+            Ok(i128::try_from(v).unwrap_or(i128::MAX))
+        }
+
+        fn visit_f64<E: de::Error>(self, v: f64) -> Result<i128, E> {
+            // `3.0` is the whole number 3; a value past i128 saturates, still
+            // outside every range.
+            if v.is_finite() && v.fract() == 0.0 {
+                Ok(v as i128)
+            } else {
+                Err(E::custom(format_args!("must be a whole number, got {v}")))
+            }
+        }
+    }
+
+    struct OptionalWhole;
+
+    impl<'de> Visitor<'de> for OptionalWhole {
+        type Value = Option<i128>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a whole number or null")
+        }
+
+        fn visit_none<E: de::Error>(self) -> Result<Option<i128>, E> {
+            Ok(None)
+        }
+
+        fn visit_unit<E: de::Error>(self) -> Result<Option<i128>, E> {
+            Ok(None)
+        }
+
+        fn visit_some<D: Deserializer<'de>>(self, d: D) -> Result<Option<i128>, D::Error> {
+            required(d).map(Some)
+        }
+    }
+
+    pub(super) fn required<'de, D: Deserializer<'de>>(d: D) -> Result<i128, D::Error> {
+        d.deserialize_any(Whole)
+    }
+
+    pub(super) fn optional<'de, D: Deserializer<'de>>(d: D) -> Result<Option<i128>, D::Error> {
+        d.deserialize_option(OptionalWhole)
+    }
+}
+
+/// The request `json` describes, read as given: text that is not JSON, or a
+/// value of the wrong shape -- a missing or unknown key, a string for a number,
+/// a fraction for a count -- is refused as `malformed_input`, its `parameter`
+/// the path of the field at fault (`geometries[2].quantity`) when there is one.
+///
+/// # Errors
+///
+/// [`Error::MalformedInput`] as above.
+pub fn from_json<T: serde::de::DeserializeOwned>(json: &str) -> crate::Result<T> {
+    use serde_json::error::Category;
+
+    // Text that is not JSON names no field: where it broke off is no path.
+    let refused = |path: Option<String>, e: serde_json::Error| match e.classify() {
+        Category::Syntax | Category::Eof => Error::malformed(None, format!("Invalid JSON: {e}")),
+        _ => Error::MalformedInput {
+            message: path
+                .as_ref()
+                .map_or_else(|| e.to_string(), |path| format!("{path}: {e}")),
+            parameter: path,
+        },
+    };
+    let mut de = serde_json::Deserializer::from_str(json);
+    let value = serde_path_to_error::deserialize(&mut de).map_err(|e| {
+        let path = e.path();
+        let named = path
+            .iter()
+            .any(|s| !matches!(s, serde_path_to_error::Segment::Unknown));
+        let path = named.then(|| path.to_string());
+        refused(path, e.into_inner())
+    })?;
+    de.end().map_err(|e| refused(None, e))?;
+    Ok(value)
 }
 
 impl From<crate::Placement<f64>> for PlacementResponse {
@@ -521,13 +640,16 @@ pub struct CuttingConfigRequest {
     /// Weight factor for pierce count in cost function.
     pub pierce_weight: Option<f64>,
 
-    /// Maximum number of 2-opt improvement iterations.
-    pub max_2opt_iterations: Option<usize>,
+    /// Maximum number of 2-opt improvement iterations: a whole number, at
+    /// least 0.
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub max_2opt_iterations: Option<i128>,
 
     /// Wall-clock budget (ms) for the 2-opt improvement phase. `0` = unlimited.
     /// Prevents the sequencing pass from blocking the caller (e.g. the browser
     /// main thread) on large inputs. Defaults to 5000 when omitted.
-    pub time_limit_ms: Option<u64>,
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub time_limit_ms: Option<i128>,
 
     /// Machine rapid traverse speed (units/s). For time estimation only.
     pub rapid_speed: Option<f64>,
@@ -544,8 +666,10 @@ pub struct CuttingConfigRequest {
     /// Home position [x, y] for the cutting head.
     pub home_position: Option<[f64; 2]>,
 
-    /// Number of candidate pierce points per contour.
-    pub pierce_candidates: Option<usize>,
+    /// Number of candidate pierce points per contour: a whole number, at
+    /// least 1.
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub pierce_candidates: Option<i128>,
 
     /// Tolerance for geometric comparisons.
     pub tolerance: Option<f64>,
@@ -764,6 +888,7 @@ impl RefusalDetails {
         match error {
             Error::OutOfRange {
                 parameter,
+                id,
                 min,
                 max,
                 exclusive_min,
@@ -772,6 +897,7 @@ impl RefusalDetails {
                 ..
             } => {
                 d.parameter = Some(parameter.clone());
+                d.id = id.clone();
                 d.min = *min;
                 d.max = *max;
                 d.exclusive_min = *exclusive_min;
@@ -807,7 +933,8 @@ impl ConfigRequest {
     /// The solver configuration this request asks for, refused as the solver
     /// would refuse it: a strategy name nobody knows is `unknown_option`, a
     /// setting outside its range is `parameter_out_of_range` -- never clamped
-    /// into range.
+    /// into range. A negative count is out of range like a too-small one
+    /// (`population_size` -1 and 1 are both refused with `min` 2).
     pub fn to_config(&self) -> crate::Result<Config> {
         let mut config = Config::default();
         if let Some(strategy) = &self.strategy {
@@ -824,16 +951,16 @@ impl ConfigRequest {
             config.margin = margin;
         }
         if let Some(time_limit) = self.time_limit_ms {
-            config.time_limit_ms = time_limit;
+            config.time_limit_ms = whole_at_least("time_limit_ms", time_limit, 0)?;
         }
         if let Some(target) = self.target_utilization {
             config.target_utilization = Some(target);
         }
         if let Some(pop) = self.population_size {
-            config.population_size = pop;
+            config.population_size = Config::check_population_size(pop)?;
         }
         if let Some(gens) = self.max_generations {
-            config.max_generations = gens;
+            config.max_generations = whole_at_least("max_generations", gens, 0)?;
         }
         if let Some(crossover) = self.crossover_rate {
             config.crossover_rate = crossover;
@@ -842,7 +969,7 @@ impl ConfigRequest {
             config.mutation_rate = mutation;
         }
         if let Some(seed) = self.seed {
-            config.seed = Some(seed);
+            config.seed = Some(whole_at_least("seed", seed, 0)?);
         }
         config.validate()?;
         Ok(config)
@@ -918,6 +1045,7 @@ mod dto_strictness_tests {
     fn a_refusal_names_its_reason_and_values() {
         let range = crate::Error::OutOfRange {
             parameter: "spacing".into(),
+            id: None,
             min: Some(0.0),
             max: None,
             exclusive_min: None,
@@ -991,6 +1119,7 @@ mod dto_strictness_tests {
         // A mixed range -- open below, closed above -- survives the round trip.
         let open = crate::Error::OutOfRange {
             parameter: "ratio".into(),
+            id: None,
             min: None,
             max: Some(1.0),
             exclusive_min: Some(0.0),
@@ -1117,5 +1246,103 @@ mod dto_strictness_tests {
             },
             "config": {}
         }));
+    }
+
+    /// A count is read as a number, so `-1` reaches the range check -- and
+    /// meets the same bound as a too-small positive value.
+    #[test]
+    fn counts_are_whole_numbers_judged_by_their_range() {
+        let config = |v: serde_json::Value| -> crate::Result<crate::solver::Config> {
+            super::from_json::<super::ConfigRequest>(&v.to_string())?.to_config()
+        };
+        let details = |e: crate::Error| {
+            assert_eq!(e.code(), "parameter_out_of_range", "{e}");
+            serde_json::to_value(super::RefusalDetails::of(&e)).expect("serialize")
+        };
+        for got in [-1, 0, 1] {
+            assert_eq!(
+                details(config(json!({ "population_size": got })).unwrap_err()),
+                json!({ "parameter": "population_size", "min": 2.0, "got": got as f64 })
+            );
+        }
+        for setting in ["time_limit_ms", "max_generations", "seed"] {
+            assert_eq!(
+                details(config(json!({ setting: -1 })).unwrap_err()),
+                json!({ "parameter": setting, "min": 0.0, "got": -1.0 })
+            );
+        }
+        let e = config(json!({ "population_size": -1 })).unwrap_err();
+        assert_eq!(
+            e.to_string(),
+            "population_size must be a whole number >= 2, got -1"
+        );
+
+        let ok = config(json!({
+            "population_size": 2, "max_generations": 4294967295_u64, "time_limit_ms": 0,
+            "seed": u64::MAX, "spacing": null
+        }))
+        .expect("every value in range");
+        assert_eq!(ok.population_size, 2);
+        assert_eq!(ok.max_generations, u32::MAX);
+        assert_eq!(ok.seed, Some(u64::MAX));
+        assert_eq!(config(json!({ "seed": 7.0 })).expect("7").seed, Some(7));
+        assert_eq!(config(json!({ "seed": null })).expect("default").seed, None);
+
+        // The configuration's own check is the same one.
+        let own = crate::solver::Config {
+            population_size: 1,
+            ..Default::default()
+        };
+        assert_eq!(
+            details(own.validate().unwrap_err()),
+            json!({ "parameter": "population_size", "min": 2.0, "got": 1.0 })
+        );
+    }
+
+    /// A fraction, a string or a value of no number at all is the wrong
+    /// shape: `malformed_input`, its `parameter` the path of the field.
+    #[test]
+    fn a_count_of_the_wrong_shape_is_malformed_with_its_path() {
+        let refused = |json: &str| match super::from_json::<super::Request2D>(json) {
+            Err(e @ crate::Error::MalformedInput { .. }) => e,
+            other => panic!("{other:?}"),
+        };
+        let request = |quantity: &str| {
+            format!(
+                r#"{{"geometries": [{{"id": "a", "polygon": [[0,0],[1,0],[1,1]]}},
+                    {{"id": "b", "polygon": [[0,0],[1,0],[1,1]], "quantity": {quantity}}}],
+                    "boundary": {{"width": 5, "height": 5}}}}"#
+            )
+        };
+        for quantity in ["2.5", "\"2\"", "null", "true"] {
+            let e = refused(&request(quantity));
+            assert_eq!(
+                super::RefusalDetails::of(&e).parameter.as_deref(),
+                Some("geometries[1].quantity"),
+                "{quantity}: {e}"
+            );
+        }
+        let message = refused(&request("2.5")).to_string();
+        assert!(
+            message.starts_with("geometries[1].quantity: must be a whole number, got 2.5"),
+            "{message}"
+        );
+        let r: super::Request2D = super::from_json(&request("3")).expect("a whole number");
+        assert_eq!(r.geometries[1].quantity, 3);
+        assert_eq!(r.geometries[0].quantity, 1, "the default");
+
+        // Not JSON, or JSON with something after it: no field to name.
+        for text in ["{", "{} {}"] {
+            let e = refused(text);
+            assert_eq!(super::RefusalDetails::of(&e).parameter, None, "{e}");
+        }
+
+        let cutting =
+            super::from_json::<super::CuttingConfigRequest>(r#"{"pierce_candidates": 1.5}"#)
+                .unwrap_err();
+        assert_eq!(
+            super::RefusalDetails::of(&cutting).parameter.as_deref(),
+            Some("pierce_candidates")
+        );
     }
 }

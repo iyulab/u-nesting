@@ -2,3 +2,8 @@
 msrv = "1.89"
 cognitive-complexity-threshold = 30
 too-many-arguments-threshold = 10
+# `Error` carries the values behind a refusal as fields (a range's bounds and
+# the value given, the setting's name, the geometry it belongs to), so a
+# caller never parses the message. It is built only on the refusal path, where
+# its size costs nothing; boxing it would only hide those fields.
+large-error-threshold = 160

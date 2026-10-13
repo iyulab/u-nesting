@@ -3,6 +3,7 @@
 #[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
 
+use u_nesting_core::error::whole_at_least;
 use u_nesting_core::Error;
 
 use crate::bridge::BridgeConfig;
@@ -143,6 +144,7 @@ impl CuttingConfig {
         if !(self.kerf_width.is_finite() && self.kerf_width >= 0.0) {
             return Err(Error::OutOfRange {
                 parameter: "kerf_width".to_string(),
+                id: None,
                 min: Some(0.0),
                 max: None,
                 exclusive_min: None,
@@ -151,18 +153,14 @@ impl CuttingConfig {
                 range: "finite and >= 0 (0 disables compensation)".to_string(),
             });
         }
-        if self.pierce_candidates == 0 {
-            return Err(Error::OutOfRange {
-                parameter: "pierce_candidates".to_string(),
-                min: Some(1.0),
-                max: None,
-                exclusive_min: None,
-                exclusive_max: None,
-                got: 0.0,
-                range: "at least 1".to_string(),
-            });
-        }
+        Self::check_pierce_candidates(self.pierce_candidates as i128)?;
         Ok(())
+    }
+
+    /// A number of pierce candidates: at least 1. A request's value and a
+    /// configuration's own are judged here alike.
+    fn check_pierce_candidates(value: i128) -> u_nesting_core::Result<usize> {
+        whole_at_least("pierce_candidates", value, 1)
     }
 
     /// The configuration a cutting request asks for, refused as the optimizer
@@ -181,10 +179,10 @@ impl CuttingConfig {
                 config.pierce_weight = weight;
             }
             if let Some(iters) = req.max_2opt_iterations {
-                config.max_2opt_iterations = iters;
+                config.max_2opt_iterations = whole_at_least("max_2opt_iterations", iters, 0)?;
             }
             if let Some(time_limit) = req.time_limit_ms {
-                config.time_limit_ms = time_limit;
+                config.time_limit_ms = whole_at_least("time_limit_ms", time_limit, 0)?;
             }
             if let Some(speed) = req.rapid_speed {
                 config.rapid_speed = speed;
@@ -204,7 +202,7 @@ impl CuttingConfig {
                 config.home_position = (home[0], home[1]);
             }
             if let Some(candidates) = req.pierce_candidates {
-                config.pierce_candidates = candidates;
+                config.pierce_candidates = Self::check_pierce_candidates(candidates)?;
             }
             if let Some(tol) = req.tolerance {
                 config.tolerance = tol;

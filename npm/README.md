@@ -349,13 +349,13 @@ interface RefusalDetails {
 
 | `code` | `details` | Meaning |
 |---|---|---|
-| `parameter_out_of_range` | `parameter`, `got`, and per side `min` / `max` (closed) or `exclusive_min` / `exclusive_max` (open); an unbounded side has neither | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, ...) |
+| `parameter_out_of_range` | `parameter`, `got`, and per side `min` / `max` (closed) or `exclusive_min` / `exclusive_max` (open); an unbounded side has neither; `id` for a geometry's quantity | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, ...); a count below its least value, a negative one included (`geometries[i].quantity` below 1, `population_size` below 2, `pierce_candidates` below 1, `seed` or `time_limit_ms` below 0) |
 | `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `strategy`, a geometry's `orientation`, a cut direction, the C ABI's `mode` |
 | `invalid_option` | `parameter` | A setting that cannot be used here: a strategy this build or this dimension does not offer, a failed `solve_result` given to cut |
-| `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a quantity below 1; a placement naming no geometry |
+| `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a placement naming no geometry |
 | `duplicate_id` | `parameter`, `id`, `first`, `index` | Two geometries share an id |
 | `invalid_boundary` | `parameter` (when one field is at fault) | A boundary the engine cannot place into (both or neither of size and polygon, non-positive dimensions, ...) |
-| `malformed_input` | `parameter` (when known) | Not JSON, or a missing, unknown or mistyped key |
+| `malformed_input` | `parameter` (the path of the field, e.g. `geometries[2].quantity`, when there is one) | Not JSON, or a missing, unknown or mistyped key -- a count given as a fraction (`2.5`) included |
 | `cancelled` | — | The caller stopped the run (C ABI progress callback) |
 | `internal` | — | A failure inside the engine, not caused by the request |
 

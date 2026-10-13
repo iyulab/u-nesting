@@ -13,6 +13,7 @@ pub(crate) fn check_range(name: &str, value: f64, min: f64, max: f64) -> Result<
     } else {
         Err(Error::OutOfRange {
             parameter: name.to_string(),
+            id: None,
             min: Some(min),
             max: Some(max),
             exclusive_min: None,
@@ -31,6 +32,7 @@ pub(crate) fn check_at_least(name: &str, value: f64, min: f64) -> Result<()> {
     } else {
         Err(Error::OutOfRange {
             parameter: name.to_string(),
+            id: None,
             min: Some(min),
             max: None,
             exclusive_min: None,
@@ -49,6 +51,7 @@ pub(crate) fn check_above(name: &str, value: f64, bound: f64) -> Result<()> {
     } else {
         Err(Error::OutOfRange {
             parameter: name.to_string(),
+            id: None,
             min: None,
             max: None,
             exclusive_min: Some(bound),
@@ -56,6 +59,58 @@ pub(crate) fn check_above(name: &str, value: f64, bound: f64) -> Result<()> {
             got: value,
             range: format!("a finite number > {bound}"),
         })
+    }
+}
+
+/// An unsigned integer type a request's whole number is read into: a count,
+/// a time budget, a seed.
+pub trait WholeNumber: TryFrom<i128> + Copy {
+    /// The largest value the type holds.
+    const MAX: i128;
+}
+
+impl WholeNumber for u32 {
+    const MAX: i128 = u32::MAX as i128;
+}
+
+impl WholeNumber for u64 {
+    const MAX: i128 = u64::MAX as i128;
+}
+
+impl WholeNumber for usize {
+    const MAX: i128 = usize::MAX as i128;
+}
+
+/// `value` -- a whole number as a request gives it, negatives included -- as
+/// `T`, when it is at least `min` and `T` holds it; otherwise an
+/// [`Error::OutOfRange`] naming `parameter`.
+///
+/// A negative and a too-small positive value are refused alike, with the
+/// closed lower bound `min`; a value above what `T` holds also carries `max`.
+///
+/// # Errors
+///
+/// [`Error::OutOfRange`] when `value < min` or `value > T::MAX`.
+pub fn whole_at_least<T: WholeNumber>(parameter: &str, value: i128, min: i128) -> Result<T> {
+    match T::try_from(value) {
+        Ok(v) if value >= min => Ok(v),
+        _ => {
+            let above = value > T::MAX;
+            Err(Error::OutOfRange {
+                parameter: parameter.to_string(),
+                id: None,
+                min: Some(min as f64),
+                max: above.then_some(T::MAX as f64),
+                exclusive_min: None,
+                exclusive_max: None,
+                got: value as f64,
+                range: if above {
+                    format!("a whole number in [{min}, {}]", T::MAX)
+                } else {
+                    format!("a whole number >= {min}")
+                },
+            })
+        }
     }
 }
 
@@ -70,10 +125,12 @@ pub enum Error {
     /// `min` / `max` are the closed bounds (the value may equal them),
     /// `exclusive_min` / `exclusive_max` the open ones (it must lie strictly
     /// beyond them). A side has at most one of the two; `None` on both means
-    /// that side is unbounded.
+    /// that side is unbounded. `id` names the geometry the setting belongs to,
+    /// when it belongs to one (a quantity).
     #[error("{parameter} must be {range}, got {got}")]
     OutOfRange {
         parameter: String,
+        id: Option<String>,
         min: Option<f64>,
         max: Option<f64>,
         exclusive_min: Option<f64>,

@@ -235,6 +235,55 @@ impl Geometry2D {
     }
 }
 
+#[cfg(feature = "serde")]
+impl Geometry2D {
+    /// The geometry `request` describes, `index` being its position in the
+    /// request's `geometries` -- the position a refusal names.
+    ///
+    /// # Errors
+    ///
+    /// `parameter_out_of_range` (`geometries[index].quantity`, with the id)
+    /// for a quantity below 1, a negative one included.
+    pub fn from_request(
+        index: usize,
+        request: u_nesting_core::api_types::Geometry2DRequest,
+    ) -> Result<Self> {
+        let points = |ring: Vec<[f64; 2]>| ring.into_iter().map(|[x, y]| (x, y)).collect();
+        let quantity = u_nesting_core::check_quantity(
+            &format!("geometries[{index}].quantity"),
+            &request.id,
+            request.quantity,
+        )?;
+        let mut geom = Self::new(request.id)
+            .with_polygon(points(request.polygon))
+            .with_quantity(quantity)
+            .with_flip(request.allow_flip);
+        if let Some(rotations) = request.rotations {
+            geom = geom.with_rotations_deg(rotations);
+        }
+        for hole in request.holes.into_iter().flatten() {
+            geom = geom.with_hole(points(hole));
+        }
+        Ok(geom)
+    }
+
+    /// The geometries a request's `geometries` describe, in order; see
+    /// [`Geometry2D::from_request`].
+    ///
+    /// # Errors
+    ///
+    /// The first geometry's refusal.
+    pub fn from_requests(
+        requests: Vec<u_nesting_core::api_types::Geometry2DRequest>,
+    ) -> Result<Vec<Self>> {
+        requests
+            .into_iter()
+            .enumerate()
+            .map(|(index, request)| Self::from_request(index, request))
+            .collect()
+    }
+}
+
 impl Geometry for Geometry2D {
     type Scalar = f64;
 
@@ -296,12 +345,7 @@ impl Geometry for Geometry2D {
             ));
         }
 
-        if self.quantity == 0 {
-            return Err(Error::invalid_geometry(
-                Some(&self.id),
-                format!("Quantity for '{}' must be at least 1", self.id),
-            ));
-        }
+        u_nesting_core::check_quantity("quantity", &self.id, self.quantity as i128)?;
 
         // An empty angle list allows no orientation at all; reading it as 0°
         // would place the part in an orientation the caller did not list.

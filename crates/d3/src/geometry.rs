@@ -195,6 +195,60 @@ impl Geometry3D {
     }
 }
 
+#[cfg(feature = "serde")]
+impl Geometry3D {
+    /// The geometry `request` describes, `index` being its position in the
+    /// request's `geometries` -- the position a refusal names.
+    ///
+    /// # Errors
+    ///
+    /// `parameter_out_of_range` (`geometries[index].quantity`, with the id)
+    /// for a quantity below 1, a negative one included; `unknown_option`
+    /// (`geometries[index].orientation`) for an orientation other than `any`,
+    /// `upright` or `fixed`.
+    pub fn from_request(
+        index: usize,
+        request: u_nesting_core::api_types::Geometry3DRequest,
+    ) -> Result<Self> {
+        let quantity = u_nesting_core::check_quantity(
+            &format!("geometries[{index}].quantity"),
+            &request.id,
+            request.quantity,
+        )?;
+        let [width, depth, height] = request.dimensions;
+        let mut geom = Self::new(request.id, width, depth, height).with_quantity(quantity);
+        if let Some(mass) = request.mass {
+            geom = geom.with_mass(mass);
+        }
+        if let Some(name) = request.orientation {
+            let constraint =
+                OrientationConstraint::parse(&name).ok_or_else(|| Error::UnknownOption {
+                    parameter: format!("geometries[{index}].orientation"),
+                    got: name.clone(),
+                    expected: vec!["any".into(), "upright".into(), "fixed".into()],
+                })?;
+            geom = geom.with_orientation(constraint);
+        }
+        Ok(geom)
+    }
+
+    /// The geometries a request's `geometries` describe, in order; see
+    /// [`Geometry3D::from_request`].
+    ///
+    /// # Errors
+    ///
+    /// The first geometry's refusal.
+    pub fn from_requests(
+        requests: Vec<u_nesting_core::api_types::Geometry3DRequest>,
+    ) -> Result<Vec<Self>> {
+        requests
+            .into_iter()
+            .enumerate()
+            .map(|(index, request)| Self::from_request(index, request))
+            .collect()
+    }
+}
+
 impl Geometry for Geometry3D {
     type Scalar = f64;
 
@@ -237,12 +291,7 @@ impl Geometry for Geometry3D {
             ));
         }
 
-        if self.quantity == 0 {
-            return Err(Error::invalid_geometry(
-                Some(&self.id),
-                format!("Quantity for '{}' must be at least 1", self.id),
-            ));
-        }
+        u_nesting_core::check_quantity("quantity", &self.id, self.quantity as i128)?;
 
         if let Some(mass) = self.mass {
             if mass < 0.0 {

@@ -85,6 +85,34 @@ public class NativeRoundTripTests
     }
 
     [Fact]
+    public void A_negative_count_is_out_of_range()
+    {
+        using var nester = new Nester2D();
+
+        var quantity = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("plate", 10, 10, -1)],
+            Boundary = new Boundary2D { Width = 100, Height = 100 },
+        }));
+        Assert.Equal("parameter_out_of_range", quantity.Reason);
+        Assert.Equal("geometries[0].quantity", quantity.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal("plate", quantity.Details!.Value.GetProperty("id").GetString());
+        Assert.Equal(1.0, quantity.Details!.Value.GetProperty("min").GetDouble());
+        Assert.Equal(-1.0, quantity.Details!.Value.GetProperty("got").GetDouble());
+
+        var population = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10)],
+            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Config = new Config2D { Strategy = "ga", PopulationSize = -1 },
+        }));
+        Assert.Equal("parameter_out_of_range", population.Reason);
+        Assert.Equal("population_size", population.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(2.0, population.Details!.Value.GetProperty("min").GetDouble());
+        Assert.Equal(-1.0, population.Details!.Value.GetProperty("got").GetDouble());
+    }
+
+    [Fact]
     public void Packing_solves_and_reads_the_result()
     {
         using var packer = new Packer3D();
