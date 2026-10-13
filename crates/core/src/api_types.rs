@@ -587,7 +587,7 @@ pub struct Placement3DResponse {
     /// Y position.
     pub y: f64,
 
-    /// Z position (depth).
+    /// Z position, along the height axis (the third of `dimensions`).
     pub z: f64,
 
     /// Orientation label as an axis permutation, e.g. `"xyz"`, `"xzy"`.

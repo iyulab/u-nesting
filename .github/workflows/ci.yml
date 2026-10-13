@@ -241,10 +241,12 @@ jobs:
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
           dotnet-version: '10.0.x'
-      # The tests pin the C# request keys to the canonical Rust `ConfigRequest` wire
-      # names (deny_unknown_fields) and drive both solvers end to end, with
-      # reflection-based JSON disabled as in a trimmed or NativeAOT host. The
-      # client's own build fails on any trim or AOT analyzer warning.
+      # The tests hold the client to the engine both ways -- each result record
+      # written back out equals the raw response, each request key the client can
+      # write is in the engine's request schema (docs/json-schema) and a request
+      # with every setting is solved -- with reflection-based JSON disabled as in a
+      # trimmed or NativeAOT host. The client's own build fails on any trim or AOT
+      # analyzer warning.
       - name: Build the native library
         run: cargo build -p u-nesting-ffi
       - name: Client tests (reflection-based JSON disabled)

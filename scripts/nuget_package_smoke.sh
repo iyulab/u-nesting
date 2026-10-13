@@ -50,18 +50,18 @@ var request = new NestingRequest
 {
     Geometries = { Geometry2D.Rectangle("rect", 100, 50, quantity: 4) },
     Boundary = new Boundary2D { Width = 400, Height = 300 },
-    Config = new Config2D { Strategy = "nfp", TimeLimitMs = 5000 },
+    Config = new Config2D { Strategy = Strategy2D.NfpGuided, TimeLimitMs = 5000 },
 };
 
 using var nester = new Nester2D();
 var result = nester.Solve(request);
 
-Console.WriteLine($"success={result.Success} placed={result.Placements.Count} " +
+Console.WriteLine($"all_placed={result.AllPlaced} placed={result.Placements.Count} " +
                   $"sheets={result.SheetsUsed} utilization={result.Utilization:F4}");
 
-if (!result.Success)
+if (!result.AllPlaced)
 {
-    throw new Exception("solve reported failure");
+    throw new Exception("not every part was placed");
 }
 
 if (result.Placements.Count != 4)

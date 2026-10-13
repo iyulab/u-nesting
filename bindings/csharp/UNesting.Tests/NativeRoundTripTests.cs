@@ -17,12 +17,12 @@ public class NativeRoundTripTests
         var result = nester.Solve(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("a", 40, 20, 2), Geometry2D.Rectangle("b", 30, 30)],
-            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Boundary = Boundary2D.Rectangle(100, 100),
         });
 
-        Assert.True(result.Success);
         Assert.Equal(3, result.TotalRequested);
         Assert.Equal(3, result.Placements.Count);
+        Assert.Equal([0, 1], result.Placements.Where(p => p.Id == "a").Select(p => p.Instance).Order());
         Assert.True(result.AllPlaced);
         Assert.InRange(result.Utilization, 0.0, 1.0);
     }
@@ -36,12 +36,38 @@ public class NativeRoundTripTests
         var result = nester.SolveWithProgress(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("a", 10, 10, 6)],
-            Boundary = new Boundary2D { Width = 50, Height = 50 },
-            Config = new Config2D { Strategy = "ga", PopulationSize = 10, MaxGenerations = 5, Seed = 1 },
+            Boundary = Boundary2D.Rectangle(50, 50),
+            Config = new Config2D { Strategy = Strategy2D.GeneticAlgorithm, PopulationSize = 10, MaxGenerations = 5, Seed = 1 },
         });
 
-        Assert.True(result.Success);
+        Assert.True(result.AllPlaced);
         Assert.True(reports > 0, "no progress report was read");
+    }
+
+    [Fact]
+    public void A_progress_handler_that_throws_stops_the_solve_with_its_exception()
+    {
+        using var packer = new Packer3D();
+        packer.ProgressChanged += (_, _) => throw new InvalidOperationException("handler failed");
+        var e = Assert.Throws<InvalidOperationException>(() => packer.SolveWithProgress(new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("b", 10, 10, 10, 4)],
+            Boundary = Boundary3D.Box(30, 30, 30),
+        }));
+        Assert.Equal("handler failed", e.Message);
+    }
+
+    [Fact]
+    public void A_progress_handler_can_cancel()
+    {
+        using var nester = new Nester2D();
+        nester.ProgressChanged += (_, e) => e.Cancel = true;
+        Assert.Throws<OperationCanceledException>(() => nester.SolveWithProgress(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10, 6)],
+            Boundary = Boundary2D.Rectangle(50, 50),
+            Config = new Config2D { Strategy = Strategy2D.GeneticAlgorithm, PopulationSize = 10, MaxGenerations = 50, Seed = 1 },
+        }));
     }
 
     [Fact]
@@ -53,7 +79,7 @@ public class NativeRoundTripTests
         {
             Geometries = [Geometry2D.Rectangle("plate", 10, 10), Geometry2D.Rectangle("rib", 5, 5),
                           Geometry2D.Rectangle("plate", 20, 20)],
-            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Boundary = Boundary2D.Rectangle(100, 100),
         }));
         Assert.Equal("duplicate_id", twice.Reason);
         Assert.Equal("plate", twice.Details!.Value.GetProperty("id").GetString());
@@ -64,7 +90,7 @@ public class NativeRoundTripTests
         var spacing = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("a", 10, 10)],
-            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Boundary = Boundary2D.Rectangle(100, 100),
             Config = new Config2D { Spacing = -1 },
         }));
         Assert.Equal("parameter_out_of_range", spacing.Reason);
@@ -74,14 +100,12 @@ public class NativeRoundTripTests
         Assert.Equal(0.0, spacing.Details!.Value.GetProperty("min").GetDouble());
         Assert.False(spacing.Details!.Value.TryGetProperty("exclusive_min", out _));
 
-        var strategy = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        var shape = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("a", 10, 10)],
-            Boundary = new Boundary2D { Width = 100, Height = 100 },
-            Config = new Config2D { Strategy = "tabu" },
+            Boundary = new Boundary2D { Width = 100, Height = 100, Polygon = [[0, 0], [100, 0], [0, 100]] },
         }));
-        Assert.Equal("unknown_option", strategy.Reason);
-        Assert.Equal("tabu", strategy.Details!.Value.GetProperty("got").GetString());
+        Assert.Equal("invalid_boundary", shape.Reason);
     }
 
     [Fact]
@@ -92,7 +116,7 @@ public class NativeRoundTripTests
         var quantity = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("plate", 10, 10, -1)],
-            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Boundary = Boundary2D.Rectangle(100, 100),
         }));
         Assert.Equal("parameter_out_of_range", quantity.Reason);
         Assert.Equal("geometries[0].quantity", quantity.Details!.Value.GetProperty("parameter").GetString());
@@ -103,8 +127,8 @@ public class NativeRoundTripTests
         var population = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("a", 10, 10)],
-            Boundary = new Boundary2D { Width = 100, Height = 100 },
-            Config = new Config2D { Strategy = "ga", PopulationSize = -1 },
+            Boundary = Boundary2D.Rectangle(100, 100),
+            Config = new Config2D { Strategy = Strategy2D.GeneticAlgorithm, PopulationSize = -1 },
         }));
         Assert.Equal("parameter_out_of_range", population.Reason);
         Assert.Equal("population_size", population.Details!.Value.GetProperty("parameter").GetString());
@@ -119,7 +143,7 @@ public class NativeRoundTripTests
         var empty = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
         {
             Geometries = [],
-            Boundary = new Boundary2D { Width = 100, Height = 100 },
+            Boundary = Boundary2D.Rectangle(100, 100),
         }));
         Assert.Equal("empty_input", empty.Reason);
         Assert.Equal("geometries", empty.Details!.Value.GetProperty("parameter").GetString());
@@ -127,7 +151,7 @@ public class NativeRoundTripTests
         var flat = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("a", 10, 10)],
-            Boundary = new Boundary2D { Width = 0, Height = 100 },
+            Boundary = Boundary2D.Rectangle(0, 100),
         }));
         Assert.Equal("parameter_out_of_range", flat.Reason);
         Assert.Equal("boundary.width", flat.Details!.Value.GetProperty("parameter").GetString());
@@ -138,9 +162,84 @@ public class NativeRoundTripTests
         var none = Assert.Throws<NestingException>(() => packer.Solve(new PackingRequest
         {
             Geometries = [],
-            Boundary = new Boundary3D { Dimensions = [40, 40, 40] },
+            Boundary = Boundary3D.Box(40, 40, 40),
         }));
         Assert.Equal("empty_input", none.Reason);
+        Assert.Equal("geometries", none.Details!.Value.GetProperty("parameter").GetString());
+    }
+
+    [Fact]
+    public void A_3D_measure_out_of_range_is_named_by_its_place()
+    {
+        using var packer = new Packer3D();
+
+        var depth = Assert.Throws<NestingException>(() => packer.Solve(new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("b", 10, 10, 10)],
+            Boundary = Boundary3D.Box(40, 0, 40),
+        }));
+        Assert.Equal("parameter_out_of_range", depth.Reason);
+        Assert.Equal("boundary.dimensions[1]", depth.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(0.0, depth.Details!.Value.GetProperty("exclusive_min").GetDouble());
+
+        var mass = Assert.Throws<NestingException>(() => packer.Solve(new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("b", 10, 10, 10)],
+            Boundary = new Boundary3D { Width = 40, Depth = 40, Height = 40, MaxMass = 0 },
+        }));
+        Assert.Equal("boundary.max_mass", mass.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(0.0, mass.Details!.Value.GetProperty("exclusive_min").GetDouble());
+
+        var height = Assert.Throws<NestingException>(() => packer.Solve(new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("flat", 10, 10, -1)],
+            Boundary = Boundary3D.Box(40, 40, 40),
+        }));
+        Assert.Equal("geometries[0].dimensions[2]", height.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal("flat", height.Details!.Value.GetProperty("id").GetString());
+    }
+
+    [Fact]
+    public void A_non_finite_number_is_refused_where_it_sits()
+    {
+        using var nester = new Nester2D();
+        var vertex = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10), Geometry2D.Rectangle("b", 10, double.NaN)],
+            Boundary = Boundary2D.Rectangle(100, 100),
+        }));
+        Assert.Equal("value_not_finite", vertex.Reason);
+        Assert.Equal(NativeLibrary.UNESTING_ERR_SOLVE_FAILED, vertex.ErrorCode);
+        Assert.Equal("geometries[1].polygon[2]", vertex.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(1, vertex.Details!.Value.GetProperty("index").GetInt32());
+        Assert.Equal("b", vertex.Details!.Value.GetProperty("id").GetString());
+
+        var margin = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10)],
+            Boundary = Boundary2D.Rectangle(100, 100),
+            Config = new Config2D { Margin = double.PositiveInfinity },
+        }));
+        Assert.Equal("value_not_finite", margin.Reason);
+        Assert.Equal("config.margin", margin.Details!.Value.GetProperty("parameter").GetString());
+        Assert.False(margin.Details!.Value.TryGetProperty("index", out _));
+
+        using var packer = new Packer3D();
+        var box = Assert.Throws<NestingException>(() => packer.Solve(new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("b", 10, double.NegativeInfinity, 10)],
+            Boundary = Boundary3D.Box(40, 40, 40),
+        }));
+        Assert.Equal("geometries[0].dimensions", box.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(1, box.Details!.Value.GetProperty("index").GetInt32());
+
+        var container = Assert.Throws<NestingException>(() => packer.Solve(new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("b", 10, 10, 10)],
+            Boundary = Boundary3D.Box(40, 40, double.NaN),
+        }));
+        Assert.Equal("boundary.dimensions", container.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal(2, container.Details!.Value.GetProperty("index").GetInt32());
     }
 
     [Fact]
@@ -150,10 +249,9 @@ public class NativeRoundTripTests
         var result = nester.Solve(new NestingRequest
         {
             Geometries = [Geometry2D.Rectangle("a", 10, 10, 3)],
-            Boundary = new Boundary2D { Width = 50, Height = 50 },
-            Config = new Config2D { Strategy = "brkga", PopulationSize = 3, MaxGenerations = 0, Seed = 1 },
+            Boundary = Boundary2D.Rectangle(50, 50),
+            Config = new Config2D { Strategy = Strategy2D.Brkga, PopulationSize = 3, MaxGenerations = 0, Seed = 1 },
         });
-        Assert.True(result.Success);
         Assert.Equal(3, result.Placements.Count);
     }
 
@@ -164,10 +262,41 @@ public class NativeRoundTripTests
         var result = packer.Solve(new PackingRequest
         {
             Geometries = [Geometry3D.Box("box", 10, 10, 10, 4)],
-            Boundary = new Boundary3D { Dimensions = [40, 40, 40] },
+            Boundary = Boundary3D.Box(40, 40, 40),
         });
 
-        Assert.True(result.Success);
+        Assert.True(result.AllPlaced);
         Assert.Equal(4, result.Placements.Count);
+    }
+
+    [Fact]
+    public void A_box_is_read_width_depth_height()
+    {
+        using var packer = new Packer3D();
+        // Held as given, a 30 x 10 x 5 box fits a 32 x 12 x 6 container exactly one way.
+        var fits = packer.Solve(new PackingRequest
+        {
+            Geometries = [new Geometry3D { Id = "b", Width = 30, Depth = 10, Height = 5, Orientation = OrientationConstraint.Fixed }],
+            Boundary = Boundary3D.Box(width: 32, depth: 12, height: 6),
+        });
+        Assert.True(fits.AllPlaced);
+        Assert.Equal(AxisPermutation.Xyz, fits.Placements[0].Orientation);
+
+        // The same container with depth and height swapped does not take it.
+        var swapped = packer.Solve(new PackingRequest
+        {
+            Geometries = [new Geometry3D { Id = "b", Width = 30, Depth = 10, Height = 5, Orientation = OrientationConstraint.Fixed }],
+            Boundary = Boundary3D.Box(width: 32, depth: 6, height: 12),
+        });
+        Assert.False(swapped.AllPlaced);
+
+        // Upright keeps the height vertical: a quarter turn about it is all it may do.
+        var upright = packer.Solve(new PackingRequest
+        {
+            Geometries = [new Geometry3D { Id = "b", Width = 30, Depth = 10, Height = 5, Orientation = OrientationConstraint.Upright }],
+            Boundary = Boundary3D.Box(width: 12, depth: 32, height: 6),
+        });
+        Assert.True(upright.AllPlaced);
+        Assert.Equal(AxisPermutation.Yxz, upright.Placements[0].Orientation);
     }
 }

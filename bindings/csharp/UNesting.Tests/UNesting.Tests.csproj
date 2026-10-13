@@ -34,6 +34,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The engine's request schemas: the keys the client writes are checked against them. -->
+    <None Include="../../../docs/json-schema/request-*.schema.json" Link="schema/%(Filename)%(Extension)"
+          CopyToOutputDirectory="PreserveNewest" Visible="false" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="../UNesting/UNesting.csproj" />
   </ItemGroup>
 

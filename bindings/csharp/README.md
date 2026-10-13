@@ -30,26 +30,23 @@ using var nester = new Nester2D();
 // Define geometries
 var request = new NestingRequest
 {
-    Geometries = new List<Geometry2D>
-    {
+    Geometries =
+    [
         Geometry2D.Rectangle("part1", 100, 50, quantity: 5),
         new Geometry2D
         {
             Id = "triangle",
-            Polygon = new[] {
-                new[] { 0.0, 0.0 },
-                new[] { 80.0, 0.0 },
-                new[] { 40.0, 60.0 }
-            },
-            Quantity = 3
-        }
-    },
-    Boundary = new Boundary2D { Width = 500, Height = 300 },
+            Polygon = [[0.0, 0.0], [80.0, 0.0], [40.0, 60.0]],
+            Quantity = 3,
+            Rotations = [0, 90, 180, 270],
+        },
+    ],
+    Boundary = Boundary2D.Rectangle(500, 300),
     Config = new Config2D
     {
-        Strategy = "blf",
-        Spacing = 2.0
-    }
+        Strategy = Strategy2D.BottomLeftFill,
+        Spacing = 2.0,
+    },
 };
 
 // Solve
@@ -57,12 +54,16 @@ var result = nester.Solve(request);
 
 Console.WriteLine($"Utilization: {result.Utilization:P1}");
 Console.WriteLine($"Sheets used: {result.SheetsUsed}");
+if (!result.AllPlaced)
+    Console.WriteLine($"{result.UnplacedCount} copies did not fit: {string.Join(", ", result.Unplaced)}");
 
 foreach (var placement in result.Placements)
 {
-    Console.WriteLine($"  {placement.Id}: ({placement.X}, {placement.Y}) @ {placement.Rotation}°");
+    Console.WriteLine($"  {placement.Id}#{placement.Instance}: ({placement.X}, {placement.Y}) @ {placement.Rotation}°");
 }
 ```
+
+A sheet of any shape is a `Boundary2D { Polygon = [[x, y], ...] }` instead of a rectangle.
 
 ### 3D Bin Packing
 
@@ -74,26 +75,42 @@ using var packer = new Packer3D();
 
 var request = new PackingRequest
 {
-    Geometries = new List<Geometry3D>
-    {
-        Geometry3D.Box("small", 20, 20, 20, quantity: 10),
-        Geometry3D.Box("medium", 40, 30, 25, quantity: 5),
-        Geometry3D.Box("large", 60, 40, 30, quantity: 3)
-    },
+    Geometries =
+    [
+        Geometry3D.Box("small", width: 20, depth: 20, height: 20, quantity: 10),
+        Geometry3D.Box("medium", width: 40, depth: 30, height: 25, quantity: 5),
+        new Geometry3D
+        {
+            Id = "fridge", Width = 60, Depth = 40, Height = 90, Quantity = 3,
+            Mass = 45, Orientation = OrientationConstraint.Upright,
+        },
+    ],
     Boundary = new Boundary3D
     {
-        Dimensions = new[] { 200.0, 150.0, 100.0 },
+        Width = 200, Depth = 150, Height = 100,
+        MaxMass = 500,
         Gravity = true,
-        Stability = true
+        Stability = true,
     },
-    Config = new Config3D { Strategy = "ep" }
+    Config = new Config3D { Strategy = Strategy3D.ExtremePoint },
 };
 
 var result = packer.Solve(request);
 
 Console.WriteLine($"Utilization: {result.Utilization:P1}");
 Console.WriteLine($"Bins used: {result.BinsUsed}");
+
+foreach (var placement in result.Placements)
+{
+    Console.WriteLine($"  {placement.Id}#{placement.Instance}: ({placement.X}, {placement.Y}, {placement.Z}) turned {placement.Orientation}");
+}
 ```
+
+Sizes are width (x), depth (y) and height (z, the vertical) — the order the engine reads
+`dimensions` in. `Orientation` limits how a box may be turned: `Any` (the default, six
+ways), `Upright` (height stays vertical) or `Fixed`. A placement's `Orientation` says how
+it was turned: which of the box's axes (`x` width, `y` depth, `z` height) lies along the
+container's x, y and z — `Yxz` is a quarter turn about the vertical.
 
 ### Progress Reporting
 
@@ -135,25 +152,31 @@ catch (OperationCanceledException)
 
 ## Strategies
 
-### 2D Nesting
+### 2D Nesting (`Strategy2D`)
 
 | Strategy | Description |
 |----------|-------------|
-| `blf` | Bottom-Left Fill (fast, good for simple shapes) |
-| `nfp` | NFP-guided placement (high quality) |
-| `ga` | Genetic Algorithm (optimization) |
-| `brkga` | Biased Random-Key GA (advanced optimization) |
-| `sa` | Simulated Annealing (global optimization) |
+| `BottomLeftFill` | Bottom-left fill (fast, good for simple shapes) — the default |
+| `NfpGuided` | No-fit-polygon guided placement (high quality) |
+| `GeneticAlgorithm` | Genetic algorithm (optimization) |
+| `Brkga` | Biased random-key GA (advanced optimization) |
+| `SimulatedAnnealing` | Simulated annealing (global optimization) |
+| `Gdrr` | Goal-driven ruin and recreate |
+| `Alns` | Adaptive large neighbourhood search |
 
-### 3D Bin Packing
+### 3D Bin Packing (`Strategy3D`)
 
 | Strategy | Description |
 |----------|-------------|
-| `blf` | Bottom-Left Fill (fast) |
-| `ep` | Extreme Point heuristic (high quality) |
-| `ga` | Genetic Algorithm |
-| `brkga` | Biased Random-Key GA |
-| `sa` | Simulated Annealing |
+| `BottomLeftFill` | Layer-by-layer bottom-left fill (fast) — the default |
+| `ExtremePoint` | Extreme-point heuristic (high quality) |
+| `GeneticAlgorithm` | Genetic algorithm |
+| `Brkga` | Biased random-key GA |
+| `SimulatedAnnealing` | Simulated annealing |
+
+A setting left `null` in `Config2D` / `Config3D` is not sent, so the engine's default
+applies; `0` is a value (`MaxGenerations = 0` evaluates the first population only,
+`TimeLimitMs = 0` runs without a time limit).
 
 ## Refusals
 
@@ -174,13 +197,23 @@ catch (NestingException ex) when (ex.Reason == "duplicate_id")
 ```
 
 The codes and their fields are listed in the npm package README's *Refusals* section;
-the .NET package reports the same ones.
+the .NET package reports the same ones. A NaN or infinite number in a request cannot be
+written as JSON, so the client refuses it before calling the engine, with the reason
+`value_not_finite`: `Details` has `parameter`, the path to the value (or to the array
+holding it, with `index` its position there), and `id` when it belongs to a geometry —
+`{ "parameter": "geometries[1].polygon[2]", "index": 1, "id": "b" }` for a vertex's y.
+
+A progress handler that throws stops the solve; `SolveWithProgress` rethrows its exception.
 
 ## Trimming and NativeAOT
 
 The solvers serialize requests and read results and progress reports through
 source-generated serialization, with no reflection, and the package is marked
 `IsAotCompatible`. They run unchanged in trimmed and NativeAOT applications.
+
+Results (`NestingResult`, `PackingResult`, their placements and `ProgressInfo`) are
+records read strictly: a key the engine did not send fails the call instead of reading as
+zero.
 
 ## Platforms
 

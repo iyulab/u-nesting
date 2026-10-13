@@ -129,7 +129,7 @@
         "strategy": {
           "type": "string",
           "description": "Optimization strategy",
-          "enum": ["blf", "bottomleftfill", "nfp", "nfpguided", "ga", "genetic", "geneticalgorithm", "brkga", "sa", "simulatedannealing"],
+          "enum": ["blf", "bottomleftfill", "nfp", "nfpguided", "ga", "genetic", "geneticalgorithm", "brkga", "sa", "simulatedannealing", "gdrr", "alns"],
           "default": "blf"
         },
         "spacing": {

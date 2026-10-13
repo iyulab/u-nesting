@@ -150,9 +150,60 @@ Depends on u-geometry 0.5.
 - The request JSON schemas list `seed` and give `population_size` (`minimum`
   2) and `max_generations` (`minimum` 0, `maximum` 4294967295) the ranges the
   engine accepts; they said 10 and 1.
+- **Breaking (.NET):** `Geometry3D` and `Boundary3D` take their size as
+  `Width`, `Depth` and `Height` (`Height` the vertical) and write it as
+  `dimensions: [width, depth, height]`, the order the engine reads.
+  `Geometry3D.Box(id, width, depth, height, quantity)` names its arguments that
+  way, and `Boundary3D.Box(width, depth, height)` is new. The size used to be a
+  `Dimensions` array documented as `[width, height, depth]`, and
+  `Box(id, width, height, depth)` sent its `height` as the depth; a call that
+  passed the height third must now pass it fourth. `Dimensions` is the read-only
+  wire form.
+- **Breaking (.NET):** `Geometry3D.Fragile`, `MaxStack` and `Orientations` are
+  removed: the engine has no such settings, and setting any of them made it refuse
+  the whole request (`malformed_input`, unknown field). `Geometry3D.Orientation`
+  (`OrientationConstraint`: `Any`, `Upright`, `Fixed`) is the engine's
+  `orientation`. `Geometry3D.Mass` and `Boundary3D.MaxMass` are `double?`; a
+  `MaxMass` of 0 is sent (and refused) instead of read as "no limit".
+- **Breaking (.NET):** strategies are enums with the engine's names,
+  `Strategy2D` (`BottomLeftFill`, `NfpGuided`, `GeneticAlgorithm`, `Brkga`,
+  `SimulatedAnnealing`, `Gdrr`, `Alns`) and `Strategy3D` (`BottomLeftFill`,
+  `ExtremePoint`, `GeneticAlgorithm`, `Brkga`, `SimulatedAnnealing`), in place
+  of strings. `NestingRequest.Mode` and `PackingRequest.Mode` are removed: each
+  solver calls its own entry point.
+- .NET: every request key the engine reads can be set. `Boundary2D` takes an
+  arbitrary `Polygon` as well as `Width` / `Height` (now `double?`;
+  `Boundary2D.Rectangle(width, height)` is new); `Config2D` gains
+  `TargetUtilization`, `CrossoverRate` and `MutationRate`; `Config3D` gains
+  `Spacing`, `Margin`, `TargetUtilization`, `CrossoverRate`, `MutationRate` and
+  `Seed`. `Config2D.Spacing` / `Margin` are `double?` like the other settings: a
+  `null` is not sent and the engine's default applies.
+- **Breaking (.NET):** results are records read strictly: `NestingResult`,
+  `Placement2D`, `PackingResult`, `Placement3D` and `ProgressInfo` take every
+  value through their constructor, and a key missing from the engine's answer
+  fails the call instead of reading as 0. They carry what the engine sends:
+  `Version`, and each placement's `Instance` (which copy of its geometry).
+  `Placement3D.Orientation` is an `AxisPermutation` (`Xyz` ... `Zyx`: which of the
+  box's axes lies along the container's x, y and z). `Success` and `Error` are
+  removed from `NestingResult` and `PackingResult`: a result is only returned for
+  a solve that succeeded, and a refusal raises `NestingException`.
+- .NET: a NaN or infinite number in a request is refused before the engine is
+  called, as `NestingException` with `Reason` `value_not_finite` and `Details`
+  `parameter` (the path, e.g. `geometries[1].polygon[2]` or `config.margin`),
+  `index` (its position in the innermost array) and `id` (the geometry's). It
+  used to surface as the serializer's `ArgumentException`.
+- The 2D request JSON schema lists the `gdrr` and `alns` strategies.
 
 ### Fixed
 
+- .NET: an exception thrown by a `ProgressChanged` handler, or while reading a
+  progress report, stops the solve and is rethrown by `SolveWithProgress` /
+  `SolveAsync`; it used to be swallowed and the solve ran on.
+- The 3D response's `z` is documented as the height axis; it was called depth.
+- The 3D packing guide describes the request the engine reads: `dimensions` as
+  `[width, depth, height]`, `orientation` (`any`, `upright`, `fixed`) and the
+  orientation codes with z vertical. It showed `fragile`, `max_stack` and
+  `orientations`, which the engine refuses, and `[width, height, depth]`.
 - **Breaking:** a `kerf_width` wider than the gap between two placed parts is
   refused with `parameter_out_of_range` (`parameter: "kerf_width"`, `max` the
   narrowest gap) -- each cut takes a band the kerf's width beside its part, so the

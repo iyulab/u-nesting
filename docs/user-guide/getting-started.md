@@ -141,13 +141,14 @@ var request = new PackingRequest
 {
     Geometries = new List<Geometry3D>
     {
+        // width, depth, height -- height is the vertical
         Geometry3D.Box("small", 20, 20, 20, quantity: 10),
         Geometry3D.Box("medium", 40, 30, 25, quantity: 5),
         Geometry3D.Box("large", 60, 40, 30, quantity: 3)
     },
     Boundary = new Boundary3D
     {
-        Dimensions = new[] { 200.0, 150.0, 100.0 },
+        Width = 200, Depth = 150, Height = 100,
         Gravity = true,
         Stability = true
     }

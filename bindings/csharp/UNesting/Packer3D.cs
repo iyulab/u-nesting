@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using UNesting.Models;
 
@@ -11,95 +10,45 @@ public class Packer3D : IDisposable
 {
     private bool _disposed;
 
+    /// <summary>Sees each raw response and progress body before it is read — the contract tests compare them with the records.</summary>
+    internal NativeCall.Observers Observers { get; } = new();
+
     /// <summary>
     /// Event raised when progress is reported during solving.
     /// </summary>
     public event EventHandler<ProgressEventArgs>? ProgressChanged;
 
     /// <summary>
-    /// Solves a 3D bin packing problem.
+    /// Solves a 3D packing problem.
     /// </summary>
     /// <param name="request">The packing request.</param>
     /// <returns>The packing result.</returns>
-    /// <exception cref="NestingException">Thrown when solving fails.</exception>
+    /// <exception cref="NestingException">The engine refused the request, or a number in it is not finite (<c>value_not_finite</c>).</exception>
     public PackingResult Solve(PackingRequest request)
     {
         ThrowIfDisposed();
-
-        var requestJson = JsonSerializer.Serialize(request, NestingJson.Default.PackingRequest);
-        int code = NativeLibrary.unesting_solve_3d(requestJson, out var resultPtr);
-
-        return NativeCall.Read(code, resultPtr, NestingJson.Default.PackingResult);
+        return NativeCall.Run(NativeLibrary.unesting_solve_3d, Write(request), NestingJson.Default.PackingResult, Observers);
     }
 
     /// <summary>
-    /// Solves a 3D bin packing problem with progress reporting.
+    /// Solves a 3D packing problem, raising <see cref="ProgressChanged"/> as the solver reports.
+    /// An exception thrown by a handler stops the solve and is rethrown here.
     /// </summary>
     /// <param name="request">The packing request.</param>
     /// <param name="cancellationToken">Optional cancellation token.</param>
     /// <returns>The packing result.</returns>
-    /// <exception cref="NestingException">Thrown when solving fails.</exception>
-    /// <exception cref="OperationCanceledException">Thrown when cancelled.</exception>
+    /// <exception cref="NestingException">The engine refused the request, or a number in it is not finite (<c>value_not_finite</c>).</exception>
+    /// <exception cref="OperationCanceledException">The solve was cancelled.</exception>
     public PackingResult SolveWithProgress(PackingRequest request, CancellationToken cancellationToken = default)
     {
         ThrowIfDisposed();
-
-        var requestJson = JsonSerializer.Serialize(request, NestingJson.Default.PackingRequest);
-        var cancelled = false;
-        GCHandle? handle = null;
-
-        NativeLibrary.ProgressCallback callback = (progressPtr, userData) =>
-        {
-            if (cancellationToken.IsCancellationRequested)
-            {
-                cancelled = true;
-                return 0; // Cancel
-            }
-
-            try
-            {
-                var progressJson = Marshal.PtrToStringUTF8(progressPtr);
-                if (!string.IsNullOrEmpty(progressJson))
-                {
-                    var progress = JsonSerializer.Deserialize(progressJson, NestingJson.Default.ProgressInfo);
-                    if (progress != null)
-                    {
-                        var args = new ProgressEventArgs(progress);
-                        ProgressChanged?.Invoke(this, args);
-                        if (args.Cancel)
-                        {
-                            cancelled = true;
-                            return 0; // Cancel
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Ignore deserialization errors in callback
-            }
-
-            return 1; // Continue
-        };
-
-        try
-        {
-            // Pin the callback delegate
-            handle = GCHandle.Alloc(callback);
-
-            int code = NativeLibrary.unesting_solve_3d_with_progress(
-                requestJson, callback, IntPtr.Zero, out var resultPtr);
-
-            return NativeCall.Read(code, resultPtr, NestingJson.Default.PackingResult, cancelled);
-        }
-        finally
-        {
-            handle?.Free();
-        }
+        return NativeCall.Run(
+            NativeLibrary.unesting_solve_3d_with_progress, Write(request), NestingJson.Default.PackingResult, Observers,
+            Report, cancellationToken);
     }
 
     /// <summary>
-    /// Solves a 3D bin packing problem asynchronously with progress reporting.
+    /// Solves a 3D packing problem on the thread pool, with progress reporting.
     /// </summary>
     /// <param name="request">The packing request.</param>
     /// <param name="progress">Optional progress reporter.</param>
@@ -112,32 +61,38 @@ public class Packer3D : IDisposable
     {
         return Task.Run(() =>
         {
-            if (progress != null)
-            {
-                void Handler(object? sender, ProgressEventArgs e) => progress.Report(e.Progress);
-                ProgressChanged += Handler;
-                try
-                {
-                    return SolveWithProgress(request, cancellationToken);
-                }
-                finally
-                {
-                    ProgressChanged -= Handler;
-                }
-            }
-            else
-            {
+            if (progress == null)
                 return Solve(request);
+
+            void Handler(object? sender, ProgressEventArgs e) => progress.Report(e.Progress);
+            ProgressChanged += Handler;
+            try
+            {
+                return SolveWithProgress(request, cancellationToken);
+            }
+            finally
+            {
+                ProgressChanged -= Handler;
             }
         }, cancellationToken);
     }
 
+    private static string Write(PackingRequest request)
+    {
+        request.CheckFinite();
+        return JsonSerializer.Serialize(request, NestingJson.Default.PackingRequest);
+    }
+
+    private bool Report(ProgressInfo progress)
+    {
+        var args = new ProgressEventArgs(progress);
+        ProgressChanged?.Invoke(this, args);
+        return args.Cancel;
+    }
+
     private void ThrowIfDisposed()
     {
-        if (_disposed)
-        {
-            throw new ObjectDisposedException(nameof(Packer3D));
-        }
+        ObjectDisposedException.ThrowIf(_disposed, this);
     }
 
     /// <summary>

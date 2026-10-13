@@ -16,9 +16,11 @@ public class NestingException : Exception
 
     /// <summary>
     /// Stable, machine-readable reason, e.g. <c>parameter_out_of_range</c>,
-    /// <c>unknown_option</c>, <c>invalid_option</c>, <c>invalid_geometry</c>,
-    /// <c>duplicate_id</c>, <c>invalid_boundary</c>, <c>malformed_input</c>,
-    /// <c>internal</c>. <c>null</c> when the engine returned no readable body.
+    /// <c>empty_input</c>, <c>unknown_option</c>, <c>invalid_option</c>,
+    /// <c>invalid_geometry</c>, <c>duplicate_id</c>, <c>invalid_boundary</c>,
+    /// <c>malformed_input</c>, <c>internal</c> — and <c>value_not_finite</c>, which the
+    /// client raises itself for a NaN or infinite number before the request is sent.
+    /// <c>null</c> when the engine returned no readable body.
     /// </summary>
     public string? Reason { get; }
 
