@@ -102,6 +102,7 @@ For multiple sheets with different sizes:
 | `time_limit_ms` | integer | 30000 | Maximum solving time |
 | `population_size` | integer | 30 | GA/BRKGA population size, at least 2; a value you set is run as given |
 | `max_generations` | integer | 50 | GA/BRKGA generation budget; a value you set is run as given |
+| `seed` | integer | none | RNG seed of `ga`, `brkga`, `sa`, `gdrr`, `alns`: the same request and seed give the same layout when the run ends on its own budget, not on the clock (a search keeps a 10-15 s budget of its own when `time_limit_ms` is 0) |
 | `multi_sheet` | boolean | false | Spill overflow onto additional sheets (sheet-local coords; `sheet_index` selects the sheet) |
 
 ## Output Format

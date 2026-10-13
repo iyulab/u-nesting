@@ -1,6 +1,11 @@
 //! 3D benchmark dataset types and generators.
 //!
 //! Based on Martello, Pisinger, Vigo (2000) instance generation methodology.
+//!
+//! Dimensions follow the paper's naming and order -- width, height, depth --
+//! and height is taken as the vertical axis. The engine reads a box as
+//! `[width, depth, height]`; [`Item3D::engine_dimensions`] and
+//! [`Dataset3D::engine_bin`] give the values in that order.
 
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -14,7 +19,7 @@ pub struct Dataset3DInfo {
     pub instance_class: InstanceClass,
     /// Number of items
     pub num_items: usize,
-    /// Bin dimensions (W, H, D)
+    /// Bin dimensions `[W, H, D]`: width, height (vertical), depth.
     pub bin_dimensions: [f64; 3],
     /// Lower bound on bins needed (if known)
     pub lower_bound: Option<usize>,
@@ -31,7 +36,7 @@ pub struct Dataset3D {
     pub instance_class: InstanceClass,
     /// Items to be packed
     pub items: Vec<Item3D>,
-    /// Bin dimensions (W, H, D)
+    /// Bin dimensions `[W, H, D]`: width, height (vertical), depth.
     pub bin_dimensions: [f64; 3],
     /// Lower bound on bins needed (if known)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,6 +69,12 @@ impl Dataset3D {
         self.bin_dimensions[0] * self.bin_dimensions[1] * self.bin_dimensions[2]
     }
 
+    /// The bin as the engine reads a container: `(width, depth, height)`.
+    pub fn engine_bin(&self) -> (f64, f64, f64) {
+        let [w, h, d] = self.bin_dimensions;
+        (w, d, h)
+    }
+
     /// Theoretical lower bound based on volume.
     pub fn volume_lower_bound(&self) -> usize {
         (self.total_item_volume() / self.bin_volume()).ceil() as usize
@@ -75,7 +86,7 @@ impl Dataset3D {
 pub struct Item3D {
     /// Item ID
     pub id: usize,
-    /// Dimensions (width, height, depth)
+    /// Dimensions `[w, h, d]`: width, height (vertical), depth.
     pub dimensions: [f64; 3],
     /// Quantity (demand)
     #[serde(default = "default_quantity")]
@@ -134,6 +145,12 @@ impl Item3D {
     /// Depth.
     pub fn depth(&self) -> f64 {
         self.dimensions[2]
+    }
+
+    /// The box as the engine reads one: `(width, depth, height)`, height
+    /// vertical -- the axis an upright box keeps.
+    pub fn engine_dimensions(&self) -> (f64, f64, f64) {
+        (self.width(), self.depth(), self.height())
     }
 }
 

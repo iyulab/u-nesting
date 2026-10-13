@@ -104,10 +104,11 @@ When `stability: true`:
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `strategy` | string | "ep" | Algorithm strategy |
+| `strategy` | string | "blf" | Algorithm strategy |
 | `time_limit_ms` | integer | 30000 | Maximum solving time |
 | `population_size` | integer | 100 (`ga`), 50 (`brkga`) | GA/BRKGA population, at least 2; a value you set is run as given |
 | `max_generations` | integer | 500 (`ga`), 100 (`brkga`) | GA/BRKGA generation budget; a value you set is run as given |
+| `seed` | integer | none | RNG seed of `ga`, `brkga`, `sa`: the same request and seed give the same packing when the run ends on its own budget, not on `time_limit_ms` |
 
 ## Output Format
 

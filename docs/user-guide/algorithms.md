@@ -12,9 +12,9 @@ U-Nesting implements multiple algorithms for spatial optimization. This guide ex
 | `ga` | ✓ | ✓ | ★★☆☆☆ | ★★★★☆ | Optimization, diverse solutions |
 | `brkga` | ✓ | ✓ | ★★☆☆☆ | ★★★★★ | Best quality, production use |
 | `sa` | ✓ | ✓ | ★★☆☆☆ | ★★★★☆ | Global optimization |
-| `gdrr` | ✓ | ✓ | ★★★☆☆ | ★★★★☆ | Hybrid, balanced |
-| `alns` | ✓ | ✓ | ★★☆☆☆ | ★★★★★ | Large instances |
-| `milp` | ✓ | ✓ | ★☆☆☆☆ | ★★★★★ | Optimal solutions (small instances) |
+| `gdrr` | ✓ | - | ★★★☆☆ | ★★★★☆ | Hybrid, balanced |
+| `alns` | ✓ | - | ★★☆☆☆ | ★★★★★ | Large instances |
+| `milpexact` | ✓ | - | ★☆☆☆☆ | ★★★★★ | Optimal solutions (small instances; `milp` builds) |
 
 ## Heuristic Algorithms
 
@@ -309,7 +309,7 @@ result = u_nesting.solve_2d(parts, sheet, config=config)
 
 ### Mixed Integer Linear Programming (MILP)
 
-**Strategy key**: `milp`
+**Strategy key**: `milpexact` (also `exact`; needs a build with the `milp` feature)
 
 Exact optimization using mathematical programming. Guarantees optimal solution but limited to small instances.
 
@@ -320,8 +320,7 @@ Exact optimization using mathematical programming. Guarantees optimal solution b
 - Boundary constraints
 
 **Parameters**:
-- `time_limit_ms`: Solver time limit
-- `gap_tolerance`: Optimality gap (default: 0.01 = 1%)
+- `time_limit_ms`: Solver time limit (the optimality gap, 1%, is not a request setting)
 
 **Pros**:
 - Provably optimal solutions
@@ -333,9 +332,8 @@ Exact optimization using mathematical programming. Guarantees optimal solution b
 
 ```python
 config = {
-    "strategy": "milp",
-    "time_limit_ms": 120000,
-    "gap_tolerance": 0.005
+    "strategy": "milpexact",
+    "time_limit_ms": 120000
 }
 result = u_nesting.solve_2d(parts, sheet, config=config)
 ```
@@ -346,7 +344,7 @@ result = u_nesting.solve_2d(parts, sheet, config=config)
 
 | Items | Recommended Strategy |
 |-------|---------------------|
-| 1-10 | `milp` (optimal) or `brkga` |
+| 1-10 | `milpexact` (optimal, `milp` builds) or `brkga` |
 | 10-50 | `brkga` or `alns` |
 | 50-200 | `alns` or `gdrr` |
 | 200+ | `alns` with time limit |

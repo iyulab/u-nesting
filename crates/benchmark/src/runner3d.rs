@@ -125,11 +125,8 @@ impl BenchmarkRunner3D {
 
         // Convert dataset to geometries
         let geometries = self.convert_to_geometries(&dataset.items);
-        let boundary = Boundary3D::new(
-            dataset.bin_dimensions[0],
-            dataset.bin_dimensions[1],
-            dataset.bin_dimensions[2],
-        );
+        let (width, depth, height) = dataset.engine_bin();
+        let boundary = Boundary3D::new(width, depth, height);
 
         for strategy in &self.config.strategies {
             if self.config.show_progress {
@@ -228,7 +225,8 @@ impl BenchmarkRunner3D {
                     format!("box_{}", item.id)
                 };
 
-                let mut geom = Geometry3D::new(id, item.width(), item.height(), item.depth());
+                let (width, depth, height) = item.engine_dimensions();
+                let mut geom = Geometry3D::new(id, width, depth, height);
 
                 // Set orientation constraint
                 geom = match item.allowed_orientations {
@@ -355,5 +353,10 @@ mod tests {
 
         // 1 + 2 = 3 geometries
         assert_eq!(geometries.len(), 3);
+
+        // The item's height is the engine's vertical axis: the third of the
+        // engine's [width, depth, height].
+        let d = geometries[0].dimensions();
+        assert_eq!((d.x, d.y, d.z), (10.0, 30.0, 20.0));
     }
 }

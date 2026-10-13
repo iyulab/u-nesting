@@ -113,8 +113,8 @@ Depends on u-geometry 0.5.
   `pierce_candidates`. A negative value used to be refused as
   `malformed_input` ("invalid value: integer `-1`, expected usize"); it is now
   `parameter_out_of_range`, with the same bound as a too-small positive value:
-  `population_size` -1 and 1 are both `{ parameter: "population_size", min: 2,
-  got }`, and a setting with no lower limit beyond its type (`seed`,
+  `population_size` -1 and 1 are both `{ parameter: "config.population_size",
+  min: 2, got }`, and a setting with no lower limit beyond its type (`seed`,
   `time_limit_ms`, `max_generations`, `max_2opt_iterations`) has `min: 0`. A
   value above what the setting holds (`max_generations` above 4294967295) also
   carries `max`. A fraction (`2.5`) is `malformed_input`, "must be a whole
@@ -193,8 +193,67 @@ Depends on u-geometry 0.5.
   `index` (its position in the innermost array) and `id` (the geometry's). It
   used to surface as the serializer's `ArgumentException`.
 - The 2D request JSON schema lists the `gdrr` and `alns` strategies.
+- **Breaking:** a refusal on the wire names a setting by its path in the
+  request, whichever step refused it -- reading the configuration or the solve
+  itself: `config.spacing`, `config.strategy`, `config.seed`,
+  `cutting_config.kerf_width`, `cutting_config.cut_speed`, like
+  `boundary.width` and `geometries[2].quantity` already were. It used to be the
+  bare field (`spacing`, `kerf_width`), while a mistyped value of the same
+  field was named `config.seed`. This applies to `details.parameter` and to the
+  `error` text of the C ABI, WASM and .NET responses and of the Python result
+  dict. The Rust API keeps the field name (`Error::parameter()` is `spacing`
+  for a `Config` built in code); `Error::located`, `ConfigRequest::locate` and
+  `CuttingConfigRequest::locate` place it, and `ConfigRequest::KEYS` /
+  `CuttingConfigRequest::KEYS` list the keys each object takes.
+- **Breaking:** a 3D request's `config.multi_sheet` is refused as
+  `invalid_option` (`config.multi_sheet`); 3D packs one container, and the
+  setting was read and ignored. New `ConfigRequest::to_config_3d`.
+- **Breaking:** `AlnsProblem::repair` takes the run's random number generator,
+  like `destroy`. `run_ga_packing`, `run_brkga_packing` and `run_sa_packing`
+  take the layout to start from (`None` for random genes), and the 3D problems
+  gain `with_seed_layout`. `SolveResult::floored_at` returns the better of a
+  search's result and baselines, keeping the search's provenance.
+  `RandomKeyChromosome::discrete_key` and `permutation_keys` write a known
+  solution as keys. `Strategy::SPELLINGS` lists every name `Strategy::parse`
+  reads; `OrientationConstraint::NAMES` the orientation names.
+- The 3D search strategies honour `time_limit_ms` (they ran to their
+  generation or iteration budget whatever the limit).
+- The response JSON schema lists `unplaced_count`, `all_placed`,
+  `used_bounding_box` and `used_utilization`, which every 2D response carries.
+  The request and response schemas are tested against the request and
+  response types: their keys at every level, the strategy names each dimension
+  runs, and the orientation names.
 
 ### Fixed
+
+- A seed reproduces a run. The 3D GA, BRKGA and SA ignored `config.seed` --
+  the same seed gave a different packing on almost every run -- and 2D GDRR and
+  ALNS ignored it too; ALNS also drew its random repair order from fresh
+  entropy. With a parallel build, a 2D search could return either of two
+  layouts of equal fitness, whichever finished first; ties are now broken by
+  the layout itself. The same request with the same seed returns the same
+  layout when the run ends on its own budget; a run cut short by
+  `time_limit_ms` or a cancellation is not reproduced (see `Config::seed`).
+- A 3D search never returns less than a simple fill of the same request. GA,
+  BRKGA and SA start from the layer fill and are floored at the better of it
+  and the extreme-point fill -- more boxes, then a higher utilization, judged
+  after gravity and stability drop what they do not allow -- as 2D searches
+  are. On a small budget (four individuals, two generations) they used to
+  leave boxes the fill packs out -- for two slabs that fit only lying flat, in
+  34 (GA) and 40 (BRKGA) of 40 runs; under gravity and stability, for a stack
+  of three, in up to 31 of 40.
+- The layer placement the 3D searches decode with is the layer fill's own: a
+  box turned wider or deeper than the container is skipped instead of placed
+  out of it, and a box that fits nowhere no longer moves the row or layer the
+  next box goes into. The 3D searches list a geometry as unplaced when any of
+  its copies is left out, not only when all are.
+- The 3D benchmark datasets give the engine their height as the vertical axis
+  (`Item3D::engine_dimensions`, `Dataset3D::engine_bin`); they passed it as
+  the depth, so an upright item kept its depth vertical.
+- The algorithm guide names the exact solver `milpexact` (it showed `milp`,
+  which is refused, and a `gap_tolerance` setting the request does not take)
+  and lists GDRR, ALNS and the exact solver as 2D only.
+- The 3D packing guide gives `blf` as the default strategy; it said `ep`.
 
 - .NET: an exception thrown by a `ProgressChanged` handler, or while reading a
   progress report, stops the solve and is rethrown by `SolveWithProgress` /
@@ -205,7 +264,8 @@ Depends on u-geometry 0.5.
   orientation codes with z vertical. It showed `fragile`, `max_stack` and
   `orientations`, which the engine refuses, and `[width, height, depth]`.
 - **Breaking:** a `kerf_width` wider than the gap between two placed parts is
-  refused with `parameter_out_of_range` (`parameter: "kerf_width"`, `max` the
+  refused with `parameter_out_of_range` (`parameter:
+  "cutting_config.kerf_width"`, `Error` `parameter` `kerf_width`, `max` the
   narrowest gap) -- each cut takes a band the kerf's width beside its part, so the
   plan would cut one part into its neighbour. With the outward offsets of two
   neighbours overlapping, the cutting optimizer used to answer `success` with an
