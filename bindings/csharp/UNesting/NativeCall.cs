@@ -83,7 +83,7 @@ internal static class NativeCall
     /// The result on success; otherwise the failure a progress handler raised,
     /// <see cref="OperationCanceledException"/> when the caller cancelled, or the engine's
     /// refusal as a <see cref="NestingException"/> carrying its
-    /// <see cref="NestingException.Reason"/> and <see cref="NestingException.Details"/>.
+    /// <see cref="NestingException.ErrorCode"/> and <see cref="NestingException.Details"/>.
     /// The native string is freed on every path.
     /// </summary>
     private static T Read<T>(

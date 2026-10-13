@@ -81,10 +81,11 @@ public class NativeRoundTripTests
                           Geometry2D.Rectangle("plate", 20, 20)],
             Boundary = Boundary2D.Rectangle(100, 100),
         }));
-        Assert.Equal("duplicate_id", twice.Reason);
+        Assert.Equal("duplicate_id", twice.ErrorCode);
         Assert.Equal("plate", twice.Details!.Value.GetProperty("id").GetString());
         Assert.Equal(0, twice.Details!.Value.GetProperty("first").GetInt32());
         Assert.Equal(2, twice.Details!.Value.GetProperty("index").GetInt32());
+        Assert.Equal(2, twice.Index);
         Assert.Contains("given twice", twice.Message);
 
         var spacing = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
@@ -93,8 +94,10 @@ public class NativeRoundTripTests
             Boundary = Boundary2D.Rectangle(100, 100),
             Config = new Config2D { Spacing = -1 },
         }));
-        Assert.Equal("parameter_out_of_range", spacing.Reason);
+        Assert.Equal("parameter_out_of_range", spacing.ErrorCode);
         Assert.Equal("config.spacing", spacing.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal("config.spacing", spacing.Parameter);
+        Assert.Null(spacing.Index);
         Assert.Equal(-1.0, spacing.Details!.Value.GetProperty("got").GetDouble());
         // 0 itself is accepted: a closed bound, so `min` and never `exclusive_min`.
         Assert.Equal(0.0, spacing.Details!.Value.GetProperty("min").GetDouble());
@@ -105,7 +108,7 @@ public class NativeRoundTripTests
             Geometries = [Geometry2D.Rectangle("a", 10, 10)],
             Boundary = new Boundary2D { Width = 100, Height = 100, Polygon = [[0, 0], [100, 0], [0, 100]] },
         }));
-        Assert.Equal("invalid_boundary", shape.Reason);
+        Assert.Equal("invalid_boundary", shape.ErrorCode);
     }
 
     [Fact]
@@ -118,7 +121,7 @@ public class NativeRoundTripTests
             Geometries = [Geometry2D.Rectangle("plate", 10, 10, -1)],
             Boundary = Boundary2D.Rectangle(100, 100),
         }));
-        Assert.Equal("parameter_out_of_range", quantity.Reason);
+        Assert.Equal("parameter_out_of_range", quantity.ErrorCode);
         Assert.Equal("geometries[0].quantity", quantity.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal("plate", quantity.Details!.Value.GetProperty("id").GetString());
         Assert.Equal(1.0, quantity.Details!.Value.GetProperty("min").GetDouble());
@@ -130,7 +133,7 @@ public class NativeRoundTripTests
             Boundary = Boundary2D.Rectangle(100, 100),
             Config = new Config2D { Strategy = Strategy2D.GeneticAlgorithm, PopulationSize = -1 },
         }));
-        Assert.Equal("parameter_out_of_range", population.Reason);
+        Assert.Equal("parameter_out_of_range", population.ErrorCode);
         Assert.Equal("config.population_size", population.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal(2.0, population.Details!.Value.GetProperty("min").GetDouble());
         Assert.Equal(-1.0, population.Details!.Value.GetProperty("got").GetDouble());
@@ -145,7 +148,7 @@ public class NativeRoundTripTests
             Geometries = [],
             Boundary = Boundary2D.Rectangle(100, 100),
         }));
-        Assert.Equal("empty_input", empty.Reason);
+        Assert.Equal("empty_input", empty.ErrorCode);
         Assert.Equal("geometries", empty.Details!.Value.GetProperty("parameter").GetString());
 
         var flat = Assert.Throws<NestingException>(() => nester.Solve(new NestingRequest
@@ -153,7 +156,7 @@ public class NativeRoundTripTests
             Geometries = [Geometry2D.Rectangle("a", 10, 10)],
             Boundary = Boundary2D.Rectangle(0, 100),
         }));
-        Assert.Equal("parameter_out_of_range", flat.Reason);
+        Assert.Equal("parameter_out_of_range", flat.ErrorCode);
         Assert.Equal("boundary.width", flat.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal(0.0, flat.Details!.Value.GetProperty("exclusive_min").GetDouble());
         Assert.Equal(0.0, flat.Details!.Value.GetProperty("got").GetDouble());
@@ -164,7 +167,7 @@ public class NativeRoundTripTests
             Geometries = [],
             Boundary = Boundary3D.Box(40, 40, 40),
         }));
-        Assert.Equal("empty_input", none.Reason);
+        Assert.Equal("empty_input", none.ErrorCode);
         Assert.Equal("geometries", none.Details!.Value.GetProperty("parameter").GetString());
     }
 
@@ -178,7 +181,7 @@ public class NativeRoundTripTests
             Geometries = [Geometry3D.Box("b", 10, 10, 10)],
             Boundary = Boundary3D.Box(40, 0, 40),
         }));
-        Assert.Equal("parameter_out_of_range", depth.Reason);
+        Assert.Equal("parameter_out_of_range", depth.ErrorCode);
         Assert.Equal("boundary.dimensions[1]", depth.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal(0.0, depth.Details!.Value.GetProperty("exclusive_min").GetDouble());
 
@@ -208,8 +211,8 @@ public class NativeRoundTripTests
             Geometries = [Geometry2D.Rectangle("a", 10, 10), Geometry2D.Rectangle("b", 10, double.NaN)],
             Boundary = Boundary2D.Rectangle(100, 100),
         }));
-        Assert.Equal("value_not_finite", vertex.Reason);
-        Assert.Equal(NativeLibrary.UNESTING_ERR_SOLVE_FAILED, vertex.ErrorCode);
+        Assert.Equal("value_not_finite", vertex.ErrorCode);
+        Assert.Equal(NativeLibrary.UNESTING_ERR_SOLVE_FAILED, vertex.Status);
         Assert.Equal("geometries[1].polygon[2]", vertex.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal(1, vertex.Details!.Value.GetProperty("index").GetInt32());
         Assert.Equal("b", vertex.Details!.Value.GetProperty("id").GetString());
@@ -220,7 +223,7 @@ public class NativeRoundTripTests
             Boundary = Boundary2D.Rectangle(100, 100),
             Config = new Config2D { Margin = double.PositiveInfinity },
         }));
-        Assert.Equal("value_not_finite", margin.Reason);
+        Assert.Equal("value_not_finite", margin.ErrorCode);
         Assert.Equal("config.margin", margin.Details!.Value.GetProperty("parameter").GetString());
         Assert.False(margin.Details!.Value.TryGetProperty("index", out _));
 

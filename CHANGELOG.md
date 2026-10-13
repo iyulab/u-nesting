@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking (.NET `UNesting`):** `NestingException` names its members the way the other
+  .NET bindings' exceptions do — `Status` is the native status (was `ErrorCode`),
+  `ErrorCode` the error body's `code` (was `Reason`), and `Parameter` / `Index`
+  now say which value the refusal is about without reading `Details`. Migrate: `ex.ErrorCode` → `ex.Status`, `ex.Reason` → `ex.ErrorCode`.
+
 ## [0.19.0] - 2026-10-13
 
 ### Changed

@@ -181,14 +181,16 @@ applies; `0` is a value (`MaxGenerations = 0` evaluates the first population onl
 ## Refusals
 
 A request the engine cannot honour raises `NestingException`. `Message` is readable
-text; `Reason` is a stable code to branch on and `Details` holds the values behind it:
+text; `ErrorCode` is a stable code to branch on (the error body's `code`), `Parameter`
+and `Index` say which value it is about, `Details` holds the values behind it, and
+`Status` is the native status:
 
 ```csharp
 try
 {
     nester.Solve(request);
 }
-catch (NestingException ex) when (ex.Reason == "duplicate_id")
+catch (NestingException ex) when (ex.ErrorCode == "duplicate_id")
 {
     var id = ex.Details!.Value.GetProperty("id").GetString();
     var again = ex.Details!.Value.GetProperty("index").GetInt32();
