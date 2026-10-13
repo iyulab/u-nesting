@@ -168,8 +168,8 @@ pub(crate) fn signed_area2(vertices: &[(f64, f64)]) -> f64 {
 /// dropping a pocket only forgoes positions, never admits an unsafe one).
 /// `distance == 0.0` returns the polygon unchanged.
 pub(crate) fn offset_polygon(vertices: &[(f64, f64)], distance: f64) -> Vec<Vec<(f64, f64)>> {
-    use i_overlay::mesh::outline::offset::OutlineOffset;
-    use i_overlay::mesh::style::{LineJoin, OutlineStyle};
+    use i_overlay::mesh::float::outline::offset::OutlineOffset;
+    use i_overlay::mesh::float::style::{LineJoin, OutlineStyle};
 
     if vertices.len() < 3 {
         return Vec::new();

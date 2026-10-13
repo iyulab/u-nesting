@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Depends on `i_overlay` 9 (was 8.1). Polygon offsets (spacing, kerf) are
+  computed by the new version; a layout can differ where a part now fits a
+  little closer at exactly the requested spacing.
 - **Breaking (Rust API):** settings that no solver or packer read are
   removed instead of accepted — `ExactConfig::gap_tolerance`, `verbosity` and
   `seed` (with `with_gap_tolerance`, `with_verbosity`, `with_seed`; the MILP
