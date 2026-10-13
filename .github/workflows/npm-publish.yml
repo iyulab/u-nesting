@@ -16,6 +16,7 @@ jobs:
   publish:
     name: Publish
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -32,8 +33,12 @@ jobs:
         with:
           save-if: false
 
-      - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+      # wasm-pack at a fixed version, its download checked against the hash in
+      # the action's manifest -- not the installer script, which fetched
+      # whatever was latest at run time.
+      - uses: taiki-e/install-action@84f5ac3124727fb3d284d4d22ee9ab3654fd09a6 # v2
+        with:
+          tool: wasm-pack@0.15.0
 
       - name: Build WASM package (bundler + nodejs)
         run: |

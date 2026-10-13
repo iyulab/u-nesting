@@ -220,7 +220,9 @@ jobs:
         with:
           node-version: 24
       - name: Install wasm-pack
-        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+        uses: taiki-e/install-action@84f5ac3124727fb3d284d4d22ee9ab3654fd09a6 # v2
+        with:
+          tool: wasm-pack@0.15.0
       - name: Build WASM package
         run: wasm-pack build crates/wasm --target web --out-dir /tmp/wasm-pkg --dev
       - name: Run WASM runtime smoke tests

@@ -25,6 +25,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -38,9 +39,12 @@ jobs:
         with:
           save-if: false
 
-      - uses: jetli/wasm-pack-action@0d096b08b4e5a7de8c28de67e11e945404e9eefa # v0.4.0
+      # wasm-pack at a fixed version, its download checked against the hash in
+      # the action's manifest. (jetli/wasm-pack-action, used before, runs on
+      # node16 and resolved its version at run time.)
+      - uses: taiki-e/install-action@84f5ac3124727fb3d284d4d22ee9ab3654fd09a6 # v2
         with:
-          version: 'v0.15.0'
+          tool: wasm-pack@0.15.0
 
       - name: Build WASM (web target)
         run: wasm-pack build crates/wasm --target web --scope iyulab --out-dir ../../demo/web/pkg
@@ -61,6 +65,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
