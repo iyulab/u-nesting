@@ -37,8 +37,17 @@ pub struct DatasetInfo {
     pub instances: &'static [&'static str],
     /// Brief description
     pub description: &'static str,
-    /// Best known solutions (instance_name, strip_length)
-    pub best_known: &'static [(&'static str, f64)],
+    /// Best-known packing density (placed area / used strip area, 0..=1) per
+    /// instance, from the literature -- not a strip length. A length depends on
+    /// the instance's own strip width and piece areas, so it is derived from the
+    /// data when the instance is loaded ([`Dataset::length_at_density`]); a
+    /// density cannot be out of range the way a hand-copied length was (the
+    /// lengths this table held put MARQUES at a density of 105 %).
+    ///
+    /// Source: Gardeyn & Wauters, *sparrow* (2025), arXiv:2509.13329, Table 3
+    /// (best density sparrow produced, at least the previous best for every
+    /// instance). BLAZ and BALDACCI are not in that table and carry none.
+    pub best_known_density: &'static [(&'static str, f64)],
 }
 
 /// All available ESICUP 2D irregular datasets.
@@ -47,73 +56,73 @@ pub const ESICUP_DATASETS: &[DatasetInfo] = &[
         name: "ALBANO",
         instances: &["albano"],
         description: "24 items, convex and non-convex mixed",
-        best_known: &[("albano", 8966.0)],
+        best_known_density: &[("albano", 0.8982)],
     },
     DatasetInfo {
         name: "BLAZ",
         instances: &["blaz1", "blaz2", "blaz3"],
         description: "Simple polygons, 7-28 items",
-        best_known: &[("blaz1", 27.52), ("blaz2", 22.5), ("blaz3", 26.75)],
+        best_known_density: &[],
     },
     DatasetInfo {
         name: "DAGLI",
         instances: &["dagli"],
         description: "30 items, industrial patterns",
-        best_known: &[("dagli", 60.0)],
+        best_known_density: &[("dagli", 0.9017)],
     },
     DatasetInfo {
         name: "FU",
         instances: &["fu"],
         description: "12 items, complex shapes",
-        best_known: &[("fu", 32.0)],
+        best_known_density: &[("fu", 0.9241)],
     },
     DatasetInfo {
         name: "JAKOBS",
         instances: &["jakobs1", "jakobs2"],
         description: "Classic benchmark, 25 items",
-        best_known: &[("jakobs1", 11.0), ("jakobs2", 25.0)],
+        best_known_density: &[("jakobs1", 0.8926), ("jakobs2", 0.8773)],
     },
     DatasetInfo {
         name: "MAO",
         instances: &["mao"],
         description: "20 items, varied sizes",
-        best_known: &[("mao", 1860.0)],
+        best_known_density: &[("mao", 0.8687)],
     },
     DatasetInfo {
         name: "MARQUES",
         instances: &["marques"],
         description: "24 items, some with holes",
-        best_known: &[("marques", 66.0)],
+        best_known_density: &[("marques", 0.9202)],
     },
     DatasetInfo {
         name: "SHAPES",
         instances: &["shapes0", "shapes1"],
         description: "43 items total, varied geometry",
-        best_known: &[("shapes0", 58.0), ("shapes1", 59.0)],
+        best_known_density: &[("shapes0", 0.6998), ("shapes1", 0.7673)],
     },
     DatasetInfo {
         name: "SHIRTS",
         instances: &["shirts"],
         description: "99 items, large industrial dataset",
-        best_known: &[("shirts", 60.0)],
+        best_known_density: &[("shirts", 0.9092)],
     },
     DatasetInfo {
         name: "SWIM",
         instances: &["swim"],
         description: "48 items, curved approximations",
-        best_known: &[("swim", 5700.0)],
+        best_known_density: &[("swim", 0.7983)],
     },
     DatasetInfo {
         name: "TROUSERS",
         instances: &["trousers"],
         description: "64 items, industrial clothing patterns",
-        best_known: &[("trousers", 244.0)],
+        best_known_density: &[("trousers", 0.9262)],
     },
     DatasetInfo {
         name: "BALDACCI",
         instances: &["baldacci"],
         description: "Alternative industrial dataset",
-        best_known: &[],
+        best_known_density: &[],
     },
 ];
 
@@ -185,7 +194,10 @@ impl DatasetManager {
         // Check cache first
         if cache_path.exists() {
             let content = fs::read_to_string(&cache_path)?;
-            return Ok(self.parser.parse_json(&content)?);
+            return Ok(Self::with_reference(
+                self.parser.parse_json(&content)?,
+                instance,
+            ));
         }
 
         // Download from GitHub
@@ -195,7 +207,7 @@ impl DatasetManager {
         let json = serde_json::to_string_pretty(&ds)?;
         fs::write(&cache_path, json)?;
 
-        Ok(ds)
+        Ok(Self::with_reference(ds, instance))
     }
 
     /// Downloads a dataset instance, optionally forcing a re-download.
@@ -221,7 +233,21 @@ impl DatasetManager {
             return Err(DownloadError::NotFound(instance.to_string()));
         }
         let content = fs::read_to_string(&cache_path)?;
-        Ok(self.parser.parse_json(&content)?)
+        Ok(Self::with_reference(
+            self.parser.parse_json(&content)?,
+            instance,
+        ))
+    }
+
+    /// Sets the dataset's best-known strip length from the instance's
+    /// best-known density, so a run's `gap_percent` measures against the
+    /// literature. It used to be left unset: no ESICUP run ever had a gap.
+    fn with_reference(mut ds: Dataset, instance: &str) -> Dataset {
+        if ds.best_known.is_none() {
+            ds.best_known =
+                Self::best_known_density(instance).and_then(|d| ds.length_at_density(d));
+        }
+        ds
     }
 
     /// Downloads all instances of a dataset.
@@ -286,10 +312,11 @@ impl DatasetManager {
         Ok(())
     }
 
-    /// Gets the best known solution for an instance.
-    pub fn get_best_known(instance: &str) -> Option<f64> {
+    /// The best-known packing density of an instance (0..=1), if the
+    /// literature table has one.
+    pub fn best_known_density(instance: &str) -> Option<f64> {
         for info in ESICUP_DATASETS {
-            for (inst, best) in info.best_known {
+            for (inst, best) in info.best_known_density {
                 if inst.eq_ignore_ascii_case(instance) {
                     return Some(*best);
                 }
@@ -316,8 +343,20 @@ mod tests {
 
     #[test]
     fn test_best_known() {
-        assert_eq!(DatasetManager::get_best_known("shapes0"), Some(58.0));
-        assert_eq!(DatasetManager::get_best_known("jakobs1"), Some(11.0));
-        assert_eq!(DatasetManager::get_best_known("unknown"), None);
+        assert_eq!(DatasetManager::best_known_density("shapes0"), Some(0.6998));
+        assert_eq!(DatasetManager::best_known_density("jakobs1"), Some(0.8926));
+        assert_eq!(DatasetManager::best_known_density("blaz1"), None);
+        assert_eq!(DatasetManager::best_known_density("unknown"), None);
+        // A density is a fraction of the strip: every one in the table is.
+        for info in ESICUP_DATASETS {
+            for &(inst, d) in info.best_known_density {
+                assert!(d > 0.0 && d <= 1.0, "{inst}: {d}");
+                assert!(
+                    info.instances.contains(&inst),
+                    "{inst} is not an instance of {}",
+                    info.name
+                );
+            }
+        }
     }
 }

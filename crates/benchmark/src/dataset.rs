@@ -53,6 +53,22 @@ impl Dataset {
         }
     }
 
+    /// Total area of every piece, demand included.
+    pub fn total_area(&self) -> f64 {
+        self.items
+            .iter()
+            .map(|i| i.shape.area().abs() * i.demand as f64)
+            .sum()
+    }
+
+    /// The strip length at which these pieces fill `density` of the strip
+    /// (`total_area / (strip_height * density)`), or `None` when the density is
+    /// outside (0, 1] or the strip has no height.
+    pub fn length_at_density(&self, density: f64) -> Option<f64> {
+        (density > 0.0 && density <= 1.0 && self.strip_height > 0.0)
+            .then(|| self.total_area() / (self.strip_height * density))
+    }
+
     /// Expands items by demand, returning individual pieces.
     /// Each piece gets a unique ID.
     pub fn expand_items(&self) -> Vec<ExpandedItem> {
@@ -188,6 +204,31 @@ fn polygon_area(points: &[[f64; 2]]) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The best-known length is derived from the instance's own pieces and strip:
+    /// four 1x1 squares on a strip 2 high fill a 2-long strip at density 1, a
+    /// 2.5-long one at 0.8.
+    #[test]
+    fn length_at_density_is_area_over_height_and_density() {
+        let square = Shape::SimplePolygon(vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]);
+        let ds = Dataset {
+            name: "t".into(),
+            items: vec![Item {
+                id: 0,
+                demand: 4,
+                allowed_orientations: vec![0.0],
+                shape: square,
+            }],
+            strip_width: None,
+            strip_height: 2.0,
+            best_known: None,
+        };
+        assert_eq!(ds.total_area(), 4.0);
+        assert_eq!(ds.length_at_density(1.0), Some(2.0));
+        assert_eq!(ds.length_at_density(0.8), Some(2.5));
+        assert_eq!(ds.length_at_density(1.05), None);
+        assert_eq!(ds.length_at_density(0.0), None);
+    }
 
     #[test]
     fn test_simple_polygon_area() {

@@ -46,6 +46,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The ESICUP benchmark measures against the literature. Its reference table
+  held strip lengths, some of them impossible for the instance (MARQUES at a
+  density of 105 %, ALBANO above any published layout), and nothing read it
+  into a run, so no ESICUP run ever reported a gap. The table now holds
+  best-known densities with their source, and loading an instance derives its
+  reference length from the instance's own pieces and strip
+  (`Dataset::length_at_density`), so `gap_percent` is reported.
+
 - `MilpExact` keeps `time_limit_ms` across the whole solve. The limit was
   looked at between piece pairs of the conflict pass only, not inside a pair,
   not in the coarser pass that takes over at a quarter of the limit, not while
