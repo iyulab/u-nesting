@@ -286,7 +286,7 @@ const res = JSON.parse(solve_2d(JSON.stringify({
 | `ga` | Genetic Algorithm |
 | `brkga` | Biased Random-Key GA |
 | `sa` | Simulated Annealing |
-| `gdrr` | Guided Destroy-Repair-Refine |
+| `gdrr` | Goal-Driven Ruin and Recreate |
 | `alns` | Adaptive Large Neighborhood Search |
 
 ### Available 3D Strategies

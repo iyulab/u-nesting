@@ -20,8 +20,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-u-nesting-d2 = "0.1"  # For 2D nesting
-u-nesting-d3 = "0.1"  # For 3D packing
+u-nesting = "0.18"  # 2D nesting and 3D packing (features `d2`, `d3`)
 ```
 
 ### C/C++ (FFI)
@@ -32,7 +31,8 @@ Build the FFI library:
 cargo build -p u-nesting-ffi --release
 ```
 
-Include the generated header:
+The build writes the header `u_nesting.h` into the crate's build output
+directory (`target/release/build/u-nesting-ffi-*/out/`). Include it:
 
 ```c
 #include "u_nesting.h"
@@ -65,9 +65,12 @@ sheet = {"width": 500, "height": 300}
 # Solve
 result = u_nesting.solve_2d(parts, sheet)
 
+if not result['success']:
+    raise ValueError(f"{result['code']}: {result['error']}")
 print(f"Utilization: {result['utilization']:.1%}")
 for p in result['placements']:
-    print(f"  {p['id']}: ({p['x']:.1f}, {p['y']:.1f}) @ {p['rotation']}°")
+    x, y = p['position']
+    print(f"  {p['geometry_id']}#{p['instance']}: ({x:.1f}, {y:.1f})")
 ```
 
 ### C#
@@ -126,7 +129,7 @@ container = {
 result = u_nesting.solve_3d(boxes, container)
 
 print(f"Volume utilization: {result['utilization']:.1%}")
-print(f"Bins used: {result['boundaries_used']}")
+print(f"Boxes placed: {len(result['placements'])} of {result['total_requested']}")
 ```
 
 ### C#
@@ -166,11 +169,16 @@ Both 2D and 3D solvers accept a configuration object:
 config = {
     "strategy": "ga",        # Algorithm strategy
     "time_limit_ms": 30000,  # Max solving time
-    "spacing": 2.0,          # Part spacing (2D only)
-    "margin": 5.0            # Sheet margin (2D only)
+    "spacing": 2.0,          # Minimum distance between parts
+    "margin": 5.0            # Minimum distance to the boundary
 }
 
 result = u_nesting.solve_2d(parts, sheet, config=config)
 ```
+
+A key the engine does not read, or a value outside its range, is refused --
+never ignored or adjusted. In Python the refusal comes back in the result
+(`success` `False`, `code`, `details`); the C interface and WebAssembly return
+it in the response JSON, and .NET raises `NestingException`.
 
 See [2D Nesting Guide](./nesting-2d.md) and [3D Bin Packing Guide](./packing-3d.md) for detailed configuration options.

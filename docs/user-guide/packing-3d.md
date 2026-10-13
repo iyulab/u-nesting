@@ -11,12 +11,33 @@ This guide covers the 3D bin packing (box placement) functionality of U-Nesting.
 - Truck/van loading optimization
 - Package arrangement
 
+The request below is the JSON the C interface, the WebAssembly package and the
+.NET package send; the Python package takes the same `geometries`, `boundary`
+and `config` as dictionaries. Every key a request takes is listed here and in the
+[JSON schemas](../json-schema/README.md). A key the engine does not read is
+refused (`malformed_input`), never ignored.
+
+```json
+{
+  "mode": "3d",
+  "geometries": [
+    {"id": "crate", "dimensions": [40, 30, 25], "quantity": 6, "mass": 12.0},
+    {"id": "fridge", "dimensions": [60, 40, 90], "quantity": 2, "mass": 45.0,
+     "orientation": "upright"}
+  ],
+  "boundary": {"dimensions": [200, 150, 120], "max_mass": 500,
+               "gravity": true, "stability": true},
+  "config": {"strategy": "ep", "time_limit_ms": 10000}
+}
+```
+
 ## Input Format
 
 ### Geometry Definition
 
-Each box requires:
+Each box has:
 
+<!-- fragment -->
 ```json
 {
   "id": "box_001",
@@ -64,6 +85,7 @@ container's x, y and z.
 
 ### Boundary Definition
 
+<!-- fragment -->
 ```json
 {
   "dimensions": [500, 400, 300],
@@ -77,41 +99,36 @@ container's x, y and z.
 |-------|------|---------|-------------|
 | `dimensions` | number[3] | Required | Container [width, depth, height], each above 0 |
 | `max_mass` | number | ∞ | Maximum total mass, above 0 |
-| `gravity` | boolean | false | Enable gravity simulation |
-| `stability` | boolean | false | Check placement stability |
+| `gravity` | boolean | false | No box may float: each rests on the floor or on a box below |
+| `stability` | boolean | false | Each box rests on a support under at least 70% of its base |
 
-### Gravity and Stability
-
-When `gravity: true`:
-- Items fall to rest on surfaces below
-- No floating placements allowed
-
-When `stability: true`:
-- Items must have sufficient support (configurable %)
-- Center of mass must be over support area
-- Stacking constraints enforced
+There is one container. A packing is checked against gravity and stability once
+it is complete, and a box that breaks them is taken out and reported as unplaced.
 
 ## Configuration Options
 
-```json
-{
-  "strategy": "ep",
-  "time_limit_ms": 30000,
-  "population_size": 50,
-  "max_generations": 100
-}
-```
-
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `strategy` | string | "blf" | Algorithm strategy |
-| `time_limit_ms` | integer | 30000 | Maximum solving time |
+| `strategy` | string | `"blf"` | `blf` (layer packing), `ep`, `ga`, `brkga` or `sa` |
+| `spacing` | number | 0 | Minimum distance between boxes, at least 0 |
+| `margin` | number | 0 | Offset from the container walls and floor, at least 0 |
+| `time_limit_ms` | integer | 30000 | Maximum solving time, at least 0 (0 = no limit) |
+| `target_utilization` | number | none | Stop a search once a packing reaches it, in [0, 1] |
 | `population_size` | integer | 100 (`ga`), 50 (`brkga`) | GA/BRKGA population, at least 2; a value you set is run as given |
-| `max_generations` | integer | 500 (`ga`), 100 (`brkga`) | GA/BRKGA generation budget; a value you set is run as given |
+| `max_generations` | integer | 500 (`ga`), 100 (`brkga`) | GA/BRKGA generation budget, at least 0; a value you set is run as given |
+| `crossover_rate` | number | 0.85 | GA crossover probability, in [0, 1] |
+| `mutation_rate` | number | 0.05 | GA mutation probability, in [0, 1] |
 | `seed` | integer | none | RNG seed of `ga`, `brkga`, `sa`: the same request and seed give the same packing when the run ends on its own budget, not on `time_limit_ms` |
+
+`multi_sheet` is a 2D setting: a 3D request with it is refused (`invalid_option`,
+`config.multi_sheet`). Gravity and stability belong to the `boundary`, not the
+configuration.
 
 ## Output Format
 
+The C interface and WebAssembly response:
+
+<!-- fragment -->
 ```json
 {
   "success": true,
@@ -125,30 +142,39 @@ When `stability: true`:
       "orientation": "xyz"
     }
   ],
-  "bins_used": 2,
+  "bins_used": 1,
   "utilization": 0.78,
   "total_requested": 8,
   "unplaced": [],
+  "unplaced_count": 0,
+  "all_placed": true,
   "elapsed_ms": 850
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `success` | Whether solving completed |
+| `success` | Whether the request was solved; `false` with `error`, `code` and `details` when it was refused |
 | `placements` | List of box placements (instance-level) |
-| `bins_used` | Number of bins/containers used |
+| `bins_used` | 1 when anything was packed, 0 otherwise |
 | `utilization` | Volume utilization (0-1) |
-| `total_requested` | Σ of every box's quantity (instance-level). Unplaced instances = `total_requested - placements.length` |
+| `total_requested` | Σ of every box's quantity (instance-level) |
 | `unplaced` | **Deduplicated** IDs of boxes that couldn't be placed (not per-instance) |
+| `unplaced_count` | Instance-level count of boxes that couldn't be placed |
+| `all_placed` | Whether every requested instance was placed |
 | `elapsed_ms` | Solving time in milliseconds |
+
+The Python result has the same values under its own names: `geometry_id`,
+`position` (`[x, y, z]`) and `rotation` in each placement, `boundaries_used` and
+`computation_time_ms` (see the [Python README](../../crates/python/README.md)).
 
 ### Placement Fields
 
 | Field | Description |
 |-------|-------------|
 | `id` | Geometry ID |
-| `bin_index` | Which container (0-based) |
+| `instance` | Which copy of the box (0-based) |
+| `bin_index` | Which container (0-based; always 0) |
 | `x`, `y`, `z` | Position of box corner |
 | `orientation` | Box orientation code |
 
@@ -170,7 +196,7 @@ container = {"dimensions": [200, 150, 120]}
 result = u_nesting.solve_3d(boxes, container)
 
 print(f"Volume utilization: {result['utilization']:.1%}")
-print(f"Bins needed: {result['bins_used']}")
+print(f"Boxes that did not fit: {result['unplaced_count']}")
 ```
 
 ### With Physical Constraints
@@ -190,7 +216,7 @@ boxes = [
         "mass": 2.0
     },
     {
-        "id": "stackable",
+        "id": "cube",
         "dimensions": [30, 30, 30],
         "quantity": 20,
         "mass": 5.0
@@ -221,12 +247,12 @@ tv_box = {
     "orientation": "upright"  # Only turn about the vertical
 }
 
-# Bottles that must be upright
+# Cases that must keep their exact orientation
 bottle_case = {
     "id": "wine_case",
     "dimensions": [40, 35, 30],
     "quantity": 20,
-    "orientation": "fixed"  # No rotation allowed
+    "orientation": "fixed"  # No turn at all
 }
 
 result = u_nesting.solve_3d(
@@ -237,20 +263,10 @@ result = u_nesting.solve_3d(
 
 ### Progress Monitoring
 
-```python
-def on_progress(progress):
-    items_placed = progress['items_placed']
-    total = progress['total_items']
-    util = progress['utilization']
-    print(f"Placed {items_placed}/{total} items, utilization: {util:.1%}")
-    return True  # Continue
-
-result = u_nesting.solve_3d_with_progress(
-    boxes, container,
-    callback=on_progress,
-    config={"strategy": "brkga", "max_generations": 200}
-)
-```
+Progress is reported through the C interface
+(`unesting_solve_3d_with_progress`, see the [FFI guide](./ffi-integration.md))
+and the .NET package (below). `blf` reports as it packs; the other strategies
+run without reports.
 
 ### C# Example with Async
 
@@ -299,29 +315,17 @@ Console.WriteLine($"Placed {result.Placements.Count} boxes in {result.BinsUsed} 
 
 ## Stability Analysis
 
-When `stability: true`, the solver performs physics-based stability checks:
+When `stability: true`, a box is stable when the boxes or floor directly under
+it support at least 70% of its base area:
 
-### Support Area Check
-
-An item is stable if:
-
-```
-support_area / base_area >= support_ratio
+```text
+support_area / base_area >= 0.7
 ```
 
-Default `support_ratio` is 0.75 (75% support required).
-
-### Center of Mass Check
-
-The center of mass must project within the support polygon:
-
-```
-    ┌───────────┐
-    │   CoM     │  ← Stable: CoM over support
-    │    ↓      │
-────┴───────────┴────
-    ████████████
-```
+When only `gravity: true`, any support under a box is enough; a box with none
+is floating. In both cases the finished packing is analyzed, the boxes that
+fail are removed (they come back in `unplaced`), and the analysis repeats until
+every remaining box is supported.
 
 ## Tips and Best Practices
 
@@ -337,12 +341,13 @@ boxes.sort(key=lambda b: -np.prod(b['dimensions']))
 ### 2. Use Gravity for Realistic Packing
 
 ```python
-# For truck loading, palletizing
-config = {
-    "strategy": "ep",
+# For truck loading, palletizing: constraints of the container
+container = {
+    "dimensions": [200, 150, 120],
     "gravity": True,
     "stability": True
 }
+result = u_nesting.solve_3d(boxes, container, config={"strategy": "ep"})
 ```
 
 ### 3. Handle Oversized Items
@@ -358,22 +363,19 @@ if result['unplaced']:
         print(f"{box['id']}: {dims} doesn't fit in {cont}")
 ```
 
-### 4. Multi-Bin Optimization
+### 4. One Container per Solve
 
-When using multiple bins, the solver automatically:
-- Opens new bins as needed
-- Tries to minimize total bins used
-- Balances load across bins
+A solve packs one container. To spread boxes over several, solve again with the
+boxes the previous solve left unplaced.
 
 ### 5. Performance Tuning
 
-For large instances (1000+ boxes):
+For large instances (1000+ boxes), a search with a time limit:
 
 ```python
 config = {
-    "strategy": "alns",  # Best for large instances
-    "time_limit_ms": 60000,
-    "segment_size": 50
+    "strategy": "brkga",
+    "time_limit_ms": 60000
 }
 ```
 

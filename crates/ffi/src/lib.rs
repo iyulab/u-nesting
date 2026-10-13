@@ -159,6 +159,8 @@
 mod api;
 mod callback;
 #[cfg(test)]
+mod doc_examples;
+#[cfg(test)]
 mod request_schema;
 mod types;
 

@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** `Config` has no `threads` field. It was never read: a thread
+  count given there changed nothing. A build with the `parallel` feature runs
+  its parallel work (GA and BRKGA population evaluation, no-fit polygon
+  computation) on the Rayon pool the solve is called from, so
+  `rayon::ThreadPool::install` around the solve, or `RAYON_NUM_THREADS`, sets
+  how many threads it uses; without the feature a solve runs on the calling
+  thread. The `u-nesting` crate gains the `parallel` feature, forwarding to
+  the 2D and 3D crates.
+- **Breaking:** the Python `solve_2d` and `solve_3d` raise no exception for a
+  request they refuse: every refusal comes back in the result dict
+  (`success: False`, `error`, `code`, `details`), as the solver's own refusals
+  already did. A malformed or unknown key, a value of the wrong type and a
+  setting out of range used to raise `ValueError`; they are now
+  `malformed_input` and `parameter_out_of_range` with `details.parameter` the
+  path of the value in the request (`config.stratgy`, `config.population_size`,
+  `geometries[0].quantity`) -- the paths the C interface gives. A boundary with
+  both a rectangle and a polygon is `invalid_boundary`, and a 3D `multi_sheet`
+  is `invalid_option` (`config.multi_sheet`), in the result.
+- **Breaking:** a Python number that is not finite (`nan`, `inf`) is refused as
+  the new code `value_not_finite`, with `details.parameter` the path of the
+  value -- or of the list it is in, with its position as `index`
+  (`geometries[0].polygon[2]`, `index` 1) -- and the geometry's `id`. It used
+  to be refused as JSON that did not parse, naming nothing. `Error` gains
+  `NotFinite { parameter, id, index, got }`; the response schema lists the
+  code. A value that is not JSON (a set, a key that is not a string) is
+  `malformed_input` naming its path.
+- **Breaking:** `u_nesting_cutting::gtsp::discretize_contours` returns
+  `Result`: 0 pierce candidates is `parameter_out_of_range`
+  (`pierce_candidates`, `min` 1). It used to place one candidate.
+- **Breaking:** `u_nesting_d2::ga_nesting::run_ga_nesting` takes an optional
+  progress callback as its last argument; `run_ga_nesting_with_progress` is
+  removed.
+- **Breaking:** `SaRunner::run_parallel` is removed. Nothing in the engine used
+  it, and it read 0 restarts as 1 and drew from an unseeded generator.
+
+### Fixed
+
+- The 2D genetic search runs the same with or without a progress callback. With
+  a callback (`Solver::solve_with_progress`, the C interface's
+  `*_with_progress` functions, the .NET `SolveWithProgress` and `SolveAsync`) it
+  used to get the whole `time_limit_ms` for its greedy start and its search --
+  and no time limit at all when `time_limit_ms` was 0 -- where a plain solve
+  gives it a per-strip budget (a quarter of the limit, at least 5 s, or 15 s
+  when the limit is 0). Bottom-left fill, NFP-guided placement and the genetic
+  search now run one implementation for both paths, so the same request and
+  seed give the same layout through either.
+- The user guide and READMEs showed request keys the engine refuses: BRKGA
+  `elite_ratio`, `mutant_ratio`, `bias`; SA `initial_temp`, `min_temp`,
+  `iterations_per_temp`; GDRR `ruin_ratio`, `iterations`; ALNS `segment_size`,
+  `reaction_factor` and the destroy ratios; `gravity` and `stability` in a 3D
+  `config` (they belong to the `boundary`); a 2D boundary of several `sheets`;
+  a `$schema` key in a request. They also showed Python functions that do not
+  exist (`solve_2d_with_progress`, `solve_3d_with_progress`), Python result
+  keys of the C response (`id`, `x`, `sheets_used`), ALNS and GDRR as 3D
+  strategies and several 3D containers per solve. Each page now shows what the
+  engine takes; the fixed settings of each search are named. Every JSON request
+  example in the documentation is solved by a test, and a block that is not a
+  whole request is marked `<!-- fragment -->`.
+- The `u-nesting` crate's feature list names `cutting` and `parallel`, its
+  example compiles, and the README's install line names the real features (`d2`,
+  `d3`; there is no `3d`).
+
 ## [0.18.0] - 2026-10-13
 
 Depends on u-geometry 0.5 and u-metaheur 0.8. The .NET client is `UNesting` 0.18.0.

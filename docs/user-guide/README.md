@@ -30,5 +30,6 @@ Unlike domain-specific tools, U-Nesting is designed as a pure computation engine
 
 - **Native**: Windows (x64), Linux (x64, ARM64), macOS (x64, ARM64)
 - **Python**: 3.8+ via PyO3 bindings
-- **C#/.NET**: .NET 6.0+ via P/Invoke
+- **C#/.NET**: .NET 10 via P/Invoke
+- **JavaScript**: WebAssembly (`@iyulab/u-nesting`, bundlers and Node)
 - **C/C++**: Direct FFI via C headers

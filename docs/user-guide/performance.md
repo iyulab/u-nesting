@@ -1,141 +1,88 @@
 # Performance Tuning Guide
 
-This guide covers performance optimization for U-Nesting solvers.
+This guide covers what a request can tune, and what it cannot, for speed and
+quality.
 
-## Benchmarks
+## Measuring
 
-Typical performance on modern hardware (AMD Ryzen 9 / Intel i9):
+Solve times depend on the shapes, their count, the rotations allowed and the
+machine, so measure on instances like yours. The benchmark runner in this
+repository solves the ESICUP datasets with any set of strategies and reports
+utilization and time:
 
-### 2D Nesting
-
-| Items | Strategy | Time | Utilization |
-|-------|----------|------|-------------|
-| 10 | BLF | 5ms | 65-75% |
-| 10 | BRKGA | 2s | 80-85% |
-| 50 | BLF | 50ms | 60-70% |
-| 50 | BRKGA | 10s | 75-82% |
-| 100 | BLF | 200ms | 55-65% |
-| 100 | ALNS | 30s | 72-80% |
-
-### 3D Bin Packing
-
-| Items | Strategy | Time | Utilization |
-|-------|----------|------|-------------|
-| 20 | EP | 10ms | 70-80% |
-| 20 | BRKGA | 3s | 78-85% |
-| 100 | EP | 100ms | 65-75% |
-| 100 | BRKGA | 15s | 72-82% |
-| 500 | EP | 1s | 60-70% |
-| 500 | ALNS | 60s | 68-78% |
+```bash
+cargo run --release -p u-nesting-benchmark --bin bench-runner -- list
+cargo run --release -p u-nesting-benchmark --bin bench-runner -- run --dataset SHAPES
+```
 
 ## Configuration Strategies
 
-### Speed Priority
+A request tunes a solve with the strategy, the time limit and -- for the
+population-based searches -- the population and the generation budget. These
+are the only tuning settings a request has (the full list is in the
+[2D](./nesting-2d.md#configuration-options) and
+[3D](./packing-3d.md#configuration-options) guides).
 
-For real-time or interactive applications:
+| Profile | `strategy` | `time_limit_ms` | `population_size` | `max_generations` |
+|---------|------------|-----------------|-------------------|-------------------|
+| Speed (interactive) | `blf`, `nfp` (2D) or `ep` (3D) | 1000 | -- | -- |
+| Balanced | `brkga` | 15000 | 50 | 200 |
+| Quality (batch) | `brkga` | 60000 | 100 | 500 |
 
-```python
-config = {
-    "strategy": "blf",  # or "ep" for 3D
-    "time_limit_ms": 1000
+A quality run as a request:
+
+```json
+{
+  "geometries": [
+    {"id": "bracket", "polygon": [[0, 0], [60, 0], [60, 20], [20, 20], [20, 60], [0, 60]],
+     "quantity": 12, "rotations": [0, 90, 180, 270]}
+  ],
+  "boundary": {"width": 300, "height": 200},
+  "config": {"strategy": "brkga", "population_size": 100, "max_generations": 500,
+             "time_limit_ms": 60000, "seed": 7}
 }
 ```
 
-### Quality Priority
-
-For batch processing where quality matters:
-
-```python
-config = {
-    "strategy": "brkga",
-    "population_size": 100,
-    "max_generations": 500,
-    "time_limit_ms": 60000
-}
-```
-
-### Balanced
-
-For most production use cases:
-
-```python
-config = {
-    "strategy": "brkga",
-    "population_size": 50,
-    "max_generations": 200,
-    "time_limit_ms": 15000
-}
-```
+A search stops at whichever comes first: its generation budget, the time limit,
+a layout reaching `target_utilization`, or no improvement for a while. With a
+`seed`, a run that ends on its own budget (not on the clock) is reproduced
+exactly.
 
 ## Algorithm-Specific Tuning
 
+### GA
+
+`population_size`, `max_generations`, `crossover_rate` (default 0.85) and
+`mutation_rate` (default 0.05). The population is 30 and the budget 50
+generations in 2D, 100 and 500 in 3D, unless set.
+
 ### BRKGA
 
-```python
-config = {
-    "strategy": "brkga",
+`population_size` and `max_generations` (30 and 50 in 2D, 50 and 100 in 3D,
+unless set). Rule of thumb: a population of 2-5 times the number of parts. The
+elite fraction (0.2), the fraction of random immigrants (0.15) and the bias
+toward the elite parent (0.7) are fixed; a request cannot change them.
 
-    # Population size: larger = better exploration, slower
-    # Rule of thumb: 2-5x number of items
-    "population_size": 100,
+### Simulated Annealing, GDRR and ALNS
 
-    # Generations: more = better quality, longer time
-    "max_generations": 300,
+These run with a fixed schedule; a request sets only their `time_limit_ms` and
+`seed`. In 2D, SA runs from temperature 50 to 1 with a cooling rate of 0.9, 20
+moves per temperature and at most 500 iterations; GDRR and ALNS run at most
+1000 iterations each. In 3D, SA runs from 100 to 0.1 with a cooling rate of
+0.95, 50 moves per temperature and at most 10000 iterations.
 
-    # Elite ratio: fraction kept as elites (0.1-0.3)
-    "elite_ratio": 0.2,
+The Rust API runs each search with a configuration of the caller's own --
+`u_nesting_d2::sa_nesting::run_sa_nesting` with an `SaConfig`, and the
+equivalent functions in `gdrr_nesting`, `alns_nesting`, `brkga_nesting` and
+`ga_nesting`.
 
-    # Mutant ratio: random immigrants (0.05-0.2)
-    "mutant_ratio": 0.1,
+### Time budget of a 2D search
 
-    # Bias: probability of inheriting from elite parent (0.5-0.8)
-    "bias": 0.7
-}
-```
-
-### Simulated Annealing
-
-```python
-config = {
-    "strategy": "sa",
-
-    # Initial temperature: higher = more exploration
-    "initial_temp": 1000,
-
-    # Cooling rate: slower cooling = better quality
-    # Range: 0.9 (fast) to 0.999 (slow)
-    "cooling_rate": 0.995,
-
-    # Minimum temperature: stopping condition
-    "min_temp": 0.01,
-
-    # Iterations per temperature level
-    "iterations_per_temp": 100
-}
-```
-
-### ALNS
-
-```python
-config = {
-    "strategy": "alns",
-
-    # Segment size: iterations between weight updates
-    "segment_size": 100,
-
-    # Reaction factor: how quickly weights adapt (0.05-0.3)
-    "reaction_factor": 0.1,
-
-    # Destroy ratio range
-    "min_destroy_ratio": 0.1,
-    "max_destroy_ratio": 0.4,
-
-    # Score rewards for operator selection
-    "score_new_best": 33,
-    "score_better": 9,
-    "score_accepted": 3
-}
-```
+A 2D search spends a quarter of `time_limit_ms` per strip, at least 5 s and
+never more than the limit; with `time_limit_ms` 0 it keeps a budget of its own
+(15 s for GA and BRKGA, 10 s for SA, GDRR and ALNS). It first runs the greedy
+NFP placement inside that budget, then searches from it, and never returns a
+layout worse than bottom-left fill.
 
 ## Input Optimization
 
@@ -151,112 +98,49 @@ def simplify_polygon(vertices, tolerance=1.0):
     poly = Polygon(vertices)
     simplified = poly.simplify(tolerance, preserve_topology=True)
     return list(simplified.exterior.coords)[:-1]  # Remove duplicate last point
-
-# Original: 500 vertices
-# Simplified: 50 vertices (10x speedup)
 ```
 
-### Sorting Heuristics
+### Rotations
 
-Pre-sorting items can improve heuristic performance:
-
-```python
-# Sort by area (2D) or volume (3D) - decreasing
-parts.sort(key=lambda p: -calculate_area(p['polygon']))
-
-# Sort by "difficulty" (aspect ratio)
-parts.sort(key=lambda p: -max_dimension(p) / min_dimension(p))
-```
-
-### Quantity Expansion
-
-For items with high quantity, consider:
-
-```python
-# Instead of: {"id": "small", "quantity": 100}
-# Use: 100 separate items for better placement diversity
-items = [{"id": f"small_{i}", "polygon": small_poly, "quantity": 1}
-         for i in range(100)]
-```
-
-## Memory Optimization
-
-### Large Instance Handling
-
-For 1000+ items:
-
-```python
-config = {
-    "strategy": "alns",  # Lower memory than GA/BRKGA
-    "time_limit_ms": 120000,
-
-    # Limit population if using GA
-    "population_size": 30
-}
-```
-
-### Streaming Results
-
-For very large outputs, process placements incrementally:
-
-```c
-// In callback
-int process_progress(const char* json, void* data) {
-    // Parse partial results from progress
-    // Write to disk/stream instead of accumulating in memory
-    write_partial_results(json);
-    return 1;
-}
-```
+Each allowed rotation is a placement candidate for every part: `[0, 90, 180,
+270]` costs four times what `[0]` does. Allow the rotations the material allows,
+no more.
 
 ## Parallelization
 
-U-Nesting automatically parallelizes:
-
-- **GA/BRKGA**: Population evaluation runs in parallel
-- **NFP Computation**: Parallel NFP generation
-- **ALNS**: Parallel neighborhood evaluation
+A Rust build with the `parallel` feature evaluates a GA or BRKGA population and
+computes no-fit polygons on Rayon's thread pool. Without it -- and in the
+published C, WebAssembly, Python and .NET libraries, which are built without it
+-- a solve runs on the calling thread. Run several solves on several threads to
+use more cores; each solve is independent.
 
 ### Controlling Parallelism
 
-```bash
-# Limit thread count (environment variable)
-RAYON_NUM_THREADS=4 ./your_app
+The parallel work runs on the pool the solve is called from:
 
-# Or in Rust code
-rayon::ThreadPoolBuilder::new()
-    .num_threads(4)
-    .build_global()
-    .unwrap();
+```rust
+use u_nesting::d2::{Boundary2D, Geometry2D, Nester2D};
+use u_nesting::{Config, Solver};
+
+let geometries = vec![Geometry2D::rectangle("plate", 40.0, 20.0).with_quantity(6)];
+let boundary = Boundary2D::rectangle(200.0, 100.0);
+let pool = rayon::ThreadPoolBuilder::new().num_threads(4).build()?;
+let result = pool.install(|| Nester2D::new(Config::default()).solve(&geometries, &boundary))?;
+```
+
+or for the whole process:
+
+```bash
+RAYON_NUM_THREADS=4 ./your_app
 ```
 
 ## Profiling
 
 ### Time Breakdown
 
-Use progress callback to measure phases:
-
-```python
-import time
-
-phase_times = {}
-last_phase = None
-phase_start = time.time()
-
-def track_phases(progress):
-    global last_phase, phase_start, phase_times
-
-    current_phase = progress['phase']
-    if current_phase != last_phase:
-        if last_phase:
-            phase_times[last_phase] = time.time() - phase_start
-        phase_start = time.time()
-        last_phase = current_phase
-    return True
-
-result = u_nesting.solve_2d_with_progress(parts, sheet, callback=track_phases)
-print("Phase times:", phase_times)
-```
+Progress reports carry the phase and the elapsed time (C interface and .NET;
+see the [FFI guide](./ffi-integration.md#progress-json-format)). `blf`, `nfp`
+and `ga` report as they run.
 
 ### Memory Profiling
 
@@ -271,19 +155,18 @@ ms_print massif.out.*
 
 ## Best Practices Summary
 
-1. **Start with heuristics** (BLF/EP) for quick baseline
-2. **Use BRKGA** for production quality
+1. **Start with heuristics** (BLF/NFP/EP) for a quick baseline
+2. **Use a search** (GA/BRKGA) for production quality
 3. **Set time limits** to prevent runaway computation
 4. **Simplify polygons** when precision isn't critical
-5. **Pre-sort items** by size for heuristic boost
-6. **Monitor progress** to detect convergence
-7. **Profile before optimizing** - find actual bottlenecks
+5. **Limit rotations** to what the material allows
+6. **Seed** runs you need to reproduce
 
 ## Troubleshooting Performance
 
 ### Slow NFP Computation
 
-**Symptoms**: Long time in "Computing NFPs" phase
+**Symptoms**: A slow `nfp` solve, or a search whose first layout takes long
 
 **Solutions**:
 - Simplify polygon vertices
@@ -296,7 +179,6 @@ ms_print massif.out.*
 
 **Solutions**:
 - Reduce population size
-- Use ALNS instead of BRKGA for large instances
 - Process in batches
 
 ### Poor Convergence
@@ -304,6 +186,6 @@ ms_print massif.out.*
 **Symptoms**: Utilization plateaus early
 
 **Solutions**:
-- Increase population diversity (higher mutant ratio)
-- Use slower cooling for SA
-- Try different strategies (GA vs SA vs ALNS)
+- A larger population and generation budget
+- A longer time limit
+- Try different strategies (GA vs BRKGA vs ALNS)

@@ -2,6 +2,10 @@
 
 U-Nesting implements multiple algorithms for spatial optimization. This guide explains each algorithm, its strengths, and when to use it.
 
+The settings each section lists are the ones a request takes (`config` in the
+[JSON schemas](../json-schema/README.md)); a key the engine does not read is
+refused, not ignored. What a request cannot set is fixed, and named here.
+
 ## Overview
 
 | Strategy | 2D | 3D | Speed | Quality | Best For |
@@ -135,7 +139,7 @@ with; the defaults apply only when you leave them out.
 **Pros**:
 - Good exploration of solution space
 - Handles complex constraints
-- Parallelizable
+- Parallel population evaluation (the `parallel` feature)
 
 **Cons**:
 - Slower than heuristics
@@ -204,10 +208,10 @@ Single-solution metaheuristic inspired by metal annealing process.
 4. Reduce temperature over time
 5. Return best solution found
 
-**Parameters**:
-- `initial_temp`: Starting temperature (default: 1000)
-- `cooling_rate`: Temperature decay (default: 0.995)
-- `min_temp`: Stopping temperature (default: 0.01)
+**Parameters**: `time_limit_ms` and `seed`. The schedule is fixed: in 2D from
+temperature 50 to 1, cooling rate 0.9, 20 moves per temperature, at most 500
+iterations; in 3D from 100 to 0.1, cooling rate 0.95, 50 moves per temperature,
+at most 10000 iterations.
 
 **Pros**:
 - Good at escaping local optima
@@ -221,8 +225,8 @@ Single-solution metaheuristic inspired by metal annealing process.
 ```python
 config = {
     "strategy": "sa",
-    "initial_temp": 2000,
-    "cooling_rate": 0.99
+    "time_limit_ms": 10000,
+    "seed": 7
 }
 result = u_nesting.solve_2d(parts, sheet, config=config)
 ```
@@ -240,6 +244,9 @@ Hybrid algorithm that iteratively destroys and rebuilds parts of the solution.
 4. Accept if improved
 5. Repeat with adaptive ruin size
 
+**Parameters**: `time_limit_ms` and `seed` (2D only). It runs at most 1000
+iterations, ruining 10-30% of the layout each time.
+
 **Pros**:
 - Good balance of exploration/exploitation
 - Adaptive search intensity
@@ -252,8 +259,7 @@ Hybrid algorithm that iteratively destroys and rebuilds parts of the solution.
 ```python
 config = {
     "strategy": "gdrr",
-    "ruin_ratio": 0.3,
-    "iterations": 1000
+    "time_limit_ms": 10000
 }
 result = u_nesting.solve_2d(parts, sheet, config=config)
 ```
@@ -283,10 +289,9 @@ Advanced metaheuristic with multiple destroy/repair operators selected adaptivel
 5. Accept/reject based on simulated annealing criterion
 6. Update operator weights based on success
 
-**Parameters**:
-- `segment_size`: Iterations per weight update (default: 100)
-- `reaction_factor`: Weight adaptation speed (default: 0.1)
-- `destroy_ratio`: Fraction to destroy (default: 0.1-0.4)
+**Parameters**: `time_limit_ms` and `seed` (2D only). It runs at most 1000
+iterations, updating the operator weights every 50 with a reaction factor of
+0.15.
 
 **Pros**:
 - State-of-the-art for large instances
@@ -309,7 +314,7 @@ result = u_nesting.solve_2d(parts, sheet, config=config)
 
 ### Mixed Integer Linear Programming (MILP)
 
-**Strategy key**: `milpexact` (also `exact`; needs a build with the `milp` feature)
+**Strategy key**: `milpexact` (also `exact`; `hybridexact` tries it first and falls back to a search). Only a Rust build with the `milp` feature of `u-nesting-d2` has them; the published C, WebAssembly, Python and .NET libraries refuse the names (`invalid_option`).
 
 Exact optimization using mathematical programming. Guarantees optimal solution but limited to small instances.
 
@@ -330,12 +335,12 @@ Exact optimization using mathematical programming. Guarantees optimal solution b
 - Only feasible for small instances (< 20 items)
 - Exponential worst-case complexity
 
-```python
-config = {
-    "strategy": "milpexact",
-    "time_limit_ms": 120000
-}
-result = u_nesting.solve_2d(parts, sheet, config=config)
+```rust
+use u_nesting::{Config, Strategy};
+
+let config = Config::new()
+    .with_strategy(Strategy::MilpExact)
+    .with_time_limit(120_000);
 ```
 
 ## Algorithm Selection Guide

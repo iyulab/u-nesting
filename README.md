@@ -41,7 +41,7 @@ U-Nesting is a **pure computation engine** with no domain-specific logic. Indust
 
 ## Features
 
-- 🚀 **High Performance** - Written in Rust with parallel computation via Rayon
+- 🚀 **High Performance** - Written in Rust; the `parallel` feature evaluates GA/BRKGA populations and no-fit polygons on Rayon's thread pool
 - 🎯 **Domain Agnostic** - Abstract models adaptable to any spatial optimization
 - 📐 **2D Support** - Polygon nesting with NFP and holes (curves are supplied as polylines — flatten with a tolerance before submitting)
 - 📦 **3D Support** - Box packing with physical constraints (gravity, stability, mass limits)
@@ -87,9 +87,15 @@ Optimization results using different algorithms on the same dataset (50 pieces, 
 
 ```toml
 [dependencies]
-u-nesting = "0.18"                             # 2D only (default)
-u-nesting = { version = "0.18", features = ["3d"] } # 2D + 3D
+u-nesting = "0.18"                                   # 2D + 3D (default features)
+u-nesting = { version = "0.18", default-features = false, features = ["d2"] }  # 2D only
 ```
+
+Features: `d2` and `d3` (default) select the dimensions, `cutting` adds cutting
+path optimization for a 2D layout, `serde` serialization, and `parallel` runs a
+search's population evaluation and the no-fit polygon computation on Rayon's
+thread pool (without it a solve runs on the calling thread; bound the pool with
+`rayon::ThreadPool::install` or `RAYON_NUM_THREADS`).
 
 ### From GitHub
 
@@ -170,28 +176,29 @@ println!("Utilization: {:.1}%", result.utilization * 100.0);
 
 ```text
 u-nesting/
-├── core/           # Shared abstractions
-│   ├── traits.rs   # Geometry, Boundary, Solver
-│   ├── ga.rs       # Genetic algorithm framework
-│   ├── config.rs   # Common configuration
-│   └── result.rs   # Unified result types
+├── core/             # Shared abstractions
+│   ├── geometry.rs   # Geometry, Boundary traits
+│   ├── solver.rs     # Solver trait, Config, Strategy
+│   ├── ga.rs, brkga.rs, sa.rs, gdrr.rs, alns.rs  # Search frameworks
+│   ├── api_types.rs  # JSON request / response types
+│   └── result.rs     # Unified result types
 │
-├── d2/             # 2D Module
-│   ├── geometry.rs # Polygon, Point, Segment
-│   ├── boundary.rs # 2D boundary definitions
-│   ├── nfp.rs      # No Fit Polygon
-│   ├── nester.rs   # Placement algorithms
-│   └── io.rs       # Import/Export
+├── d2/               # 2D Module
+│   ├── geometry.rs   # Polygon geometry (Geometry2D)
+│   ├── boundary.rs   # 2D boundary definitions
+│   ├── nfp.rs        # No Fit Polygon
+│   ├── nester.rs     # Nester2D: placement and search strategies
+│   └── *_nesting.rs  # GA, BRKGA, SA, GDRR, ALNS for 2D
 │
-├── d3/             # 3D Module
-│   ├── geometry.rs # Box (Geometry3D)
-│   ├── boundary.rs # 3D boundary definitions
-│   ├── nfr.rs      # No Fit Region
-│   ├── packer.rs   # Placement algorithms
-│   ├── physics.rs  # Gravity, stability
-│   └── io.rs       # Import/Export
+├── d3/               # 3D Module
+│   ├── geometry.rs   # Box (Geometry3D)
+│   ├── boundary.rs   # 3D boundary definitions
+│   ├── packer.rs     # Packer3D: placement and search strategies
+│   ├── extreme_point.rs
+│   └── physics.rs, stability.rs  # Gravity, stability
 │
-└── ffi/            # C FFI interface
+├── cutting/          # Cutting path optimization for a 2D layout
+└── ffi/              # C FFI interface
 ```
 
 ## Algorithms
@@ -205,7 +212,7 @@ u-nesting/
 | **GA** (Genetic Algorithm) | Sequence optimization with crossover/mutation | ★★★★★ | ★★☆☆☆ |
 | **BRKGA** (Biased Random-Key GA) | Random-key encoding with elite inheritance | ★★★★★ | ★★☆☆☆ |
 | **SA** (Simulated Annealing) | Temperature-based neighborhood search | ★★★★☆ | ★★★☆☆ |
-| **GDRR** (Greedy Descent with Random Restarts) | Local search with restart diversification | ★★★★☆ | ★★★☆☆ |
+| **GDRR** (Goal-Driven Ruin and Recreate) | Removes and re-inserts parts of the layout | ★★★★☆ | ★★★☆☆ |
 | **ALNS** (Adaptive Large Neighborhood Search) | Destroy-repair with operator selection | ★★★★★ | ★★☆☆☆ |
 
 ### What the 2D heuristic and search strategies guarantee
@@ -233,9 +240,11 @@ not covered here):
 
 | Algorithm | Description | Quality | Speed |
 |-----------|-------------|---------|-------|
-| **Extreme Point** | Placement at extreme points | ★★★☆☆ | ★★★★★ |
-| **Layer Packing** | Layer-based bottom-up placement | ★★★☆☆ | ★★★★☆ |
-| **Genetic Algorithm** | Sequence and rotation optimization | ★★★★★ | ★★☆☆☆ |
+| **Extreme Point** (`ep`) | Placement at extreme points | ★★★☆☆ | ★★★★★ |
+| **Layer Packing** (`blf`) | Layer-based bottom-up placement | ★★★☆☆ | ★★★★☆ |
+| **Genetic Algorithm** (`ga`) | Sequence and orientation optimization | ★★★★★ | ★★☆☆☆ |
+| **BRKGA** (`brkga`) | Random-key encoding with elite inheritance | ★★★★★ | ★★☆☆☆ |
+| **Simulated Annealing** (`sa`) | Temperature-based neighborhood search | ★★★★☆ | ★★★☆☆ |
 
 ## Configuration
 
@@ -310,23 +319,33 @@ let item = Geometry3D::new("crate", 30.0, 20.0, 15.0)
       "mass": 2.5
     }
   ],
-  "boundary": { "dimensions": [120, 80, 100], "max_mass": 500 },
-  "config": { "gravity": true, "stability": true }
+  "boundary": {
+    "dimensions": [120, 80, 100], "max_mass": 500,
+    "gravity": true, "stability": true
+  },
+  "config": { "strategy": "ep" }
 }
 ```
+
+Gravity and stability are properties of the container (`boundary`), not of the
+configuration. Every key a request takes is in the
+[JSON schemas](docs/json-schema/README.md); a key the engine does not read is
+refused (`malformed_input`), not ignored.
 
 ### C Interface
 
 ```c
-extern int unesting_solve(const char* request_json, char** result_ptr);
-extern void unesting_free_string(char* ptr);
+// 2D or 3D by the request's "mode" ("2d" when absent).
+int unesting_solve(const char* request_json, char** result_ptr);
+int unesting_solve_2d(const char* request_json, char** result_ptr);
+int unesting_solve_3d(const char* request_json, char** result_ptr);
+void unesting_free_string(char* ptr);
 ```
 
-```csharp
-// C# example
-[LibraryImport("u_nesting")]
-public static partial int unesting_solve(string request, out IntPtr result);
-```
+The response is JSON with `success`, a stable `code` and `details` on a
+refusal. The .NET package (`UNesting`) wraps this interface; see
+[its README](bindings/csharp/README.md) and the
+[FFI guide](docs/user-guide/ffi-integration.md).
 
 ## Result Structure
 

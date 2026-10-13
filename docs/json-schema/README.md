@@ -23,15 +23,22 @@ ajv validate -s request-2d.schema.json -d my-request.json
 
 ### IDE Support
 
-Most IDEs support JSON Schema for autocompletion and validation. Add a `$schema` property to your JSON files:
+Most IDEs support JSON Schema for autocompletion and validation. Associate the
+schema with your request files in the editor's settings -- in VS Code,
+`json.schemas` in `settings.json`:
 
+<!-- fragment -->
 ```json
 {
-  "$schema": "https://github.com/iyulab/U-Nesting/docs/json-schema/request-2d.schema.json",
-  "geometries": [...],
-  "boundary": {...}
+  "json.schemas": [
+    {"fileMatch": ["*.nesting.json"], "url": "./docs/json-schema/request-2d.schema.json"}
+  ]
 }
 ```
+
+Do not add a `$schema` key to the request itself: a request takes the keys the
+schema lists and no others, and the engine refuses one it does not read
+(`malformed_input`).
 
 ## Quick Reference
 
@@ -91,9 +98,10 @@ Most IDEs support JSON Schema for autocompletion and validation. Add a `$schema`
 
 ### Response Example
 
+<!-- fragment -->
 ```json
 {
-  "version": "1",
+  "version": "0.18.0",
   "success": true,
   "placements": [
     {
@@ -110,9 +118,17 @@ Most IDEs support JSON Schema for autocompletion and validation. Add a `$schema`
   "utilization": 0.85,
   "total_requested": 1,
   "unplaced": [],
+  "unplaced_count": 0,
+  "all_placed": true,
+  "used_bounding_box": [100.0, 50.0],
+  "used_utilization": 1.0,
   "elapsed_ms": 1234
 }
 ```
+
+A refused request has `success` `false`, readable `error` text, a stable `code`
+and the values behind it in `details` (`parameter`, `id`, `index`, `min`, `max`,
+`got`, ...); branch on `code`, not on the text.
 
 `total_requested` is the Σ of every geometry's `quantity` (instance-level). Because
 `unplaced` lists **deduplicated** geometry IDs, the number of unplaced instances is
@@ -138,6 +154,8 @@ one panel per sheet. Default is `false` (single-sheet solve).
 | `ga` | Slow | High | Genetic Algorithm |
 | `brkga` | Medium | High | Biased Random-Key GA |
 | `sa` | Medium | High | Simulated Annealing |
+| `gdrr` | Medium | High | Goal-Driven Ruin and Recreate |
+| `alns` | Medium | High | Adaptive Large Neighborhood Search |
 
 ### 3D Strategies
 
