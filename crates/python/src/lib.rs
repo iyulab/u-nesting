@@ -115,8 +115,10 @@ struct SolveOutput {
 
 impl SolveOutput {
     /// The output for a refused problem: the message, its `code` and the
-    /// values behind it.
+    /// values behind it, a setting named by its path (`config.spacing`, see
+    /// [`ConfigRequest::locate`]).
     fn refused(e: &Error) -> Self {
+        let e = &ConfigRequest::locate(e);
         SolveOutput {
             success: false,
             placements: vec![],
@@ -365,7 +367,7 @@ fn solve_3d<'py>(
 
     let rust_config = config_input
         .as_ref()
-        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config_3d)
         .map_err(|e| PyValueError::new_err(format!("Invalid config: {e}")))?;
 
     // Solve
@@ -827,6 +829,51 @@ mod tests {
         assert_eq!(
             refused(e)["details"],
             serde_json::json!({ "parameter": "boundary.width", "exclusive_min": 0.0, "got": 0.0 })
+        );
+    }
+
+    /// A setting the solve refuses comes back in the result dict named by its
+    /// path in the request -- `config.strategy` -- as the configuration's own
+    /// refusals are, while the Rust error keeps the field name.
+    #[test]
+    fn a_refused_setting_is_named_by_its_path() {
+        let e = Packer3D::new(Config::default().with_strategy(Strategy::NfpGuided))
+            .solve(
+                &[Geometry3D::new("b", 1.0, 1.0, 1.0)],
+                &Boundary3D::new(5.0, 5.0, 5.0),
+            )
+            .expect_err("2D only");
+        assert_eq!(e.parameter(), Some("strategy"));
+        let out = serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+        assert_eq!(out["code"], "invalid_option");
+        assert_eq!(out["details"]["parameter"], "config.strategy");
+        assert!(
+            out["error"]
+                .as_str()
+                .expect("a message")
+                .starts_with("config.strategy:"),
+            "{out}"
+        );
+
+        let e = build_config(Some(ConfigRequest {
+            spacing: Some(-1.0),
+            ..config_input()
+        }))
+        .expect_err("negative");
+        let out = serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+        assert_eq!(out["details"]["parameter"], "config.spacing");
+
+        // 3D has no sheets: the 2D setting is refused, not ignored.
+        let e = ConfigRequest {
+            multi_sheet: Some(true),
+            ..config_input()
+        }
+        .to_config_3d()
+        .expect_err("2D only");
+        assert_eq!(
+            serde_json::to_value(SolveOutput::refused(&e)).expect("serialize")["details"]
+                ["parameter"],
+            "config.multi_sheet"
         );
     }
 }

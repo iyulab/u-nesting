@@ -124,8 +124,10 @@ Solve a 2D nesting problem.
 > (`parameter` `geometries`); a boundary side, dimension or `max_mass` of 0 or
 > below is `parameter_out_of_range` naming it (`boundary.width`,
 > `boundary.height`, `boundary.dimensions[i]`, `boundary.max_mass`, with
-> `exclusive_min` 0). A boundary given as both a rectangle and a polygon, or
-> half of a rectangle, raises `ValueError`.
+> `exclusive_min` 0), and a setting is named by its path in `config` --
+> `config.strategy` for a strategy the dimension does not offer. A boundary
+> given as both a rectangle and a polygon, or half of a rectangle, raises
+> `ValueError`.
 
 - `geometries`: List of geometry definitions
   - `id` (str): Unique identifier
@@ -146,6 +148,10 @@ Solve a 2D nesting problem.
     Omitted, each search uses the size it is tuned for: 30 in 2D
   - `max_generations` (int): GA/BRKGA generation budget, at least 0, run as
     given. Omitted, 50 in 2D
+  - `seed` (int): RNG seed of `ga`, `brkga`, `sa`, `gdrr` and `alns`. The same
+    problem with the same seed returns the same layout when the run ends on its
+    own budget rather than on the clock (a 2D search keeps a time budget of its
+    own, 10-15 s, when `time_limit_ms` is 0)
   - `multi_sheet` (bool): Distribute overflow across multiple sheets (default:
     `False`). When `True`, parts that do not fit on one sheet spill onto extra
     sheets instead of becoming unplaced; `boundaries_used` reports the sheet count
@@ -185,7 +191,8 @@ Solve a 3D bin packing problem.
   - `max_mass` (float): Weight limit, above 0 (optional)
   - `gravity` (bool): Enable gravity constraint
   - `stability` (bool): Enable stability constraint
-- `config`: Same as solve_2d, plus:
+- `config`: Same as solve_2d but `multi_sheet`, which raises `ValueError` (one
+  container, no sheets), and:
   - `strategy`: "blf", "ep", "ga", "brkga", "sa"
   - `population_size` / `max_generations` omitted: 100 / 500 for `ga`, 50 /
     100 for `brkga`

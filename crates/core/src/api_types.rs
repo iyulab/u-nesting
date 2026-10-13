@@ -193,8 +193,10 @@ pub struct ConfigRequest {
     /// GA mutation rate.
     pub mutation_rate: Option<f64>,
 
-    /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA): a
-    /// whole number from 0 to 18446744073709551615.
+    /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA,
+    /// GDRR, ALNS): a whole number from 0 to 18446744073709551615. A seeded
+    /// run that ends on its own budget, not on the time limit, is reproduced
+    /// exactly (see `Config::seed`).
     #[serde(default, deserialize_with = "whole::optional")]
     pub seed: Option<i128>,
 
@@ -596,8 +598,10 @@ pub struct Placement3DResponse {
 
 impl Pack3DResponse {
     /// The response for a refused request: the message, its `code` and the
-    /// values behind it.
+    /// values behind it, every setting named by its path in the request
+    /// ([`ConfigRequest::locate`]).
     pub fn refused(error: &Error) -> Self {
+        let error = &ConfigRequest::locate(error);
         Self {
             version: API_VERSION.to_string(),
             success: false,
@@ -676,6 +680,32 @@ pub struct CuttingConfigRequest {
 
     /// Tolerance for geometric comparisons.
     pub tolerance: Option<f64>,
+}
+
+impl CuttingConfigRequest {
+    /// The keys a request's `cutting_config` takes. A refusal of one of
+    /// these settings is named, on the wire, by its path there:
+    /// `cutting_config.kerf_width`.
+    pub const KEYS: [&'static str; 11] = [
+        "kerf_width",
+        "pierce_weight",
+        "max_2opt_iterations",
+        "time_limit_ms",
+        "rapid_speed",
+        "cut_speed",
+        "exterior_direction",
+        "interior_direction",
+        "home_position",
+        "pierce_candidates",
+        "tolerance",
+    ];
+
+    /// `error` as a cutting response reports it: a setting of the request's
+    /// `cutting_config` named by its path (`cutting_config.kerf_width`),
+    /// whichever step refused it. The Rust API keeps the field name.
+    pub fn locate(error: &Error) -> Error {
+        error.clone().located("cutting_config", &Self::KEYS)
+    }
 }
 
 /// Response for cutting path optimization.
@@ -791,8 +821,10 @@ pub struct CutStepResponse {
 
 impl SolveResponse {
     /// The response for a refused request: the message, its `code` and the
-    /// values behind it.
+    /// values behind it, every setting named by its path in the request
+    /// ([`ConfigRequest::locate`]).
     pub fn refused(error: &Error) -> Self {
+        let error = &ConfigRequest::locate(error);
         Self {
             version: API_VERSION.to_string(),
             success: false,
@@ -815,8 +847,10 @@ impl SolveResponse {
 
 impl CuttingResponse {
     /// The response for a refused request: the message, its `code` and the
-    /// values behind it.
+    /// values behind it, every setting named by its path in the request
+    /// ([`CuttingConfigRequest::locate`]).
     pub fn refused(error: &Error) -> Self {
+        let error = &CuttingConfigRequest::locate(error);
         Self {
             version: API_VERSION.to_string(),
             success: false,
@@ -937,6 +971,45 @@ impl RefusalDetails {
 }
 
 impl ConfigRequest {
+    /// The keys a request's `config` takes. A refusal of one of these
+    /// settings is named, on the wire, by its path there: `config.spacing`.
+    pub const KEYS: [&'static str; 11] = [
+        "spacing",
+        "margin",
+        "strategy",
+        "time_limit_ms",
+        "target_utilization",
+        "population_size",
+        "max_generations",
+        "crossover_rate",
+        "mutation_rate",
+        "seed",
+        "multi_sheet",
+    ];
+
+    /// `error` as a solve response reports it: a setting of the request's
+    /// `config` named by its path (`config.spacing`, like `boundary.width` and
+    /// `geometries[2].quantity`), whichever step refused it -- reading the
+    /// configuration or the solve itself (a strategy the dimension does not
+    /// offer). The Rust API keeps the field name (`spacing`).
+    pub fn locate(error: &Error) -> Error {
+        error.clone().located("config", &Self::KEYS)
+    }
+
+    /// The configuration a 3D packing request asks for: as
+    /// [`Self::to_config`], with `multi_sheet` -- a 2D setting -- refused
+    /// rather than ignored.
+    pub fn to_config_3d(&self) -> crate::Result<Config> {
+        if self.multi_sheet.is_some() {
+            return Err(Error::invalid_option(
+                "multi_sheet",
+                "multi_sheet spreads 2D parts over sheets; 3D packing has none -- leave it out"
+                    .to_string(),
+            ));
+        }
+        self.to_config()
+    }
+
     /// The solver configuration this request asks for, refused as the solver
     /// would refuse it: a strategy name nobody knows is `unknown_option`, a
     /// setting outside its range is `parameter_out_of_range` -- never clamped
@@ -1013,6 +1086,77 @@ mod dto_strictness_tests {
         }));
     }
 
+    /// The keys a refusal is located by are the keys the request types read
+    /// -- every one of them, and no other.
+    #[test]
+    fn the_located_keys_are_the_request_keys() {
+        let keys = |v: serde_json::Value| -> Vec<String> {
+            let mut k: Vec<String> = v.as_object().expect("an object").keys().cloned().collect();
+            k.sort();
+            k
+        };
+        let sorted = |k: &[&str]| -> Vec<String> {
+            let mut k: Vec<String> = k.iter().map(|s| s.to_string()).collect();
+            k.sort();
+            k
+        };
+        assert_eq!(
+            keys(serde_json::to_value(super::ConfigRequest::default()).unwrap()),
+            sorted(&super::ConfigRequest::KEYS)
+        );
+        assert_eq!(
+            keys(serde_json::to_value(super::CuttingConfigRequest::default()).unwrap()),
+            sorted(&super::CuttingConfigRequest::KEYS)
+        );
+    }
+
+    /// Every refusal on the wire names a setting by its path in the request,
+    /// whichever step refused it; a part already named by its path, and a
+    /// request part that is not a setting, keep their names.
+    #[test]
+    fn wire_refusals_name_settings_by_their_request_path() {
+        let parameter = |v: serde_json::Value| v["details"]["parameter"].clone();
+        let strategy = crate::Error::invalid_option("strategy", "3D only".into());
+        for v in [
+            serde_json::to_value(super::SolveResponse::refused(&strategy)).unwrap(),
+            serde_json::to_value(super::Pack3DResponse::refused(&strategy)).unwrap(),
+        ] {
+            assert_eq!(parameter(v.clone()), "config.strategy");
+            assert_eq!(v["error"], "config.strategy: 3D only");
+        }
+        let seed = super::ConfigRequest {
+            seed: Some(-1),
+            ..Default::default()
+        }
+        .to_config()
+        .expect_err("negative");
+        assert_eq!(
+            seed.parameter(),
+            Some("seed"),
+            "the Rust API names the field"
+        );
+        assert_eq!(
+            parameter(serde_json::to_value(super::SolveResponse::refused(&seed)).unwrap()),
+            "config.seed"
+        );
+        let kerf = crate::error::check_at_least("kerf_width", -1.0, 0.0).expect_err("negative");
+        assert_eq!(
+            parameter(serde_json::to_value(super::CuttingResponse::refused(&kerf)).unwrap()),
+            "cutting_config.kerf_width"
+        );
+        for kept in [
+            crate::error::check_above("boundary.width", 0.0, 0.0).expect_err("flat"),
+            crate::Error::empty_input("geometries"),
+            crate::Error::malformed(Some("config.seed"), "a fraction".into()),
+        ] {
+            let v = serde_json::to_value(super::SolveResponse::refused(&kept)).unwrap();
+            assert_eq!(parameter(v), kept.parameter().expect("named"));
+        }
+        // Located twice is located once.
+        let twice = super::ConfigRequest::locate(&super::ConfigRequest::locate(&seed));
+        assert_eq!(twice.parameter(), Some("config.seed"));
+    }
+
     #[test]
     fn config_rejects_unknown_keys() {
         assert_rejects_unknown::<super::ConfigRequest>(json!({
@@ -1063,11 +1207,15 @@ mod dto_strictness_tests {
         let v = serde_json::to_value(super::SolveResponse::refused(&range)).expect("serialize");
         assert_eq!(v["success"], false);
         assert_eq!(v["code"], "parameter_out_of_range");
+        // The Rust API names the field; the response, the path in the request.
         assert_eq!(
             v["details"],
-            json!({ "parameter": "spacing", "min": 0.0, "got": -1.0 })
+            json!({ "parameter": "config.spacing", "min": 0.0, "got": -1.0 })
         );
-        assert_eq!(v["error"], "spacing must be a finite number >= 0, got -1");
+        assert_eq!(
+            v["error"],
+            "config.spacing must be a finite number >= 0, got -1"
+        );
 
         let twice = crate::Error::DuplicateId {
             id: "plate".into(),

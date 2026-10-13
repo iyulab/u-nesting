@@ -94,7 +94,7 @@ public class NativeRoundTripTests
             Config = new Config2D { Spacing = -1 },
         }));
         Assert.Equal("parameter_out_of_range", spacing.Reason);
-        Assert.Equal("spacing", spacing.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal("config.spacing", spacing.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal(-1.0, spacing.Details!.Value.GetProperty("got").GetDouble());
         // 0 itself is accepted: a closed bound, so `min` and never `exclusive_min`.
         Assert.Equal(0.0, spacing.Details!.Value.GetProperty("min").GetDouble());
@@ -131,7 +131,7 @@ public class NativeRoundTripTests
             Config = new Config2D { Strategy = Strategy2D.GeneticAlgorithm, PopulationSize = -1 },
         }));
         Assert.Equal("parameter_out_of_range", population.Reason);
-        Assert.Equal("population_size", population.Details!.Value.GetProperty("parameter").GetString());
+        Assert.Equal("config.population_size", population.Details!.Value.GetProperty("parameter").GetString());
         Assert.Equal(2.0, population.Details!.Value.GetProperty("min").GetDouble());
         Assert.Equal(-1.0, population.Details!.Value.GetProperty("got").GetDouble());
     }

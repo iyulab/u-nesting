@@ -210,7 +210,7 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     let config = match request
         .config
         .as_ref()
-        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config_3d)
     {
         Ok(c) => c,
         Err(e) => return Pack3DResponse::refused(&e),
@@ -322,7 +322,7 @@ mod tests {
         assert_eq!(r["code"], "parameter_out_of_range", "{r}");
         assert_eq!(
             r["details"],
-            json!({ "parameter": "population_size", "min": 2.0, "got": -1.0 })
+            json!({ "parameter": "config.population_size", "min": 2.0, "got": -1.0 })
         );
 
         let solved = solve_2d(&rectangle("1"));
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(r["code"], "parameter_out_of_range", "{r}");
         assert_eq!(
             r["details"],
-            json!({ "parameter": "pierce_candidates", "min": 1.0, "got": -1.0 })
+            json!({ "parameter": "cutting_config.pierce_candidates", "min": 1.0, "got": -1.0 })
         );
     }
 
@@ -363,6 +363,14 @@ mod tests {
             r["details"],
             json!({ "parameter": "boundary.width", "exclusive_min": 0.0, "got": 0.0 })
         );
+        // A strategy the dimension does not offer is refused by the solve,
+        // and named by its path like a setting refused on reading.
+        let r = answer(solve_3d(
+            r#"{"geometries": [{"id": "crate", "dimensions": [1, 1, 1]}],
+                "boundary": {"dimensions": [5, 5, 5]}, "config": {"strategy": "nfp"}}"#,
+        ));
+        assert_eq!(r["code"], "invalid_option", "{r}");
+        assert_eq!(r["details"], json!({ "parameter": "config.strategy" }));
         let r = answer(solve_3d(
             r#"{"geometries": [{"id": "crate", "dimensions": [1, 1, 1]}],
                 "boundary": {"dimensions": [5, 5, 5], "max_mass": -1}}"#,
@@ -386,7 +394,7 @@ mod tests {
         assert_eq!(r["code"], "parameter_out_of_range", "{r}");
         assert_eq!(
             r["details"],
-            json!({ "parameter": "cut_speed", "exclusive_min": 0.0, "got": 0.0 })
+            json!({ "parameter": "cutting_config.cut_speed", "exclusive_min": 0.0, "got": 0.0 })
         );
         assert!(
             cut("")["estimated_time_seconds"]

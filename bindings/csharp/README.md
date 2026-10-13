@@ -197,7 +197,8 @@ catch (NestingException ex) when (ex.Reason == "duplicate_id")
 ```
 
 The codes and their fields are listed in the npm package README's *Refusals* section;
-the .NET package reports the same ones. A NaN or infinite number in a request cannot be
+the .NET package reports the same ones. `parameter` is always the path of the value in
+the request -- `config.spacing`, `boundary.width`, `geometries[0].quantity`. A NaN or infinite number in a request cannot be
 written as JSON, so the client refuses it before calling the engine, with the reason
 `value_not_finite`: `Details` has `parameter`, the path to the value (or to the array
 holding it, with `index` its position there), and `id` when it belongs to a geometry —

@@ -188,7 +188,7 @@ kerf has no tool path that keeps the part's dimensions, so it is left out of
 The kerf must fit between the parts: each cut takes a band `kerf_width` wide
 beside its part, so a gap narrower than the kerf would cut one part into its
 neighbour. Such a request is refused with `parameter_out_of_range` on
-`kerf_width`, `max` set to the narrowest gap -- nest with a `spacing` of at least
+`cutting_config.kerf_width`, `max` set to the narrowest gap -- nest with a `spacing` of at least
 the kerf width. Every contour of every placed part is either in `sequence` or in
 `skipped_contours`.
 
@@ -224,12 +224,14 @@ interface Request2D {
     mutation_rate?: number;            // GA mutation rate (default: 0.05)
     time_limit_ms?: number;            // Time limit in ms for the whole solve
     target_utilization?: number;       // Stop early if reached
+    seed?: number;                     // RNG seed of ga, brkga, sa, gdrr, alns (see below)
     multi_sheet?: boolean;             // Spill overflow onto extra sheets (default: false)
   };
 }
 ```
 
-`solve_3d` takes the same `config` (without `multi_sheet`). A `population_size`
+`solve_3d` takes the same `config` but `multi_sheet`, which it refuses (3D packs
+one container; there are no sheets to spill onto). A `population_size`
 or `max_generations` you set is the one the search runs with; omitted, each
 search uses the budget it is tuned for:
 
@@ -241,6 +243,18 @@ search uses the budget it is tuned for:
 
 The other strategies have no population and do not read them. A run also ends on
 `time_limit_ms` and when the best layout stops improving.
+
+A search never returns a layout worse than a simple fill of the same request: it
+is floored at that fill (fewer pieces placed, then a longer strip in 2D or a
+lower utilization in 3D, loses to it).
+
+`seed` makes the stochastic strategies reproducible: the same request with the
+same `seed` returns the same layout -- **when the run ends on its own budget**
+(generations, iterations, convergence), not on the clock. Where `time_limit_ms`
+stops a search depends on the machine, so a run cut short by it is not
+reproduced; in 2D a search also keeps a time budget of its own (15 s for `ga` and
+`brkga`, 10 s for `sa`, `gdrr` and `alns`) when `time_limit_ms` is 0. Without a
+`seed`, each run draws fresh randomness.
 
 ### Multi-Sheet Nesting
 
@@ -349,9 +363,13 @@ The functions never throw: a request the engine cannot honour comes back with
 `success: false`, a readable `error`, a stable `code` and the values behind it in
 `details`, so a program can point at the input to change without parsing the text.
 
+`parameter` is the path of the value in the request, whichever step refused it:
+`config.spacing`, `cutting_config.kerf_width`, `boundary.width`,
+`geometries[2].quantity`.
+
 ```typescript
 interface RefusalDetails {
-  parameter?: string;   // the setting or request part: "spacing", "strategy", "geometries[2].orientation", ...
+  parameter?: string;   // the path in the request: "config.spacing", "config.strategy", "geometries[2].orientation", ...
   id?: string;          // the geometry the refusal is about
   first?: number;       // duplicate_id: where the id appeared first ...
   index?: number;       // ... and where it appeared again
@@ -364,10 +382,10 @@ interface RefusalDetails {
 
 | `code` | `details` | Meaning |
 |---|---|---|
-| `parameter_out_of_range` | `parameter`, `got`, and per side `min` / `max` (closed) or `exclusive_min` / `exclusive_max` (open); an unbounded side has neither; `id` for a geometry's own value | A setting outside its range (`spacing` below 0, `target_utilization` outside [0, 1], `mutation_rate`, `kerf_width`, `cut_speed` / `rapid_speed` not above 0, `pierce_weight` / `tolerance` below 0, ...); a count below its least value, a negative one included (`geometries[i].quantity` below 1, `population_size` below 2, `pierce_candidates` below 1, `seed` or `time_limit_ms` below 0); a boundary measure not above 0 (`boundary.width`, `boundary.height`, `boundary.dimensions[i]`, `boundary.max_mass`, each with `exclusive_min: 0`); a box's `geometries[i].dimensions[j]` not above 0 or `geometries[i].mass` below 0 |
+| `parameter_out_of_range` | `parameter`, `got`, and per side `min` / `max` (closed) or `exclusive_min` / `exclusive_max` (open); an unbounded side has neither; `id` for a geometry's own value | A setting outside its range (`config.spacing` below 0, `config.target_utilization` outside [0, 1], `config.mutation_rate`, `cutting_config.kerf_width`, `cutting_config.cut_speed` / `rapid_speed` not above 0, `cutting_config.pierce_weight` / `tolerance` below 0, ...); a count below its least value, a negative one included (`geometries[i].quantity` below 1, `config.population_size` below 2, `cutting_config.pierce_candidates` below 1, `config.seed` or `config.time_limit_ms` below 0); a boundary measure not above 0 (`boundary.width`, `boundary.height`, `boundary.dimensions[i]`, `boundary.max_mass`, each with `exclusive_min: 0`); a box's `geometries[i].dimensions[j]` not above 0 or `geometries[i].mass` below 0 |
 | `empty_input` | `parameter` | A list with nothing in it: `geometries` (nothing to place or pack) |
-| `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `strategy`, a geometry's `orientation`, a cut direction, the C ABI's `mode` |
-| `invalid_option` | `parameter` | A setting that cannot be used here: a strategy this build or this dimension does not offer, a failed `solve_result` given to cut |
+| `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `config.strategy`, a geometry's `orientation`, a cut direction (`cutting_config.exterior_direction`, ...), the C ABI's `mode` |
+| `invalid_option` | `parameter` | A setting that cannot be used here: a `config.strategy` this build or this dimension does not offer, `config.multi_sheet` in a 3D request (3D has no sheets), a failed `solve_result` given to cut |
 | `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a placement naming no geometry |
 | `duplicate_id` | `parameter`, `id`, `first`, `index` | Two geometries share an id |
 | `invalid_boundary` | `parameter` (when one field is at fault) | A boundary of a shape the engine cannot place into: both or neither of size and polygon, a polygon with fewer than 3 vertices, of no area or crossing itself |

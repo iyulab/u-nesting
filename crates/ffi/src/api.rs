@@ -447,7 +447,7 @@ fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveRespon
     resp
 }
 
-fn solve_2d_internal(json_str: &str) -> SolveResponse {
+pub(crate) fn solve_2d_internal(json_str: &str) -> SolveResponse {
     let request: Request2D = match from_json(json_str) {
         Ok(r) => r,
         Err(e) => return SolveResponse::refused(&e),
@@ -502,7 +502,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
     }
 }
 
-fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
+pub(crate) fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     let request: Request3D = match from_json(json_str) {
         Ok(r) => r,
         Err(e) => return Pack3DResponse::refused(&e),
@@ -520,7 +520,7 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     let config = match request
         .config
         .as_ref()
-        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config_3d)
     {
         Ok(c) => c,
         Err(e) => return Pack3DResponse::refused(&e),
@@ -687,7 +687,7 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
     let config = match request
         .config
         .as_ref()
-        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config)
+        .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config_3d)
     {
         Ok(c) => c,
         Err(e) => return Pack3DResponse::refused(&e),
@@ -1362,7 +1362,7 @@ mod tests {
         assert_eq!(r.code.as_deref(), Some("invalid_option"));
         assert_eq!(
             r.details.and_then(|d| d.parameter).as_deref(),
-            Some("strategy")
+            Some("config.strategy")
         );
         assert!(r.error.as_deref().unwrap_or("").contains("3D only"));
 
@@ -1375,6 +1375,10 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("not available for 3D"));
+        assert_eq!(
+            r.details.and_then(|d| d.parameter).as_deref(),
+            Some("config.strategy")
+        );
     }
 
     #[test]
@@ -1929,7 +1933,10 @@ mod tests {
         assert!(wide.sequence.is_empty());
         assert_eq!(wide.code.as_deref(), Some("parameter_out_of_range"));
         let details = wide.details.expect("details");
-        assert_eq!(details.parameter.as_deref(), Some("kerf_width"));
+        assert_eq!(
+            details.parameter.as_deref(),
+            Some("cutting_config.kerf_width")
+        );
         assert!((details.max.expect("max") - 1.0).abs() < 1e-9);
         assert_eq!(
             details.got,
@@ -2263,7 +2270,7 @@ mod tests {
             let got: f64 = population.parse().expect("a number");
             assert_eq!(
                 r["details"],
-                serde_json::json!({ "parameter": "population_size", "min": 2.0, "got": got })
+                serde_json::json!({ "parameter": "config.population_size", "min": 2.0, "got": got })
             );
         }
         for setting in ["time_limit_ms", "max_generations", "seed"] {
@@ -2271,7 +2278,9 @@ mod tests {
             assert_eq!(r["code"], "parameter_out_of_range", "{r}");
             assert_eq!(
                 r["details"],
-                serde_json::json!({ "parameter": setting, "min": 0.0, "got": -1.0 })
+                serde_json::json!({
+                    "parameter": format!("config.{setting}"), "min": 0.0, "got": -1.0
+                })
             );
         }
         // Above what the setting holds: the ceiling is named too.
@@ -2279,7 +2288,8 @@ mod tests {
         assert_eq!(
             r["details"],
             serde_json::json!({
-                "parameter": "max_generations", "min": 0.0, "max": 4294967295.0, "got": 4294967296.0
+                "parameter": "config.max_generations", "min": 0.0, "max": 4294967295.0,
+                "got": 4294967296.0
             })
         );
         assert!(
@@ -2362,14 +2372,18 @@ mod tests {
             let got: f64 = candidates.parse().expect("a number");
             assert_eq!(
                 r["details"],
-                serde_json::json!({ "parameter": "pierce_candidates", "min": 1.0, "got": got })
+                serde_json::json!({
+                    "parameter": "cutting_config.pierce_candidates", "min": 1.0, "got": got
+                })
             );
         }
         for setting in ["max_2opt_iterations", "time_limit_ms"] {
             let r = cut(&format!(r#""{setting}": -1"#));
             assert_eq!(
                 r["details"],
-                serde_json::json!({ "parameter": setting, "min": 0.0, "got": -1.0 }),
+                serde_json::json!({
+                    "parameter": format!("cutting_config.{setting}"), "min": 0.0, "got": -1.0
+                }),
                 "{r}"
             );
             let r = cut(&format!(r#""{setting}": 0.5"#));
@@ -2550,7 +2564,11 @@ mod tests {
             assert_eq!(r["code"], "parameter_out_of_range", "{r}");
             assert_eq!(
                 r["details"],
-                serde_json::json!({ "parameter": setting, "exclusive_min": 0.0, "got": got })
+                serde_json::json!({
+                    "parameter": format!("cutting_config.{setting}"),
+                    "exclusive_min": 0.0,
+                    "got": got
+                })
             );
             assert_eq!(
                 r["estimated_time_seconds"], 0.0,
@@ -2561,7 +2579,9 @@ mod tests {
             let r = cut(&format!(r#""{setting}": {got}"#));
             assert_eq!(
                 r["details"],
-                serde_json::json!({ "parameter": setting, "min": 0.0, "got": got }),
+                serde_json::json!({
+                    "parameter": format!("cutting_config.{setting}"), "min": 0.0, "got": got
+                }),
                 "{r}"
             );
         }

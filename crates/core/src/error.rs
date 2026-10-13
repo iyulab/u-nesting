@@ -233,6 +233,47 @@ impl Error {
         }
     }
 
+    /// The setting or request part the refusal names, when it names one.
+    pub fn parameter(&self) -> Option<&str> {
+        match self {
+            Error::OutOfRange { parameter, .. }
+            | Error::EmptyInput { parameter }
+            | Error::InvalidOption { parameter, .. }
+            | Error::UnknownOption { parameter, .. } => Some(parameter),
+            Error::MalformedInput { parameter, .. } | Error::InvalidBoundary { parameter, .. } => {
+                parameter.as_deref()
+            }
+            Error::DuplicateId { .. } => Some("geometries"),
+            _ => None,
+        }
+    }
+
+    /// This refusal with its `parameter` named by its path under `section`
+    /// when it is one of `fields` -- `spacing`, a field of the request's
+    /// `config`, becomes `config.spacing` -- and unchanged otherwise.
+    ///
+    /// The Rust API names a setting by its field, as the configuration type
+    /// the caller built has it; a request names it by where it sits in the
+    /// request. The wire layer, which knows the request, places it.
+    pub fn located(mut self, section: &str, fields: &[&str]) -> Self {
+        let parameter = match &mut self {
+            Error::OutOfRange { parameter, .. }
+            | Error::EmptyInput { parameter }
+            | Error::InvalidOption { parameter, .. }
+            | Error::UnknownOption { parameter, .. } => Some(parameter),
+            Error::MalformedInput { parameter, .. } | Error::InvalidBoundary { parameter, .. } => {
+                parameter.as_mut()
+            }
+            _ => None,
+        };
+        if let Some(parameter) = parameter {
+            if fields.contains(&parameter.as_str()) {
+                *parameter = format!("{section}.{parameter}");
+            }
+        }
+        self
+    }
+
     /// A list the request must not leave empty.
     pub fn empty_input(parameter: &str) -> Self {
         Error::EmptyInput {
