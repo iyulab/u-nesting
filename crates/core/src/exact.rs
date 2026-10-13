@@ -17,7 +17,7 @@
 //!
 //! let config = ExactConfig::default()
 //!     .with_time_limit_ms(60000)  // 1 minute
-//!     .with_gap_tolerance(0.01);  // 1% optimality gap
+//!     .with_max_items(10);
 //! ```
 
 #[cfg(feature = "serde")]
@@ -62,9 +62,6 @@ pub struct ExactConfig {
     /// Maximum computation time in milliseconds.
     pub time_limit_ms: u64,
 
-    /// Relative MIP gap tolerance (0.0 = optimal, 0.01 = 1% gap allowed).
-    pub gap_tolerance: f64,
-
     /// Maximum number of items for exact solving (fallback to heuristic if exceeded).
     pub max_items: usize,
 
@@ -73,24 +70,15 @@ pub struct ExactConfig {
 
     /// Number of discrete rotation angles to consider.
     pub rotation_steps: usize,
-
-    /// Verbosity level (0 = silent, 1 = summary, 2+ = detailed).
-    pub verbosity: u32,
-
-    /// Random seed for reproducibility.
-    pub seed: Option<u64>,
 }
 
 impl Default for ExactConfig {
     fn default() -> Self {
         Self {
             time_limit_ms: 60000, // 1 minute default
-            gap_tolerance: 0.0,   // Require optimal
             max_items: 15,        // Small instances only
             grid_step: 1.0,       // 1 unit grid
             rotation_steps: 4,    // 0, 90, 180, 270 degrees
-            verbosity: 0,
-            seed: None,
         }
     }
 }
@@ -107,22 +95,14 @@ impl ExactConfig {
         self
     }
 
-    /// Set MIP gap tolerance.
-    pub fn with_gap_tolerance(mut self, gap: f64) -> Self {
-        self.gap_tolerance = gap;
-        self
-    }
-
     /// Checks every field against its range; the builders store what they are
     /// given.
     ///
     /// # Errors
-    /// `ConfigError` for a `gap_tolerance` outside `[0, 1]`, a `grid_step`
-    /// that is not finite and positive, or a `max_items` or `rotation_steps`
-    /// below 1.
+    /// `ConfigError` for a `grid_step` that is not finite and positive, or a
+    /// `max_items` or `rotation_steps` below 1.
     pub fn validate(&self) -> crate::error::Result<()> {
-        use crate::error::{check_above, check_at_least, check_range};
-        check_range("gap_tolerance", self.gap_tolerance, 0.0, 1.0)?;
+        use crate::error::{check_above, check_at_least};
         check_above("grid_step", self.grid_step, 0.0)?;
         check_at_least("max_items", self.max_items as f64, 1.0)?;
         check_at_least("rotation_steps", self.rotation_steps as f64, 1.0)?;
@@ -144,18 +124,6 @@ impl ExactConfig {
     /// Set number of discrete rotation angles.
     pub fn with_rotation_steps(mut self, steps: usize) -> Self {
         self.rotation_steps = steps;
-        self
-    }
-
-    /// Set verbosity level.
-    pub fn with_verbosity(mut self, level: u32) -> Self {
-        self.verbosity = level;
-        self
-    }
-
-    /// Set random seed for reproducibility.
-    pub fn with_seed(mut self, seed: u64) -> Self {
-        self.seed = Some(seed);
         self
     }
 
@@ -304,7 +272,6 @@ mod tests {
     fn test_exact_config_default() {
         let config = ExactConfig::default();
         assert_eq!(config.time_limit_ms, 60000);
-        assert_eq!(config.gap_tolerance, 0.0);
         assert_eq!(config.max_items, 15);
         assert_eq!(config.rotation_steps, 4);
     }
@@ -313,13 +280,11 @@ mod tests {
     fn test_exact_config_builder() {
         let config = ExactConfig::new()
             .with_time_limit_ms(30000)
-            .with_gap_tolerance(0.01)
             .with_max_items(10)
             .with_rotation_steps(8)
             .with_grid_step(0.5);
 
         assert_eq!(config.time_limit_ms, 30000);
-        assert_eq!(config.gap_tolerance, 0.01);
         assert_eq!(config.max_items, 10);
         assert_eq!(config.rotation_steps, 8);
         assert_eq!(config.grid_step, 0.5);

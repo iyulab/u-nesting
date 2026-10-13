@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking (Rust API):** settings that no solver or packer read are
+  removed instead of accepted — `ExactConfig::gap_tolerance`, `verbosity` and
+  `seed` (with `with_gap_tolerance`, `with_verbosity`, `with_seed`; the MILP
+  solve uses none of them), `CuttingConfig::lead_in`, `bridge` and `thermal`
+  (with `with_lead_in`, `with_bridge`, `with_thermal`; the path optimizer never
+  applied them — `generate_lead_in_out`, `place_bridges` and the thermal
+  functions remain as standalone tools), `Geometry3D::with_stackable`,
+  `with_max_stack_weight` and `is_stackable` with the `Geometry3DExt::stackable`
+  and `max_stack_load` defaults (no packer enforces stacking limits), and the
+  C ABI constants `DEFAULT_CALLBACK_INTERVAL_MS`, `MIN_CALLBACK_INTERVAL_MS` and
+  `MAX_CALLBACK_INTERVAL_MS` (progress callbacks are not throttled).
 - **Breaking (.NET `UNesting`):** `NestingException` names its members the way the other
   .NET bindings' exceptions do — `Status` is the native status (was `ErrorCode`),
   `ErrorCode` the error body's `code` (was `Reason`), and `Parameter` / `Index`

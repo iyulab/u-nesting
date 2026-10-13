@@ -115,7 +115,6 @@ fn solution_quality(
 pub struct Nester2D {
     config: Config,
     cancelled: Arc<AtomicBool>,
-    #[allow(dead_code)] // Will be used for caching in future optimization
     nfp_cache: NfpCache,
 }
 

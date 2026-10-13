@@ -1,7 +1,5 @@
 //! C FFI API functions.
 
-#[allow(unused_imports)]
-use crate::callback::DEFAULT_CALLBACK_INTERVAL_MS;
 use crate::callback::{CallbackWrapper, ProgressJson, UnestingProgressCallback};
 use crate::types::*;
 use std::ffi::{CStr, CString};

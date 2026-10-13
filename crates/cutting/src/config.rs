@@ -6,10 +6,6 @@ use serde::{Deserialize, Serialize};
 use u_nesting_core::error::whole_at_least;
 use u_nesting_core::Error;
 
-use crate::bridge::BridgeConfig;
-use crate::leadin::LeadInConfig;
-use crate::thermal::ThermalConfig;
-
 /// Configuration parameters for cutting path optimization.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -68,15 +64,6 @@ pub struct CuttingConfig {
     /// width (a gap within `tolerance` of the kerf is wide enough) and when
     /// edges are matched as shared.
     pub tolerance: f64,
-
-    /// Lead-in/lead-out configuration.
-    pub lead_in: LeadInConfig,
-
-    /// Bridge/tab (micro-joint) configuration.
-    pub bridge: BridgeConfig,
-
-    /// Thermal model configuration.
-    pub thermal: ThermalConfig,
 }
 
 /// Preference for cutting direction.
@@ -128,9 +115,6 @@ impl Default for CuttingConfig {
             home_position: (0.0, 0.0),
             pierce_candidates: 1,
             tolerance: 1e-6,
-            lead_in: LeadInConfig::default(),
-            bridge: BridgeConfig::default(),
-            thermal: ThermalConfig::default(),
         }
     }
 }
@@ -271,24 +255,6 @@ impl CuttingConfig {
     /// Sets the tolerance for geometric comparisons.
     pub fn with_tolerance(mut self, tolerance: f64) -> Self {
         self.tolerance = tolerance;
-        self
-    }
-
-    /// Sets the lead-in/lead-out configuration.
-    pub fn with_lead_in(mut self, lead_in: LeadInConfig) -> Self {
-        self.lead_in = lead_in;
-        self
-    }
-
-    /// Sets the bridge/tab configuration.
-    pub fn with_bridge(mut self, bridge: BridgeConfig) -> Self {
-        self.bridge = bridge;
-        self
-    }
-
-    /// Sets the thermal model configuration.
-    pub fn with_thermal(mut self, thermal: ThermalConfig) -> Self {
-        self.thermal = thermal;
         self
     }
 }

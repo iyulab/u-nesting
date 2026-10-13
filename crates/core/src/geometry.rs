@@ -151,16 +151,6 @@ pub trait Geometry3DExt: Geometry {
 
     /// Returns the center of mass of this geometry.
     fn center_of_mass(&self) -> (Self::Scalar, Self::Scalar, Self::Scalar);
-
-    /// Returns whether this geometry can be stacked upon.
-    fn stackable(&self) -> bool {
-        true
-    }
-
-    /// Returns the maximum stacking load this geometry can support.
-    fn max_stack_load(&self) -> Option<Self::Scalar> {
-        None
-    }
 }
 
 /// Trait for boundaries/containers that hold geometries.

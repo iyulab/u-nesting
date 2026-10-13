@@ -157,15 +157,6 @@ impl CallbackWrapper {
     }
 }
 
-/// Default callback interval in milliseconds.
-pub const DEFAULT_CALLBACK_INTERVAL_MS: u32 = 100;
-
-/// Minimum callback interval in milliseconds.
-pub const MIN_CALLBACK_INTERVAL_MS: u32 = 10;
-
-/// Maximum callback interval in milliseconds.
-pub const MAX_CALLBACK_INTERVAL_MS: u32 = 10000;
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -58,12 +58,6 @@ pub struct Geometry3D {
 
     /// Rotation constraint (for Geometry trait).
     rotation_constraint: RotationConstraint<f64>,
-
-    /// Whether this item can have other items stacked on top.
-    stackable: bool,
-
-    /// Maximum weight that can be placed on top of this item.
-    max_stack_weight: Option<f64>,
 }
 
 impl Geometry3D {
@@ -76,8 +70,6 @@ impl Geometry3D {
             mass: None,
             orientation: OrientationConstraint::default(),
             rotation_constraint: RotationConstraint::None,
-            stackable: true,
-            max_stack_weight: None,
         }
     }
 
@@ -101,18 +93,6 @@ impl Geometry3D {
     /// Sets the orientation constraint.
     pub fn with_orientation(mut self, constraint: OrientationConstraint) -> Self {
         self.orientation = constraint;
-        self
-    }
-
-    /// Sets whether items can be stacked on top.
-    pub fn with_stackable(mut self, stackable: bool) -> Self {
-        self.stackable = stackable;
-        self
-    }
-
-    /// Sets the maximum weight that can be stacked on top.
-    pub fn with_max_stack_weight(mut self, weight: f64) -> Self {
-        self.max_stack_weight = Some(weight);
         self
     }
 
@@ -144,11 +124,6 @@ impl Geometry3D {
     /// Returns the orientation constraint.
     pub fn orientation_constraint(&self) -> OrientationConstraint {
         self.orientation
-    }
-
-    /// Returns whether items can be stacked on top.
-    pub fn is_stackable(&self) -> bool {
-        self.stackable
     }
 
     /// Returns the allowed orientations based on the constraint.
