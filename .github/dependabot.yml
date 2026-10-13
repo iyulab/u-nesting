@@ -33,3 +33,19 @@ updates:
         update-types:
           - minor
           - patch
+
+  # The C# binding and its contract tests (bindings/csharp). Without this entry
+  # the test stack stayed on the versions it was created with.
+  - package-ecosystem: nuget
+    directories:
+      - /bindings/csharp/*
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      nuget-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - minor
+          - patch
