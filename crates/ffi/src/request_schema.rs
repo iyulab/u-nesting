@@ -286,13 +286,28 @@ fn each_strategy_enum_is_what_its_dimension_runs() {
     let d2 = schema("request-2d");
     let d3 = schema("request-3d");
     let config = |root: &Value| property(root, &root["properties"]["config"], "strategy").clone();
-    assert_eq!(
+    // A build with the `milp` feature (an all-features test run) also runs
+    // the exact solvers; the schemas describe the published libraries, which
+    // do not, so those spellings -- and only those -- may run beyond them.
+    let exact: BTreeSet<String> = ["exact", "milpexact", "hybrid", "hybridexact"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let beyond_schema = |schema: BTreeSet<String>, runs: BTreeSet<String>| {
+        assert!(schema.is_subset(&runs), "{schema:?} not all run: {runs:?}");
+        let extra: BTreeSet<String> = runs.difference(&schema).cloned().collect();
+        assert!(
+            extra.is_empty() || extra == exact,
+            "runs beyond the schema: {extra:?}"
+        );
+    };
+    beyond_schema(
         literals(&config(&d2)),
-        runs(&|name| solves_2d(&request_2d(json!({ "strategy": name }))))
+        runs(&|name| solves_2d(&request_2d(json!({ "strategy": name })))),
     );
-    assert_eq!(
+    beyond_schema(
         literals(&config(&d3)),
-        runs(&|name| solves_3d(&request_3d(json!({ "strategy": name }), "any")))
+        runs(&|name| solves_3d(&request_3d(json!({ "strategy": name }), "any"))),
     );
     // Every short name is one of the spellings.
     for name in Strategy::NAMES {

@@ -167,7 +167,7 @@ impl SearchState {
     ///
     /// Layouts are offered from parallel evaluations in whatever order the
     /// threads finish, so a tie on fitness is broken by the layout itself
-    /// ([`layout_order`]), not by which arrived first -- otherwise a seeded
+    /// (`layout_order`), not by which arrived first -- otherwise a seeded
     /// run could return a different layout of the same fitness each time.
     pub fn offer(&self, fitness: f64, placements: &[Placement<f64>], utilization: f64) {
         let mut best = self
