@@ -48,7 +48,7 @@ const SEARCH_GENERATIONS: u32 = 50;
 ///
 /// `Geometry2D::validate()` currently rejects `allow_flip = true` outright
 /// (mirroring the *strategy dispatch* is still incomplete — only BLF
-/// enumerates mirror candidates so far, see `logs/ROADMAP.md` §12), so in
+/// enumerates mirror candidates so far), so in
 /// every live code path today this returns `[false]`. Wired ahead of that
 /// gate opening so BLF doesn't regress to the original silent-ignore bug the
 /// moment it does.
