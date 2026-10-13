@@ -58,23 +58,32 @@ def main() -> int:
     print(f"solve_3d placed {len(result['placements'])}/{result['total_requested']}")
 
     # Unknown keys must be rejected rather than silently ignored; a wheel built
-    # against a stale contract would quietly accept them.
-    try:
-        u_nesting.solve_2d(
-            geometries=[
-                {
-                    "id": "rect",
-                    "polygon": [[0, 0], [100, 0], [100, 50], [0, 50]],
-                    "quantiy": 4,
-                }
-            ],
-            boundary={"width": 400, "height": 300},
-            config=None,
-        )
-    except ValueError as exc:
-        print(f"unknown key rejected: {exc}")
-    else:
-        raise AssertionError("a misspelled geometry key was accepted")
+    # against a stale contract would quietly accept them. A refusal comes back
+    # in the result, named by the key's path -- not as an exception.
+    result = u_nesting.solve_2d(
+        geometries=[
+            {
+                "id": "rect",
+                "polygon": [[0, 0], [100, 0], [100, 50], [0, 50]],
+                "quantiy": 4,
+            }
+        ],
+        boundary={"width": 400, "height": 300},
+        config=None,
+    )
+    if result["success"] or result["code"] != "malformed_input":
+        raise AssertionError(f"a misspelled geometry key was not refused: {result}")
+    print(f"unknown key rejected: {result['code']} at {result['details']['parameter']}")
+
+    # A setting the strategy does not read is refused, not ignored.
+    result = u_nesting.solve_2d(
+        geometries=[{"id": "rect", "polygon": [[0, 0], [100, 0], [100, 50], [0, 50]]}],
+        boundary={"width": 400, "height": 300},
+        config={"strategy": "blf", "population_size": 10},
+    )
+    if result["success"] or result["code"] != "invalid_option":
+        raise AssertionError(f"a setting blf does not read was not refused: {result}")
+    print(f"unread setting rejected: {result['details']['parameter']}")
 
     print("wheel smoke test passed")
     return 0

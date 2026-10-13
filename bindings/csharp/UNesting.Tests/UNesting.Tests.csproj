@@ -14,6 +14,10 @@
 
     <!-- The native library from a `cargo build` with the ffi feature. A standalone clone
          builds into its own target/; inside a Cargo workspace it lands in the workspace's. -->
+    <!-- A build told where to put its output (CARGO_TARGET_DIR, as the umbrella's
+         release gate sets it) is the one to test: a library left in the repository's
+         own target/ by an earlier build would otherwise be picked first. -->
+    <UNestingNativeDir Condition="'$(UNestingNativeDir)' == '' and '$(CARGO_TARGET_DIR)' != '' and (Exists('$(CARGO_TARGET_DIR)/debug/u_nesting_ffi.dll') or Exists('$(CARGO_TARGET_DIR)/debug/libu_nesting_ffi.so') or Exists('$(CARGO_TARGET_DIR)/debug/libu_nesting_ffi.dylib'))">$(CARGO_TARGET_DIR)/debug</UNestingNativeDir>
     <UNestingNativeDir Condition="'$(UNestingNativeDir)' == '' and (Exists('$(MSBuildThisFileDirectory)../../../target/debug/u_nesting_ffi.dll') or Exists('$(MSBuildThisFileDirectory)../../../target/debug/libu_nesting_ffi.so') or Exists('$(MSBuildThisFileDirectory)../../../target/debug/libu_nesting_ffi.dylib'))">$(MSBuildThisFileDirectory)../../../target/debug</UNestingNativeDir>
     <UNestingNativeDir Condition="'$(UNestingNativeDir)' == ''">$(MSBuildThisFileDirectory)../../../../../target/debug</UNestingNativeDir>
   </PropertyGroup>

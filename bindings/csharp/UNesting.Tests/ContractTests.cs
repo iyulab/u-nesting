@@ -260,6 +260,15 @@ public class ContractTests
         Assert.Equal(Literals(d3, "Geometry3D", "orientation"), Names(Enum.GetValues<OrientationConstraint>(), NestingJson.Default.OrientationConstraint));
     }
 
+    // What each strategy reads (the engine's Strategy::reads_setting): a setting
+    // a strategy does not read is refused, so each run carries only its own.
+    private static bool Population(Strategy2D s) => s is Strategy2D.GeneticAlgorithm or Strategy2D.Brkga;
+    private static bool Population(Strategy3D s) => s is Strategy3D.GeneticAlgorithm or Strategy3D.Brkga;
+    private static bool Seeded(Strategy2D s) =>
+        s is Strategy2D.GeneticAlgorithm or Strategy2D.Brkga or Strategy2D.SimulatedAnnealing or Strategy2D.Gdrr or Strategy2D.Alns;
+    private static bool Seeded(Strategy3D s) =>
+        s is Strategy3D.GeneticAlgorithm or Strategy3D.Brkga or Strategy3D.SimulatedAnnealing;
+
     public static TheoryData<Strategy2D> Strategies2D() => [.. Enum.GetValues<Strategy2D>()];
     public static TheoryData<Strategy3D> Strategies3D() => [.. Enum.GetValues<Strategy3D>()];
 
@@ -272,7 +281,15 @@ public class ContractTests
         {
             Geometries = [Geometry2D.Rectangle("a", 10, 10, 2)],
             Boundary = Boundary2D.Rectangle(50, 50),
-            Config = new Config2D { Strategy = strategy, PopulationSize = 10, MaxGenerations = 5, Seed = 1, TimeLimitMs = 1000 },
+            // The settings the strategy reads: one it does not read is refused.
+            Config = new Config2D
+            {
+                Strategy = strategy,
+                PopulationSize = Population(strategy) ? 10 : null,
+                MaxGenerations = Population(strategy) ? 5 : null,
+                Seed = Seeded(strategy) ? 1 : null,
+                TimeLimitMs = 1000,
+            },
         });
         Assert.True(result.AllPlaced);
     }
@@ -286,7 +303,14 @@ public class ContractTests
         {
             Geometries = [Geometry3D.Box("b", 10, 10, 10, 2)],
             Boundary = Boundary3D.Box(30, 30, 30),
-            Config = new Config3D { Strategy = strategy, PopulationSize = 10, MaxGenerations = 5, Seed = 1, TimeLimitMs = 1000 },
+            Config = new Config3D
+            {
+                Strategy = strategy,
+                PopulationSize = Population(strategy) ? 10 : null,
+                MaxGenerations = Population(strategy) ? 5 : null,
+                Seed = Seeded(strategy) ? 1 : null,
+                TimeLimitMs = 1000,
+            },
         });
         Assert.True(result.AllPlaced);
     }
