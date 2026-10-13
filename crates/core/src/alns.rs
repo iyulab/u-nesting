@@ -351,12 +351,14 @@ pub trait AlnsProblem {
         rng: &mut rand::rngs::StdRng,
     ) -> DestroyResult;
 
-    /// Apply a repair operator.
+    /// Apply a repair operator. A repair that makes random choices draws them
+    /// from `rng`, the run's generator, so a seeded run is reproduced.
     fn repair(
         &mut self,
         solution: &mut Self::Solution,
         destroyed: &DestroyResult,
         operator: RepairOperatorId,
+        rng: &mut rand::rngs::StdRng,
     ) -> RepairResult;
 
     /// Calculate relatedness between two items (for Shaw/Related removal).
@@ -459,7 +461,8 @@ impl AlnsRunner {
             let destroy_result = problem.destroy(&mut candidate, destroy_op, degree, &mut rng);
 
             // Apply repair
-            let _repair_result = problem.repair(&mut candidate, &destroy_result, repair_op);
+            let _repair_result =
+                problem.repair(&mut candidate, &destroy_result, repair_op, &mut rng);
 
             let candidate_fitness = candidate.fitness();
             let current_fitness = current.fitness();
@@ -804,6 +807,7 @@ mod tests {
             solution: &mut MockSolution,
             _destroyed: &DestroyResult,
             operator: RepairOperatorId,
+            _rng: &mut rand::rngs::StdRng,
         ) -> RepairResult {
             // Simulate improvement
             solution.fitness -= self.improvement_per_iteration;

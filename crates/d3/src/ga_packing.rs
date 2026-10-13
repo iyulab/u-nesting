@@ -6,8 +6,8 @@
 use crate::boundary::Boundary3D;
 use crate::geometry::Geometry3D;
 use crate::packing_utils::{
-    build_instances, build_unplaced_list, layer_place_items, packing_fitness, InstanceInfo,
-    PlacementItem,
+    build_instances, build_unplaced_list, layer_place_items, packing_fitness, seed_orientations,
+    InstanceInfo, PlacementItem,
 };
 use rand::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -225,6 +225,8 @@ pub struct PackingProblem {
     orientation_counts: Vec<usize>,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
+    /// The chromosome of the layout the search starts from, when there is one.
+    seed: Option<PackingChromosome>,
 }
 
 impl PackingProblem {
@@ -246,7 +248,23 @@ impl PackingProblem {
             instances,
             orientation_counts,
             cancelled,
+            seed: None,
         }
+    }
+
+    /// Starts the search from `placements` -- a layer fill's layout: the
+    /// instances in request order, each in the orientation the layout gave
+    /// it, which decodes back to that layout.
+    pub fn with_seed_layout(
+        mut self,
+        placements: Option<&[u_nesting_core::Placement<f64>]>,
+    ) -> Self {
+        self.seed = placements.map(|p| {
+            let mut seed = PackingChromosome::new(self.instances.len());
+            seed.orientations = seed_orientations(&self.instances, &self.geometries, p);
+            seed
+        });
+        self
     }
 
     /// Returns the total number of instances.
@@ -296,12 +314,14 @@ impl GaProblem for PackingProblem {
 
     fn initialize_population<R: Rng>(&self, size: usize, rng: &mut R) -> Vec<Self::Individual> {
         (0..size)
-            .map(|_| {
-                PackingChromosome::random_with_options(
+            .map(|i| match (&self.seed, i) {
+                // The first individual is the seed layout, when there is one.
+                (Some(seed), 0) => seed.clone(),
+                _ => PackingChromosome::random_with_options(
                     self.num_instances(),
                     &self.orientation_counts,
                     rng,
-                )
+                ),
             })
             .collect()
     }
@@ -322,7 +342,8 @@ impl GaProblem for PackingProblem {
     }
 }
 
-/// Runs GA-based 3D bin packing optimization.
+/// Runs GA-based 3D bin packing optimization, from `seed_layout` when there
+/// is one, drawing its random choices from `config.seed` when that is set.
 ///
 /// # Errors
 /// `ConfigError` when the algorithm configuration is out of range.
@@ -332,17 +353,22 @@ pub fn run_ga_packing(
     config: &Config,
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
+    seed_layout: Option<&[u_nesting_core::Placement<f64>]>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = PackingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
         config.clone(),
         cancelled.clone(),
-    );
+    )
+    .with_seed_layout(seed_layout);
 
     let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone())?;
 
-    let ga_result = runner.run();
+    let ga_result = match config.seed {
+        Some(seed) => runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed)),
+        None => runner.run(),
+    };
 
     // Decode the best chromosome
     let problem = PackingProblem::new(
@@ -430,6 +456,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -453,6 +480,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -481,6 +509,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -527,6 +556,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 

@@ -164,6 +164,41 @@ impl<S> SolveResult<S> {
         self
     }
 
+    /// The best of a search's result (`self`) and `baselines` -- layouts a
+    /// simple deterministic fill produced for the same request -- where `beats`
+    /// says whether its first argument is strictly better than its second.
+    ///
+    /// A search can stop, on a short budget, at a layout the simple fill would
+    /// have beaten; flooring it here means a search never returns less. A tie
+    /// keeps the search's layout. When a baseline wins, its placements are
+    /// returned with the search's provenance -- strategy, generations,
+    /// iterations, fitness history, target flag -- because the search did run.
+    pub fn floored_at(
+        self,
+        baselines: impl IntoIterator<Item = Self>,
+        beats: impl Fn(&Self, &Self) -> bool,
+    ) -> Self {
+        let mut best: Option<Self> = None;
+        for baseline in baselines {
+            if beats(&baseline, best.as_ref().unwrap_or(&self)) {
+                best = Some(baseline);
+            }
+        }
+        match best {
+            Some(mut floored) => {
+                floored.strategy = self.strategy;
+                floored.generations = self.generations;
+                floored.iterations = self.iterations;
+                floored.best_fitness = self.best_fitness;
+                floored.fitness_history = self.fitness_history;
+                floored.target_reached = self.target_reached;
+                floored.cancelled = self.cancelled;
+                floored
+            }
+            None => self,
+        }
+    }
+
     /// Removes duplicate entries from the unplaced list.
     /// This is useful when multiple instances of the same geometry failed to place.
     pub fn deduplicate_unplaced(&mut self) {
@@ -436,5 +471,39 @@ mod tests {
             assert_eq!(p.position[0], 10.0, "x must be sheet-local after transform");
             assert_eq!(p.position[1], 5.0, "y is untouched");
         }
+    }
+
+    /// A baseline replaces the search's layout only when strictly better, and
+    /// the replacement keeps the search's provenance.
+    #[test]
+    fn a_search_is_floored_at_a_strictly_better_baseline() {
+        let layout = |placed: usize| {
+            let mut r: SolveResult<f64> = SolveResult::new();
+            for i in 0..placed {
+                r.placements
+                    .push(Placement::new_2d("p".to_string(), i, i as f64, 0.0, 0.0));
+            }
+            r
+        };
+        let more =
+            |a: &SolveResult<f64>, b: &SolveResult<f64>| a.placements.len() > b.placements.len();
+        let search = || {
+            layout(2)
+                .with_strategy("GA")
+                .with_generations(7)
+                .with_fitness_history(vec![1.0, 2.0])
+        };
+
+        let floored = search().floored_at([layout(1), layout(3), layout(2)], more);
+        assert_eq!(floored.placements.len(), 3);
+        assert_eq!(floored.strategy.as_deref(), Some("GA"));
+        assert_eq!(floored.generations, Some(7));
+        assert_eq!(floored.fitness_history, Some(vec![1.0, 2.0]));
+
+        // A tie keeps the search's own layout.
+        let mut tie = layout(2);
+        tie.placements[0].position[0] = 99.0;
+        let kept = search().floored_at([tie], more);
+        assert_eq!(kept.placements[0].position[0], 0.0);
     }
 }

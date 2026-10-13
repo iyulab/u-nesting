@@ -148,29 +148,20 @@ impl BrkgaNestingProblem {
         // Instances the layout left out come after the ones it placed, keeping
         // their own relative order -- they are the ones a search should be
         // moving, and they start at the back.
-        let mut placed_rank: Vec<Option<usize>> = vec![None; n];
-        for (rank, placement) in placements.iter().enumerate() {
+        let mut order: Vec<usize> = Vec::with_capacity(n);
+        let mut taken = vec![false; n];
+        for placement in placements {
             if let Some(idx) = self.instances.iter().position(|info| {
                 self.geometries[info.geometry_idx].id() == &placement.geometry_id
                     && info.instance_num == placement.instance
             }) {
-                if placed_rank[idx].is_none() {
-                    placed_rank[idx] = Some(rank);
+                if !std::mem::replace(&mut taken[idx], true) {
+                    order.push(idx);
                 }
             }
         }
-        let mut next_rank = placements.len();
-        for slot in placed_rank.iter_mut() {
-            if slot.is_none() {
-                *slot = Some(next_rank);
-                next_rank += 1;
-            }
-        }
-        let span = next_rank.max(1) as f64;
-        for (idx, rank) in placed_rank.iter().enumerate() {
-            let rank = rank.unwrap_or(idx) as f64;
-            chromosome.keys[idx] = ((rank + 0.5) / span).clamp(0.0, 0.9999999);
-        }
+        order.extend((0..n).filter(|&idx| !taken[idx]));
+        chromosome.keys[..n].copy_from_slice(&RandomKeyChromosome::permutation_keys(&order, n));
 
         // Rotation and mirror, read with `decode_as_discrete`.
         let (rotations, mirrors) = seed_genes(&self.geometries, placements);
@@ -182,11 +173,12 @@ impl BrkgaNestingProblem {
                 .unwrap_or(1)
                 .max(1);
             let choice = rotations.get(idx).copied().unwrap_or(0).min(options - 1);
-            chromosome.keys[n + idx] = midpoint_key(choice, options);
+            chromosome.keys[n + idx] = RandomKeyChromosome::discrete_key(choice, options);
 
             if self.any_allow_flip {
                 let mirrored = mirrors.get(idx).copied().unwrap_or(false);
-                chromosome.keys[2 * n + idx] = midpoint_key(usize::from(mirrored), 2);
+                chromosome.keys[2 * n + idx] =
+                    RandomKeyChromosome::discrete_key(usize::from(mirrored), 2);
             }
         }
 
@@ -442,19 +434,6 @@ impl BrkgaProblem for BrkgaNestingProblem {
             best.fitness()
         );
     }
-}
-
-/// The key in the middle of the interval `decode_as_discrete` maps to `choice`.
-///
-/// `decode_as_discrete` reads a key as `(key * options) as usize`, so the
-/// interval for `choice` is `[choice / options, (choice + 1) / options)`. Its
-/// midpoint is the furthest a key can be from either edge, which is what keeps
-/// a crossover that nudges it from decoding as the neighbour.
-fn midpoint_key(choice: usize, options: usize) -> f64 {
-    if options == 0 {
-        return 0.0;
-    }
-    (((choice as f64) + 0.5) / options as f64).clamp(0.0, 0.9999999)
 }
 
 /// Runs BRKGA-based nesting optimization.

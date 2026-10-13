@@ -519,6 +519,7 @@ impl AlnsProblem for AlnsNestingProblem {
         solution: &mut AlnsNestingSolution,
         _destroyed: &DestroyResult,
         operator: RepairOperatorId,
+        rng: &mut rand::rngs::StdRng,
     ) -> RepairResult {
         let items_to_place = solution.unplaced.clone();
         let initial_placed = solution.placed.len();
@@ -535,8 +536,7 @@ impl AlnsProblem for AlnsNestingProblem {
             RepairOperatorId::Random => {
                 // Random order placement
                 let mut shuffled = items_to_place.clone();
-                let mut rng = rand::make_rng::<rand::rngs::StdRng>();
-                shuffled.shuffle(&mut rng);
+                shuffled.shuffle(rng);
                 self.place_items_blf(&shuffled, solution);
             }
             RepairOperatorId::Custom(_) => {
@@ -757,8 +757,12 @@ mod tests {
             problem.destroy(&mut solution, DestroyOperatorId::Random, 0.5, &mut rng);
         let after_destroy_placed = solution.placed.len();
 
-        let repair_result =
-            problem.repair(&mut solution, &destroy_result, RepairOperatorId::Greedy);
+        let repair_result = problem.repair(
+            &mut solution,
+            &destroy_result,
+            RepairOperatorId::Greedy,
+            &mut rng,
+        );
 
         assert!(repair_result.placed_count > 0 || after_destroy_placed == solution.placed.len());
         assert_eq!(repair_result.operator, RepairOperatorId::Greedy);

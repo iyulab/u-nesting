@@ -18,9 +18,10 @@
 use crate::boundary::Boundary3D;
 use crate::geometry::Geometry3D;
 use crate::packing_utils::{
-    build_instances, build_unplaced_list, layer_place_items, packing_fitness, InstanceInfo,
-    PlacementItem,
+    build_instances, build_unplaced_list, layer_place_items, packing_fitness, seed_orientations,
+    InstanceInfo, PlacementItem,
 };
+use rand::Rng;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::brkga::{BrkgaConfig, BrkgaProblem, BrkgaRunner, RandomKeyChromosome};
@@ -39,6 +40,8 @@ pub struct BrkgaPackingProblem {
     instances: Vec<InstanceInfo>,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
+    /// The keys of the layout the search starts from, when there is one.
+    seed: Option<RandomKeyChromosome>,
 }
 
 impl BrkgaPackingProblem {
@@ -57,7 +60,35 @@ impl BrkgaPackingProblem {
             config,
             instances,
             cancelled,
+            seed: None,
         }
+    }
+
+    /// Starts the search from `placements` -- a layer fill's layout: keys
+    /// that decode (see [`Self::decode`]) to the instances in request order,
+    /// each in the orientation the layout gave it.
+    pub fn with_seed_layout(
+        mut self,
+        placements: Option<&[u_nesting_core::Placement<f64>]>,
+    ) -> Self {
+        self.seed = placements.map(|p| {
+            let n = self.instances.len();
+            let order: Vec<usize> = (0..n).collect();
+            let mut keys = RandomKeyChromosome::permutation_keys(&order, n);
+            let orientations = seed_orientations(&self.instances, &self.geometries, p);
+            keys.extend(
+                self.instances
+                    .iter()
+                    .zip(orientations)
+                    .map(|(info, choice)| {
+                        RandomKeyChromosome::discrete_key(choice, info.orientation_count.max(1))
+                    }),
+            );
+            let mut seed = RandomKeyChromosome::new(0);
+            seed.keys = keys;
+            seed
+        });
+        self
     }
 
     /// Returns the total number of instances.
@@ -117,6 +148,16 @@ impl BrkgaPackingProblem {
 }
 
 impl BrkgaProblem for BrkgaPackingProblem {
+    fn initial_population<R: Rng>(&self, size: usize, rng: &mut R) -> Vec<RandomKeyChromosome> {
+        (0..size)
+            .map(|i| match (&self.seed, i) {
+                // The first individual is the seed layout, when there is one.
+                (Some(seed), 0) => seed.clone(),
+                _ => RandomKeyChromosome::random(self.num_keys(), rng),
+            })
+            .collect()
+    }
+
     fn num_keys(&self) -> usize {
         // N keys for order + N keys for orientations
         self.instances.len() * 2
@@ -142,7 +183,9 @@ impl BrkgaProblem for BrkgaPackingProblem {
     }
 }
 
-/// Runs BRKGA-based 3D bin packing optimization.
+/// Runs BRKGA-based 3D bin packing optimization, from `seed_layout` when
+/// there is one, drawing its random choices from `config.seed` when that is
+/// set.
 ///
 /// # Errors
 /// `ConfigError` when the algorithm configuration is out of range.
@@ -152,17 +195,25 @@ pub fn run_brkga_packing(
     config: &Config,
     brkga_config: BrkgaConfig,
     cancelled: Arc<AtomicBool>,
+    seed_layout: Option<&[u_nesting_core::Placement<f64>]>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = BrkgaPackingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
         config.clone(),
         cancelled.clone(),
-    );
+    )
+    .with_seed_layout(seed_layout);
 
     let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone())?;
 
-    let brkga_result = runner.run();
+    let brkga_result = match config.seed {
+        Some(seed) => {
+            use rand::SeedableRng;
+            runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed))
+        }
+        None => runner.run(),
+    };
 
     // Decode the best chromosome
     let problem = BrkgaPackingProblem::new(
@@ -214,6 +265,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -238,6 +290,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -267,6 +320,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -327,6 +381,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 

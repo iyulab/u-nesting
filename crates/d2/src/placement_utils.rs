@@ -164,12 +164,20 @@ impl SearchState {
     }
 
     /// Records a decoded layout if it beats the best one so far.
+    ///
+    /// Layouts are offered from parallel evaluations in whatever order the
+    /// threads finish, so a tie on fitness is broken by the layout itself
+    /// ([`layout_order`]), not by which arrived first -- otherwise a seeded
+    /// run could return a different layout of the same fitness each time.
     pub fn offer(&self, fitness: f64, placements: &[Placement<f64>], utilization: f64) {
         let mut best = self
             .best
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if best.as_ref().is_none_or(|b| fitness > b.fitness) {
+        if best.as_ref().is_none_or(|b| {
+            fitness > b.fitness
+                || (fitness == b.fitness && layout_order(placements, &b.placements).is_lt())
+        }) {
             *best = Some(BestLayout {
                 fitness,
                 placements: placements.to_vec(),
@@ -182,6 +190,31 @@ impl SearchState {
     pub fn best_handle(&self) -> Arc<Mutex<Option<BestLayout>>> {
         Arc::clone(&self.best)
     }
+}
+
+/// A total order on layouts that does not depend on how they were produced:
+/// placement by placement, by geometry id, instance, position, rotation and
+/// mirror flag.
+fn layout_order(a: &[Placement<f64>], b: &[Placement<f64>]) -> std::cmp::Ordering {
+    let floats = |x: &[f64], y: &[f64]| {
+        x.iter()
+            .zip(y)
+            .map(|(p, q)| p.total_cmp(q))
+            .find(|o| o.is_ne())
+            .unwrap_or(x.len().cmp(&y.len()))
+    };
+    a.iter()
+        .zip(b)
+        .map(|(p, q)| {
+            p.geometry_id
+                .cmp(&q.geometry_id)
+                .then(p.instance.cmp(&q.instance))
+                .then_with(|| floats(&p.position, &q.position))
+                .then_with(|| floats(&p.rotation, &q.rotation))
+                .then(p.mirrored.cmp(&q.mirrored))
+        })
+        .find(|o| o.is_ne())
+        .unwrap_or(a.len().cmp(&b.len()))
 }
 
 /// Takes the best layout out of a handle from [`SearchState::best_handle`].

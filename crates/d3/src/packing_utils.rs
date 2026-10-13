@@ -77,22 +77,25 @@ pub fn packing_fitness(placed_count: usize, total_count: usize, utilization: f64
     placement_ratio * 100.0 + utilization * 10.0
 }
 
-/// Builds a list of geometry IDs that were not placed.
+/// The geometry ids with an instance `placements` does not contain -- one
+/// entry per missing instance, in request order.
 ///
-/// Compares placed geometry IDs against the full input set to identify
-/// which geometries have no placements.
+/// A geometry with a quantity counts per instance: two of three copies placed
+/// leaves its id unplaced.
 pub fn build_unplaced_list(
     placements: &[Placement<f64>],
     geometries: &[Geometry3D],
 ) -> Vec<String> {
-    let mut placed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for p in placements {
-        placed_ids.insert(p.geometry_id.clone());
-    }
+    let placed: std::collections::HashSet<(&str, usize)> = placements
+        .iter()
+        .map(|p| (p.geometry_id.as_str(), p.instance))
+        .collect();
     let mut unplaced = Vec::new();
     for geom in geometries {
-        if !placed_ids.contains(geom.id()) {
-            unplaced.push(geom.id().clone());
+        for instance in 0..geom.quantity() {
+            if !placed.contains(&(geom.id().as_str(), instance)) {
+                unplaced.push(geom.id().clone());
+            }
         }
     }
     unplaced
@@ -108,30 +111,205 @@ pub struct LayerPlacementResult {
     pub placed_count: usize,
 }
 
-/// Core layer-based placement algorithm shared by all 3D packing solvers.
+/// Where the layer fill stands: the next spot in the current row, the depth
+/// of that row and the height of the current layer.
 ///
-/// Places items in a layer-by-layer, row-by-row fashion within the boundary.
-/// Items are placed left-to-right in rows, rows stack front-to-back in layers,
-/// and layers stack bottom-to-top.
+/// Boxes go left to right in rows (x), rows front to back in layers (y),
+/// layers bottom to top (z). A box that does not fit where the row stands
+/// opens a new row, then a new layer; one that does not fit there either is
+/// skipped and leaves the cursor where it was.
+#[derive(Debug, Clone, Copy)]
+struct LayerCursor {
+    x: f64,
+    y: f64,
+    z: f64,
+    row_depth: f64,
+    layer_height: f64,
+}
+
+/// A spot a box can take, and the cursor after it is placed there.
+#[derive(Debug, Clone, Copy)]
+struct LayerSpot {
+    x: f64,
+    y: f64,
+    z: f64,
+    next: LayerCursor,
+}
+
+/// Layer-by-layer placement into one container: the one placement rule the
+/// layer fill ([`layer_fill_in_order`]) and the search decoders
+/// ([`layer_place_items`]) share, so a layout the fill produced is the layout
+/// its genes decode to.
+pub struct LayerFill<'a> {
+    boundary: &'a Boundary3D,
+    margin: f64,
+    spacing: f64,
+    max: [f64; 3],
+    cursor: LayerCursor,
+    placements: Vec<Placement<f64>>,
+    volume: f64,
+    mass: f64,
+}
+
+impl<'a> LayerFill<'a> {
+    /// An empty container, its usable space inset by `config.margin`.
+    pub fn new(boundary: &'a Boundary3D, config: &Config) -> Self {
+        let margin = config.margin;
+        Self {
+            boundary,
+            margin,
+            spacing: config.spacing,
+            max: [
+                boundary.width() - margin,
+                boundary.depth() - margin,
+                boundary.height() - margin,
+            ],
+            cursor: LayerCursor {
+                x: margin,
+                y: margin,
+                z: margin,
+                row_depth: 0.0,
+                layer_height: 0.0,
+            },
+            placements: Vec::new(),
+            volume: 0.0,
+            mass: 0.0,
+        }
+    }
+
+    /// Where a box of `dims` would go next, if anywhere.
+    fn spot(&self, dims: [f64; 3]) -> Option<LayerSpot> {
+        let [w, d, h] = dims;
+        let mut c = self.cursor;
+        if c.x + w > self.max[0] {
+            c.x = self.margin;
+            c.y += c.row_depth + self.spacing;
+            c.row_depth = 0.0;
+        }
+        if c.y + d > self.max[1] {
+            c.x = self.margin;
+            c.y = self.margin;
+            c.z += c.layer_height + self.spacing;
+            c.row_depth = 0.0;
+            c.layer_height = 0.0;
+        }
+        // A fresh row or layer starts at the margin, so a box wider or deeper
+        // than the container never fits there either.
+        if c.x + w > self.max[0] || c.y + d > self.max[1] || c.z + h > self.max[2] {
+            return None;
+        }
+        Some(LayerSpot {
+            x: c.x,
+            y: c.y,
+            z: c.z,
+            next: LayerCursor {
+                x: c.x + w + self.spacing,
+                y: c.y,
+                z: c.z,
+                row_depth: c.row_depth.max(d),
+                layer_height: c.layer_height.max(h),
+            },
+        })
+    }
+
+    /// Whether `geom` would still keep the load within the container's mass.
+    fn mass_allows(&self, geom: &Geometry3D) -> bool {
+        match (self.boundary.max_mass(), geom.mass()) {
+            (Some(max_mass), Some(mass)) => self.mass + mass <= max_mass,
+            _ => true,
+        }
+    }
+
+    fn commit(&mut self, geom: &Geometry3D, instance: usize, orientation: usize, spot: LayerSpot) {
+        // The orientation goes out as `rotation_index`, so the response
+        // reports the box's actual footprint.
+        self.placements.push(
+            Placement::new_3d(
+                geom.id().clone(),
+                instance,
+                spot.x,
+                spot.y,
+                spot.z,
+                0.0,
+                0.0,
+                0.0,
+            )
+            .with_rotation_index(orientation),
+        );
+        self.cursor = spot.next;
+        self.volume += geom.measure();
+        self.mass += geom.mass().unwrap_or(0.0);
+    }
+
+    /// Places `instance` of `geom` turned to `orientation`, if it fits there.
+    pub fn place(&mut self, geom: &Geometry3D, instance: usize, orientation: usize) -> bool {
+        if !self.mass_allows(geom) {
+            return false;
+        }
+        let dims = geom.dimensions_for_orientation(orientation);
+        match self.spot([dims.x, dims.y, dims.z]) {
+            Some(spot) => {
+                self.commit(geom, instance, orientation, spot);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Places `instance` of `geom` in whichever allowed orientation keeps it
+    /// lowest, then nearest the front, then nearest the left, then flattest
+    /// (the first such orientation on a tie).
+    pub fn place_best(&mut self, geom: &Geometry3D, instance: usize) -> bool {
+        if !self.mass_allows(geom) {
+            return false;
+        }
+        let score = |spot: &LayerSpot, height: f64| {
+            spot.z * 1_000_000.0 + spot.y * 1000.0 + spot.x + height * 0.1
+        };
+        let mut best: Option<(usize, LayerSpot, f64)> = None;
+        for orientation in 0..geom.allowed_orientations().len() {
+            let dims = geom.dimensions_for_orientation(orientation);
+            if let Some(spot) = self.spot([dims.x, dims.y, dims.z]) {
+                let s = score(&spot, dims.z);
+                if best.is_none_or(|(_, _, b)| s < b) {
+                    best = Some((orientation, spot, s));
+                }
+            }
+        }
+        match best {
+            Some((orientation, spot, _)) => {
+                self.commit(geom, instance, orientation, spot);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// The boxes placed so far.
+    pub fn placed(&self) -> usize {
+        self.placements.len()
+    }
+
+    /// Fraction of the container volume the placed boxes fill.
+    pub fn utilization(&self) -> f64 {
+        self.volume / self.boundary.measure()
+    }
+
+    /// The placements, the utilization and the count placed.
+    pub fn finish(self) -> LayerPlacementResult {
+        LayerPlacementResult {
+            utilization: self.utilization(),
+            placed_count: self.placements.len(),
+            placements: self.placements,
+        }
+    }
+}
+
+/// Places items in the given order and orientations, layer by layer (see
+/// [`LayerFill`]). Shared by the GA, BRKGA and SA decoders.
 ///
-/// # Algorithm
-///
-/// For each item in the given order:
-/// 1. Get oriented dimensions
-/// 2. Check mass constraint
-/// 3. Try to fit in current row (x direction)
-/// 4. If not, move to next row (y direction)
-/// 5. If row doesn't fit, move to next layer (z direction)
-/// 6. If layer doesn't fit, skip item
-///
-/// # Arguments
-///
-/// * `items` - Ordered list of items with resolved orientations
-/// * `instances` - Instance mapping (geometry index, instance number)
-/// * `geometries` - Source geometry definitions
-/// * `boundary` - Container dimensions and constraints
-/// * `config` - Margin and spacing configuration
-/// * `cancelled` - Cancellation flag for early termination
+/// An item that does not fit, by size or by the container's mass, is
+/// skipped; a cancelled run stops placing.
 pub fn layer_place_items(
     items: &[PlacementItem],
     instances: &[InstanceInfo],
@@ -140,107 +318,74 @@ pub fn layer_place_items(
     config: &Config,
     cancelled: &Arc<AtomicBool>,
 ) -> LayerPlacementResult {
-    let mut placements = Vec::new();
-
-    let margin = config.margin;
-    let spacing = config.spacing;
-
-    let bound_max_x = boundary.width() - margin;
-    let bound_max_y = boundary.depth() - margin;
-    let bound_max_z = boundary.height() - margin;
-
-    let mut current_x = margin;
-    let mut current_y = margin;
-    let mut current_z = margin;
-    let mut row_depth = 0.0_f64;
-    let mut layer_height = 0.0_f64;
-
-    let mut total_placed_volume = 0.0;
-    let mut total_placed_mass = 0.0;
-    let mut placed_count = 0;
-
+    let mut fill = LayerFill::new(boundary, config);
     for item in items {
         if cancelled.load(Ordering::Relaxed) {
             break;
         }
-
-        if item.instance_idx >= instances.len() {
+        let Some(info) = instances.get(item.instance_idx) else {
             continue;
-        }
-
-        let info = &instances[item.instance_idx];
+        };
         let geom = &geometries[info.geometry_idx];
+        let orientation = item.orientation_idx % info.orientation_count.max(1);
+        fill.place(geom, info.instance_num, orientation);
+    }
+    fill.finish()
+}
 
-        let orientation_idx = item.orientation_idx % info.orientation_count.max(1);
-
-        // Get dimensions for this orientation
-        let dims = geom.dimensions_for_orientation(orientation_idx);
-        let g_width = dims.x;
-        let g_depth = dims.y;
-        let g_height = dims.z;
-
-        // Check mass constraint
-        if let (Some(max_mass), Some(item_mass)) = (boundary.max_mass(), geom.mass()) {
-            if total_placed_mass + item_mass > max_mass {
-                continue;
+/// The layer fill: every instance in request order (each geometry's
+/// instances in turn), each in its best orientation
+/// ([`LayerFill::place_best`]).
+///
+/// `stop` is asked before each instance; when it says so the fill ends with
+/// what it has placed, and the second value is `true`. `placed` hears of
+/// every box placed.
+pub fn layer_fill_in_order(
+    geometries: &[Geometry3D],
+    boundary: &Boundary3D,
+    config: &Config,
+    mut stop: impl FnMut() -> bool,
+    mut placed: impl FnMut(&LayerFill<'_>),
+) -> (LayerPlacementResult, bool) {
+    let mut fill = LayerFill::new(boundary, config);
+    for geom in geometries {
+        for instance in 0..geom.quantity() {
+            if stop() {
+                return (fill.finish(), true);
+            }
+            if fill.place_best(geom, instance) {
+                placed(&fill);
             }
         }
-
-        // Try to fit in current row
-        if current_x + g_width > bound_max_x {
-            current_x = margin;
-            current_y += row_depth + spacing;
-            row_depth = 0.0;
-        }
-
-        // Check if fits in current layer (y direction)
-        if current_y + g_depth > bound_max_y {
-            current_x = margin;
-            current_y = margin;
-            current_z += layer_height + spacing;
-            row_depth = 0.0;
-            layer_height = 0.0;
-        }
-
-        // Check if fits in container height
-        if current_z + g_height > bound_max_z {
-            continue;
-        }
-
-        // Place the item. Preserve the resolved orientation via `rotation_index` so the
-        // response reports the actual box footprint — without it, every rotated GA/BRKGA/SA
-        // placement reported the identity orientation and read as out-of-bounds downstream.
-        let placement = Placement::new_3d(
-            geom.id().clone(),
-            info.instance_num,
-            current_x,
-            current_y,
-            current_z,
-            0.0,
-            0.0,
-            0.0,
-        )
-        .with_rotation_index(orientation_idx);
-
-        placements.push(placement);
-        total_placed_volume += geom.measure();
-        if let Some(mass) = geom.mass() {
-            total_placed_mass += mass;
-        }
-        placed_count += 1;
-
-        // Update position for next item
-        current_x += g_width + spacing;
-        row_depth = row_depth.max(g_depth);
-        layer_height = layer_height.max(g_height);
     }
+    (fill.finish(), false)
+}
 
-    let utilization = total_placed_volume / boundary.measure();
-    LayerPlacementResult {
-        placements,
-        utilization,
-        placed_count,
-    }
+/// The orientation of each instance (in [`build_instances`] order) in
+/// `placements`; 0 for an instance they do not contain. Placing the instances
+/// in that order and those orientations with [`layer_place_items`] reproduces
+/// a layout [`layer_fill_in_order`] produced -- how a search starts from it.
+pub fn seed_orientations(
+    instances: &[InstanceInfo],
+    geometries: &[Geometry3D],
+    placements: &[Placement<f64>],
+) -> Vec<usize> {
+    let placed: std::collections::HashMap<(&str, usize), usize> = placements
+        .iter()
+        .map(|p| {
+            (
+                (p.geometry_id.as_str(), p.instance),
+                p.rotation_index.unwrap_or(0),
+            )
+        })
+        .collect();
+    instances
+        .iter()
+        .map(|info| {
+            let id = geometries[info.geometry_idx].id().as_str();
+            placed.get(&(id, info.instance_num)).copied().unwrap_or(0)
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -483,5 +628,106 @@ mod tests {
 
         // Max 2 boxes at 100kg each within 250kg limit
         assert!(result.placed_count <= 2);
+    }
+
+    /// A search starts from the layer fill by its genes: the instances in
+    /// request order with the orientations the fill chose decode back to the
+    /// fill's own layout, box for box.
+    #[test]
+    fn the_layer_fill_round_trips_through_the_decoder() {
+        use crate::geometry::OrientationConstraint::Any;
+        let geometries = vec![
+            Geometry3D::new("A", 30.0, 20.0, 10.0)
+                .with_quantity(3)
+                .with_orientation(Any),
+            Geometry3D::new("B", 45.0, 15.0, 15.0)
+                .with_quantity(2)
+                .with_orientation(Any),
+            Geometry3D::new("C", 70.0, 10.0, 10.0).with_orientation(Any),
+            Geometry3D::new("D", 25.0, 25.0, 25.0).with_quantity(4),
+        ];
+        let boundary = Boundary3D::new(60.0, 50.0, 40.0);
+        let config = Config::default().with_spacing(1.0).with_margin(2.0);
+        let (fill, stopped) =
+            layer_fill_in_order(&geometries, &boundary, &config, || false, |_| {});
+        assert!(!stopped);
+        assert!(fill.placed_count > 0);
+
+        let instances = build_instances(&geometries);
+        let orientations = seed_orientations(&instances, &geometries, &fill.placements);
+        let items: Vec<PlacementItem> = (0..instances.len())
+            .map(|i| PlacementItem {
+                instance_idx: i,
+                orientation_idx: orientations[i],
+            })
+            .collect();
+        let decoded = layer_place_items(
+            &items,
+            &instances,
+            &geometries,
+            &boundary,
+            &config,
+            &Arc::new(AtomicBool::new(false)),
+        );
+        let key = |p: &Placement<f64>| {
+            (
+                p.geometry_id.clone(),
+                p.instance,
+                p.position.clone(),
+                p.rotation_index,
+            )
+        };
+        assert_eq!(
+            decoded.placements.iter().map(key).collect::<Vec<_>>(),
+            fill.placements.iter().map(key).collect::<Vec<_>>()
+        );
+        assert_eq!(decoded.utilization.to_bits(), fill.utilization.to_bits());
+    }
+
+    /// A box that fits in no row or layer is skipped and leaves the fill
+    /// where it was: it is neither placed out of the container nor pushes the
+    /// boxes after it into a new layer.
+    #[test]
+    fn a_box_that_does_not_fit_is_skipped_without_moving_the_fill() {
+        let geometries = vec![
+            Geometry3D::new("small", 10.0, 10.0, 10.0),
+            Geometry3D::new("too_wide", 120.0, 10.0, 10.0),
+            Geometry3D::new("too_tall", 10.0, 10.0, 120.0),
+            Geometry3D::new("small2", 10.0, 10.0, 10.0),
+        ];
+        let boundary = Boundary3D::new(100.0, 100.0, 100.0);
+        let instances = build_instances(&geometries);
+        let items: Vec<PlacementItem> = (0..instances.len())
+            .map(|i| PlacementItem {
+                instance_idx: i,
+                orientation_idx: 0,
+            })
+            .collect();
+        let result = layer_place_items(
+            &items,
+            &instances,
+            &geometries,
+            &boundary,
+            &Config::default(),
+            &Arc::new(AtomicBool::new(false)),
+        );
+        let ids: Vec<&str> = result
+            .placements
+            .iter()
+            .map(|p| p.geometry_id.as_str())
+            .collect();
+        assert_eq!(ids, ["small", "small2"]);
+        assert_eq!(result.placements[1].position, vec![10.0, 0.0, 0.0]);
+    }
+
+    /// Two of three copies placed leaves the geometry unplaced.
+    #[test]
+    fn test_build_unplaced_list_counts_instances() {
+        let geometries = vec![Geometry3D::new("A", 10.0, 10.0, 10.0).with_quantity(3)];
+        let placements = vec![
+            Placement::new_3d("A".to_string(), 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            Placement::new_3d("A".to_string(), 2, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        ];
+        assert_eq!(build_unplaced_list(&placements, &geometries), vec!["A"]);
     }
 }

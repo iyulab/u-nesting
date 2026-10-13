@@ -250,6 +250,32 @@ impl Nester2D {
             .with_elite_bias(0.7)
     }
 
+    /// The GDRR run for `time_limit_ms`, drawing from the caller's seed.
+    fn gdrr_config(&self, time_limit_ms: u64) -> GdrrConfig {
+        GdrrConfig {
+            seed: self.config.seed,
+            ..GdrrConfig::default()
+                .with_max_iterations(1000) // Reduced from 5000 for faster execution
+                .with_time_limit_ms(time_limit_ms)
+                .with_ruin_ratio(0.1, 0.3) // Smaller ruin ratio for faster convergence
+                .with_lahc_list_length(30) // Smaller list for faster convergence
+        }
+    }
+
+    /// The ALNS run for `time_limit_ms`, drawing from the caller's seed.
+    fn alns_config(&self, time_limit_ms: u64) -> AlnsConfig {
+        AlnsConfig {
+            seed: self.config.seed,
+            ..AlnsConfig::default()
+                .with_max_iterations(1000) // Reduced from 5000 for faster execution
+                .with_time_limit_ms(time_limit_ms)
+                .with_segment_size(50) // Smaller segments for faster adaptation
+                .with_scores(33.0, 9.0, 13.0)
+                .with_reaction_factor(0.15) // Slightly higher for faster adaptation
+                .with_temperature(100.0, 0.999, 0.1) // Faster cooling
+        }
+    }
+
     /// Bottom-Left Fill algorithm implementation with rotation optimization.
     ///
     /// Intentionally does not enumerate mirror candidates (`allow_flip`):
@@ -503,31 +529,10 @@ impl Nester2D {
         let quality = |r: &SolveResult<f64>| solution_quality(r, geometries, boundary);
         // A baseline wins if it places strictly more pieces, or ties on count
         // while consuming a strictly shorter strip length.
-        let beats =
-            |a: (usize, f64), b: (usize, f64)| a.0 > b.0 || (a.0 == b.0 && a.1 < b.1 - 1e-6);
-        let mut best: Option<SolveResult<f64>> = None;
-        for baseline in baselines {
-            let current = best.as_ref().map_or(quality(&meta), quality);
-            if beats(quality(&baseline), current) {
-                best = Some(baseline);
-            }
-        }
-        match best {
-            // A baseline layout is better, so its placements are returned — but
-            // the search *did* run. Preserve its diagnostics (strategy label,
-            // generation/fitness history) so a caller inspecting the result still
-            // sees which strategy executed and how it converged. Only the
-            // placements are floored, not the provenance.
-            Some(mut floored) => {
-                floored.strategy = meta.strategy;
-                floored.generations = meta.generations;
-                floored.best_fitness = meta.best_fitness;
-                floored.fitness_history = meta.fitness_history;
-                floored.target_reached = meta.target_reached;
-                floored
-            }
-            None => meta,
-        }
+        meta.floored_at(baselines, |a, b| {
+            let (a, b) = (quality(a), quality(b));
+            a.0 > b.0 || (a.0 == b.0 && a.1 < b.1 - 1e-6)
+        })
     }
 
     /// The time a search strategy may spend on one strip: a quarter of the
@@ -671,17 +676,11 @@ impl Nester2D {
             let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
             (remaining, greedy)
         };
-        let gdrr_config = GdrrConfig::default()
-            .with_max_iterations(1000) // Reduced from 5000 for faster execution
-            .with_time_limit_ms(time_limit)
-            .with_ruin_ratio(0.1, 0.3) // Smaller ruin ratio for faster convergence
-            .with_lahc_list_length(30); // Smaller list for faster convergence
-
         let result = run_gdrr_nesting(
             geometries,
             boundary,
             &self.config,
-            &gdrr_config,
+            &self.gdrr_config(time_limit),
             self.cancelled.clone(),
         )?;
 
@@ -695,19 +694,11 @@ impl Nester2D {
             let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
             (remaining, greedy)
         };
-        let alns_config = AlnsConfig::default()
-            .with_max_iterations(1000) // Reduced from 5000 for faster execution
-            .with_time_limit_ms(time_limit)
-            .with_segment_size(50) // Smaller segments for faster adaptation
-            .with_scores(33.0, 9.0, 13.0)
-            .with_reaction_factor(0.15) // Slightly higher for faster adaptation
-            .with_temperature(100.0, 0.999, 0.1); // Faster cooling
-
         let result = run_alns_nesting(
             geometries,
             boundary,
             &self.config,
-            &alns_config,
+            &self.alns_config(time_limit),
             self.cancelled.clone(),
         )?;
 
@@ -1704,6 +1695,19 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn the_seed_reaches_the_searches_that_build_their_own_run() {
+        // GA, BRKGA and SA read `config.seed` from the configuration they are
+        // given; GDRR and ALNS run on a configuration of their own, which
+        // used to leave the seed out.
+        let seeded = Nester2D::new(Config::default().with_seed(7));
+        assert_eq!(seeded.gdrr_config(1000).seed, Some(7));
+        assert_eq!(seeded.alns_config(1000).seed, Some(7));
+        let unseeded = Nester2D::default_config();
+        assert_eq!(unseeded.gdrr_config(1000).seed, None);
+        assert_eq!(unseeded.alns_config(1000).seed, None);
     }
 
     /// A population or generation budget the caller sets is the one the

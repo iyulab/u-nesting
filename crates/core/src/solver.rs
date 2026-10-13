@@ -35,13 +35,9 @@ pub enum Strategy {
 }
 
 impl Strategy {
-    /// Parses a strategy name (case-insensitive, whitespace-trimmed).
-    ///
-    /// Returns `None` for unrecognized names so callers surface an explicit
-    /// error instead of silently falling back to a default strategy (which
-    /// hides typos from consumers). This is the single source of truth for
-    /// strategy-name parsing across all bindings (C FFI, Python, WASM).
-    /// The names [`Strategy::parse`] reads, one per strategy.
+    /// The short name of each strategy -- what a refusal of an unknown name
+    /// lists as expected. [`Strategy::parse`] reads these and the longer
+    /// forms in [`Strategy::SPELLINGS`].
     pub const NAMES: [&'static str; 10] = [
         "blf",
         "nfp",
@@ -55,20 +51,41 @@ impl Strategy {
         "hybridexact",
     ];
 
+    /// Every spelling [`Strategy::parse`] reads, with the strategy it names:
+    /// the [`Strategy::NAMES`] and their longer forms.
+    pub const SPELLINGS: [(&'static str, Self); 18] = [
+        ("blf", Self::BottomLeftFill),
+        ("bottomleftfill", Self::BottomLeftFill),
+        ("nfp", Self::NfpGuided),
+        ("nfpguided", Self::NfpGuided),
+        ("ga", Self::GeneticAlgorithm),
+        ("genetic", Self::GeneticAlgorithm),
+        ("geneticalgorithm", Self::GeneticAlgorithm),
+        ("brkga", Self::Brkga),
+        ("sa", Self::SimulatedAnnealing),
+        ("simulatedannealing", Self::SimulatedAnnealing),
+        ("ep", Self::ExtremePoint),
+        ("extremepoint", Self::ExtremePoint),
+        ("gdrr", Self::Gdrr),
+        ("alns", Self::Alns),
+        ("milpexact", Self::MilpExact),
+        ("exact", Self::MilpExact),
+        ("hybridexact", Self::HybridExact),
+        ("hybrid", Self::HybridExact),
+    ];
+
+    /// Parses a strategy name (case-insensitive, whitespace-trimmed).
+    ///
+    /// Returns `None` for unrecognized names so callers surface an explicit
+    /// error instead of silently falling back to a default strategy (which
+    /// hides typos from consumers). This is the single source of truth for
+    /// strategy-name parsing across all bindings (C FFI, Python, WASM).
     pub fn parse(name: &str) -> Option<Self> {
-        match name.trim().to_lowercase().as_str() {
-            "blf" | "bottomleftfill" => Some(Self::BottomLeftFill),
-            "nfp" | "nfpguided" => Some(Self::NfpGuided),
-            "ga" | "genetic" | "geneticalgorithm" => Some(Self::GeneticAlgorithm),
-            "brkga" => Some(Self::Brkga),
-            "sa" | "simulatedannealing" => Some(Self::SimulatedAnnealing),
-            "ep" | "extremepoint" => Some(Self::ExtremePoint),
-            "gdrr" => Some(Self::Gdrr),
-            "alns" => Some(Self::Alns),
-            "milpexact" | "exact" => Some(Self::MilpExact),
-            "hybridexact" | "hybrid" => Some(Self::HybridExact),
-            _ => None,
-        }
+        let name = name.trim().to_lowercase();
+        Self::SPELLINGS
+            .iter()
+            .find(|(spelling, _)| *spelling == name)
+            .map(|&(_, strategy)| strategy)
     }
 }
 
@@ -125,7 +142,18 @@ pub struct Config {
     pub elite_count: usize,
 
     /// Optional RNG seed for reproducible runs of the stochastic strategies
-    /// (GA, BRKGA, SA). `None` seeds from system entropy (non-deterministic).
+    /// (GA, BRKGA, SA, GDRR, ALNS -- 2D and 3D). `None` seeds from system
+    /// entropy (non-deterministic).
+    ///
+    /// A seeded run draws every random choice from the seed, so the same
+    /// request with the same seed returns the same layout **when the run ends
+    /// on its own budget** -- the generation or iteration count, convergence,
+    /// or the target utilization. A run cut short by the clock is not
+    /// reproduced: how far a search gets before `time_limit_ms` (or a
+    /// cancellation) stops it depends on the machine and its load. In 2D a
+    /// search keeps a time budget of its own even when `time_limit_ms` is 0
+    /// (15 s for GA and BRKGA, 10 s for SA, GDRR and ALNS), so a large 2D
+    /// request can reach it.
     pub seed: Option<u64>,
 }
 
@@ -212,7 +240,7 @@ impl Config {
         self
     }
 
-    /// Sets the RNG seed for reproducible stochastic runs (GA, BRKGA, SA).
+    /// Sets the RNG seed for reproducible stochastic runs (see [`Config::seed`]).
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = Some(seed);
         self

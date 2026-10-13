@@ -268,6 +268,34 @@ impl RandomKeyChromosome {
         let key = self.keys[key_idx].clamp(0.0, 0.9999999);
         (key * num_options as f64) as usize
     }
+
+    /// The key [`Self::decode_as_discrete`] reads as `choice` of `num_options`
+    /// -- how a known solution is written into a chromosome.
+    ///
+    /// `decode_as_discrete` maps the interval
+    /// `[choice / num_options, (choice + 1) / num_options)` to `choice`; this
+    /// is its midpoint, the furthest a key can be from either edge, so a
+    /// crossover that nudges it still decodes as the same choice.
+    pub fn discrete_key(choice: usize, num_options: usize) -> f64 {
+        if num_options == 0 {
+            return 0.0;
+        }
+        (((choice as f64) + 0.5) / num_options as f64).clamp(0.0, 0.9999999)
+    }
+
+    /// The keys [`Self::decode_as_permutation`] reads back as `order` --
+    /// `order[rank]` is the item placed `rank`-th. Items `order` leaves out
+    /// keep key 0.
+    pub fn permutation_keys(order: &[usize], num_items: usize) -> Vec<f64> {
+        let mut keys = vec![0.0; num_items];
+        let span = order.len().max(1) as f64;
+        for (rank, &item) in order.iter().enumerate() {
+            if let Some(key) = keys.get_mut(item) {
+                *key = ((rank as f64 + 0.5) / span).clamp(0.0, 0.9999999);
+            }
+        }
+        keys
+    }
 }
 
 /// Trait for BRKGA problem-specific operations.

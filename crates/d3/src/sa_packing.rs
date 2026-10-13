@@ -14,8 +14,8 @@
 use crate::boundary::Boundary3D;
 use crate::geometry::Geometry3D;
 use crate::packing_utils::{
-    build_instances, build_unplaced_list, layer_place_items, packing_fitness, InstanceInfo,
-    PlacementItem,
+    build_instances, build_unplaced_list, layer_place_items, packing_fitness, seed_orientations,
+    InstanceInfo, PlacementItem,
 };
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -39,6 +39,8 @@ pub struct SaPackingProblem {
     max_orientation_count: usize,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
+    /// The solution of the layout the search starts from, when there is one.
+    seed: Option<PermutationSolution>,
 }
 
 impl SaPackingProblem {
@@ -63,7 +65,25 @@ impl SaPackingProblem {
             instances,
             max_orientation_count,
             cancelled,
+            seed: None,
         }
+    }
+
+    /// Starts the search from `placements` -- a layer fill's layout: the
+    /// instances in request order, each in the orientation the layout gave
+    /// it, which decodes back to that layout.
+    pub fn with_seed_layout(
+        mut self,
+        placements: Option<&[u_nesting_core::Placement<f64>]>,
+    ) -> Self {
+        self.seed = placements.map(|p| {
+            let mut seed =
+                PermutationSolution::new(self.instances.len(), self.max_orientation_count);
+            // The sequence is the identity, so position i holds instance i.
+            seed.rotations = seed_orientations(&self.instances, &self.geometries, p);
+            seed
+        });
+        self
     }
 
     /// Returns the total number of instances.
@@ -107,7 +127,13 @@ impl SaProblem for SaPackingProblem {
     type Solution = PermutationSolution;
 
     fn initial_solution<R: rand::Rng>(&self, rng: &mut R) -> Self::Solution {
-        PermutationSolution::random(self.instances.len(), self.max_orientation_count, rng)
+        match &self.seed {
+            // Start from the seed layout, when there is one.
+            Some(seed) => seed.clone(),
+            None => {
+                PermutationSolution::random(self.instances.len(), self.max_orientation_count, rng)
+            }
+        }
     }
 
     fn neighbor<R: rand::Rng>(
@@ -171,7 +197,8 @@ impl SaProblem for SaPackingProblem {
     }
 }
 
-/// Runs SA-based 3D bin packing optimization.
+/// Runs SA-based 3D bin packing optimization, from `seed_layout` when there
+/// is one, drawing its random choices from `config.seed` when that is set.
 ///
 /// # Errors
 /// `ConfigError` when the algorithm configuration is out of range.
@@ -181,17 +208,25 @@ pub fn run_sa_packing(
     config: &Config,
     sa_config: SaConfig,
     cancelled: Arc<AtomicBool>,
+    seed_layout: Option<&[u_nesting_core::Placement<f64>]>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = SaPackingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
         config.clone(),
         cancelled.clone(),
-    );
+    )
+    .with_seed_layout(seed_layout);
 
     let runner = SaRunner::with_cancellation(sa_config, problem, cancelled.clone())?;
 
-    let sa_result = runner.run();
+    let sa_result = match config.seed {
+        Some(seed) => {
+            use rand::SeedableRng;
+            runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed))
+        }
+        None => runner.run(),
+    };
 
     // Decode the best solution
     let problem = SaPackingProblem::new(
@@ -246,6 +281,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -271,6 +307,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -301,6 +338,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
@@ -352,6 +390,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid config");
 
