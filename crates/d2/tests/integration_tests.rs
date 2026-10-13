@@ -938,8 +938,11 @@ mod bucket_b_tests {
             .with_flip(true)
             .with_quantity(2);
         let config = Config::default().with_spacing(0.5);
+        // The solve ends as soon as it is optimal (~12 s alone); the limit only
+        // has to outlast a loaded machine running the rest of the suite in
+        // parallel, where 20 s ran out with one instance still unplaced.
         let exact_config = ExactConfig::default()
-            .with_time_limit_ms(20_000)
+            .with_time_limit_ms(120_000)
             .with_rotation_steps(4)
             .with_grid_step(10.0);
         let result = run_nfp_cm_nesting(
