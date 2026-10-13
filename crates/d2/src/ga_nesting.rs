@@ -548,7 +548,11 @@ impl GaProblem for NestingProblem {
     }
 }
 
-/// Runs GA-based nesting optimization.
+/// Runs GA-based nesting optimization, reporting each generation to
+/// `progress` when one is given.
+///
+/// A progress callback only observes the run: the same arguments with the
+/// same `config.seed` give the same layout with or without one.
 ///
 /// # Errors
 /// `ConfigError` when the algorithm configuration is out of range.
@@ -559,7 +563,11 @@ pub fn run_ga_nesting(
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[Placement<f64>]>,
+    progress: Option<ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
+    let total_items = geometries.iter().map(|g| g.quantity()).sum::<usize>();
+    let max_generations = ga_config.max_generations;
+
     let problem = NestingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -572,114 +580,30 @@ pub fn run_ga_nesting(
 
     let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone())?;
 
-    // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
-    // system entropy (non-deterministic).
-    let ga_result = match config.seed {
-        Some(seed) => runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed)),
-        None => runner.run(),
-    };
-
-    // Decode the best chromosome to get final placements
-    let problem = NestingProblem::new(
-        geometries.to_vec(),
-        boundary.clone(),
-        config.clone(),
-        Arc::new(AtomicBool::new(false)),
-    );
-
-    // The search kept its best decoded layout; decode again only if it has none.
-    let (placements, utilization) = match take_best(&best_layout) {
-        Some(best) => (best.placements, best.utilization),
-        None => {
-            let (placements, utilization, _) = problem.decode(&ga_result.best);
-            (placements, utilization)
+    let progress = progress.map(|callback| {
+        move |ga_progress: GaProgress<f64>| {
+            let info = ProgressInfo::new()
+                .with_iteration(ga_progress.generation, max_generations)
+                .with_fitness(ga_progress.best_fitness)
+                .with_utilization(ga_progress.best_fitness) // fitness is utilization
+                .with_items(0, total_items) // we don't track placed count during GA
+                .with_elapsed(ga_progress.elapsed.as_millis() as u64)
+                .with_phase("Genetic Algorithm".to_string());
+            callback(if ga_progress.running {
+                info
+            } else {
+                info.finished()
+            });
         }
-    };
+    });
 
-    // Build unplaced list
-    let mut unplaced = Vec::new();
-    let mut placed_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    for p in &placements {
-        placed_ids.insert(p.geometry_id.clone());
-    }
-    for geom in geometries {
-        if !placed_ids.contains(geom.id()) {
-            unplaced.push(geom.id().clone());
-        }
-    }
-
-    let mut result = SolveResult::new();
-    result.placements = placements;
-    result.unplaced = unplaced;
-    result.boundaries_used = 1;
-    result.utilization = utilization;
-    result.computation_time_ms = ga_result.elapsed.as_millis() as u64;
-    result.generations = Some(ga_result.generations);
-    result.best_fitness = Some(ga_result.best.fitness());
-    result.fitness_history = Some(ga_result.history);
-    result.strategy = Some("GeneticAlgorithm".to_string());
-    result.cancelled = cancelled.load(Ordering::Relaxed);
-    result.target_reached = ga_result.target_reached;
-
-    Ok(result)
-}
-
-/// Runs GA-based nesting optimization with progress callback.
-///
-/// # Errors
-/// `ConfigError` when the algorithm configuration is out of range.
-pub fn run_ga_nesting_with_progress(
-    geometries: &[Geometry2D],
-    boundary: &Boundary2D,
-    config: &Config,
-    ga_config: GaConfig,
-    cancelled: Arc<AtomicBool>,
-    progress_callback: ProgressCallback,
-    seed_layout: Option<&[Placement<f64>]>,
-) -> u_nesting_core::Result<SolveResult<f64>> {
-    let total_items = geometries.iter().map(|g| g.quantity()).sum::<usize>();
-
-    let problem = NestingProblem::new(
-        geometries.to_vec(),
-        boundary.clone(),
-        config.clone(),
-        cancelled.clone(),
-    )
-    .with_time_limit(ga_config.time_limit)
-    .with_seed_layout(seed_layout);
-    let best_layout = problem.best_layout();
-
-    let runner = GaRunner::with_cancellation(ga_config.clone(), problem, cancelled.clone())?;
-
-    // Run GA with progress callback adapter. Thread `config.seed` through so the
-    // callback-driven path is as reproducible as the plain `run_ga_nesting` path
-    // — without this the progress runner fell back to system entropy and a seeded
-    // solve was non-deterministic whenever a progress callback was supplied
-    // (FFI `solve_2d_with_callback`, the WASM/demo path).
-    let max_generations = ga_config.max_generations;
-    let progress_adapter = move |ga_progress: GaProgress<f64>| {
-        let info = ProgressInfo::new()
-            .with_iteration(ga_progress.generation, max_generations)
-            .with_fitness(ga_progress.best_fitness)
-            .with_utilization(ga_progress.best_fitness) // fitness is utilization
-            .with_items(0, total_items) // we don't track placed count during GA
-            .with_elapsed(ga_progress.elapsed.as_millis() as u64)
-            .with_phase("Genetic Algorithm".to_string());
-
-        let info = if !ga_progress.running {
-            info.finished()
-        } else {
-            info
-        };
-
-        progress_callback(info);
-    };
+    // `config.seed` draws every random choice from the seed; without one the
+    // run draws from system entropy (non-deterministic).
     let ga_result = match config.seed {
-        Some(seed) => runner.run_with_rng_and_progress(
-            &mut rand::rngs::StdRng::seed_from_u64(seed),
-            Some(progress_adapter),
-        ),
-        None => runner.run_with_progress(progress_adapter),
+        Some(seed) => {
+            runner.run_with_rng_and_progress(&mut rand::rngs::StdRng::seed_from_u64(seed), progress)
+        }
+        None => runner.run_with_rng_and_progress(&mut rand::rng(), progress),
     };
 
     // Decode the best chromosome to get final placements
@@ -926,6 +850,7 @@ mod tests {
             ga_config,
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         )
         .expect("valid config");
 
@@ -949,6 +874,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -977,6 +903,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");

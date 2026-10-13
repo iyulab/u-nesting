@@ -4,7 +4,7 @@ use crate::alns_nesting::run_alns_nesting;
 use crate::boundary::Boundary2D;
 use crate::brkga_nesting::run_brkga_nesting;
 use crate::clamp_placement_to_boundary_with_margin;
-use crate::ga_nesting::{run_ga_nesting, run_ga_nesting_with_progress};
+use crate::ga_nesting::run_ga_nesting;
 use crate::gdrr_nesting::run_gdrr_nesting;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
@@ -184,10 +184,26 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
+        self.run_strategy_reporting(geometries, boundary, None)
+    }
+
+    /// [`Self::run_strategy`], reporting to `progress` where the strategy
+    /// reports progress (bottom-left fill, NFP-guided, GA). The run is the
+    /// same with or without a callback; the other strategies run without one.
+    fn run_strategy_reporting(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        progress: Option<ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
         match self.config.strategy {
-            Strategy::BottomLeftFill => self.bottom_left_fill(geometries, boundary),
-            Strategy::NfpGuided => self.nfp_guided_blf(geometries, boundary),
-            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
+            Strategy::BottomLeftFill => {
+                self.bottom_left_fill_impl(geometries, boundary, progress.as_ref())
+            }
+            Strategy::NfpGuided => {
+                self.nfp_guided_blf_impl(geometries, boundary, progress.as_ref())
+            }
+            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary, progress),
             Strategy::Brkga => self.brkga(geometries, boundary),
             Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
             Strategy::Gdrr => self.gdrr(geometries, boundary),
@@ -302,10 +318,34 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
+        self.nfp_guided_blf_impl(geometries, boundary, None)
+    }
+
+    /// The NFP-guided placement both entry points run; `callback` hears of
+    /// each placed piece and of the end of the run.
+    fn nfp_guided_blf_impl(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        callback: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
         let start = Timer::now();
         let mut result = SolveResult::new();
         let mut placements = Vec::new();
         let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
+        let report = |info: ProgressInfo| {
+            if let Some(callback) = callback {
+                callback(info);
+            }
+        };
+        let total_pieces: usize = geometries.iter().map(|g| g.quantity()).sum();
+        let mut placed_count = 0usize;
+        report(
+            ProgressInfo::new()
+                .with_phase("NFP Placement")
+                .with_items(0, total_pieces)
+                .with_elapsed(0),
+        );
 
         let margin = self.config.margin;
         let spacing = self.config.spacing;
@@ -330,6 +370,13 @@ impl Nester2D {
             for instance in 0..geom.quantity() {
                 if self.cancelled.load(Ordering::Relaxed) {
                     result.computation_time_ms = start.elapsed_ms();
+                    report(
+                        ProgressInfo::new()
+                            .with_phase("Cancelled")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
@@ -340,6 +387,13 @@ impl Nester2D {
                     result.utilization = total_placed_area / boundary.measure();
                     result.computation_time_ms = start.elapsed_ms();
                     result.placements = placements;
+                    report(
+                        ProgressInfo::new()
+                            .with_phase("Time Limit Reached")
+                            .with_items(placed_count, total_pieces)
+                            .with_elapsed(result.computation_time_ms)
+                            .finished(),
+                    );
                     return Ok(result);
                 }
 
@@ -467,6 +521,14 @@ impl Nester2D {
                                 .with_mirrored(mirror),
                         );
                         total_placed_area += geom.measure();
+                        placed_count += 1;
+                        report(
+                            ProgressInfo::new()
+                                .with_phase("NFP Placement")
+                                .with_items(placed_count, total_pieces)
+                                .with_utilization(total_placed_area / boundary.measure())
+                                .with_elapsed(start.elapsed_ms()),
+                        );
                     } else {
                         // Could not place - geometry doesn't fit
                         result.unplaced.push(geom.id().clone());
@@ -482,6 +544,14 @@ impl Nester2D {
         result.boundaries_used = 1;
         result.utilization = total_placed_area / boundary.measure();
         result.computation_time_ms = start.elapsed_ms();
+        report(
+            ProgressInfo::new()
+                .with_phase("Complete")
+                .with_items(placed_count, total_pieces)
+                .with_utilization(result.utilization)
+                .with_elapsed(result.computation_time_ms)
+                .finished(),
+        );
 
         Ok(result)
     }
@@ -580,11 +650,14 @@ impl Nester2D {
     /// Genetic Algorithm based nesting optimization.
     ///
     /// Uses GA to optimize placement order and rotations, with NFP-guided
-    /// decoding for collision-free placements.
+    /// decoding for collision-free placements. `progress` hears of each
+    /// generation; the run -- its time budget, greedy start and floor -- is
+    /// the same with or without it.
     fn genetic_algorithm(
         &self,
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
+        progress: Option<ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let (time_limit_ms, greedy) = {
             let budget = self.search_budget_ms(15000);
@@ -603,6 +676,7 @@ impl Nester2D {
             ga_config,
             self.cancelled.clone(),
             greedy.as_ref().map(|g| g.placements.as_slice()),
+            progress,
         )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
@@ -777,19 +851,6 @@ impl Nester2D {
 
         // Fallback to ALNS (best heuristic)
         self.alns(geometries, boundary)
-    }
-
-    /// Bottom-Left Fill with progress callback.
-    ///
-    /// Same AABB-only reasoning as `bottom_left_fill` — mirror candidates are
-    /// intentionally not enumerated here, see that function's doc comment.
-    fn bottom_left_fill_with_progress(
-        &self,
-        geometries: &[Geometry2D],
-        boundary: &Boundary2D,
-        callback: &ProgressCallback,
-    ) -> Result<SolveResult<f64>> {
-        self.bottom_left_fill_impl(geometries, boundary, Some(callback))
     }
 
     /// The bottom-left fill both entry points run.
@@ -1076,221 +1137,6 @@ impl Nester2D {
         Ok(result)
     }
 
-    /// NFP-guided BLF with progress callback.
-    fn nfp_guided_blf_with_progress(
-        &self,
-        geometries: &[Geometry2D],
-        boundary: &Boundary2D,
-        callback: &ProgressCallback,
-    ) -> Result<SolveResult<f64>> {
-        let start = Timer::now();
-        let mut result = SolveResult::new();
-        let mut placements = Vec::new();
-        let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
-
-        let margin = self.config.margin;
-        let spacing = self.config.spacing;
-        let boundary_polygon = inset_boundary(boundary, margin);
-
-        let mut total_placed_area = 0.0;
-        let sample_step = self.compute_sample_step(geometries);
-
-        // Count total pieces for progress
-        let total_pieces: usize = geometries.iter().map(|g| g.quantity()).sum();
-        let mut placed_count = 0usize;
-
-        // Initial progress callback
-        callback(
-            ProgressInfo::new()
-                .with_phase("NFP Placement")
-                .with_items(0, total_pieces)
-                .with_elapsed(0),
-        );
-
-        for geom in geometries {
-            geom.validate()?;
-
-            // Never empty: `validate` refuses an empty angle list.
-            let rotation_angles: Vec<f64> = geom.rotations();
-
-            let mirror_candidates = mirror_candidates(geom);
-
-            for instance in 0..geom.quantity() {
-                if self.cancelled.load(Ordering::Relaxed) {
-                    result.computation_time_ms = start.elapsed_ms();
-                    callback(
-                        ProgressInfo::new()
-                            .with_phase("Cancelled")
-                            .with_items(placed_count, total_pieces)
-                            .with_elapsed(result.computation_time_ms)
-                            .finished(),
-                    );
-                    return Ok(result);
-                }
-
-                // Check time limit (0 = unlimited)
-                if self.config.time_limit_ms > 0 && start.elapsed_ms() >= self.config.time_limit_ms
-                {
-                    result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
-                    result.utilization = total_placed_area / boundary.measure();
-                    result.computation_time_ms = start.elapsed_ms();
-                    result.placements = placements;
-                    callback(
-                        ProgressInfo::new()
-                            .with_phase("Time Limit Reached")
-                            .with_items(placed_count, total_pieces)
-                            .with_elapsed(result.computation_time_ms)
-                            .finished(),
-                    );
-                    return Ok(result);
-                }
-
-                let mut best_placement: Option<(f64, f64, f64, bool)> = None;
-
-                for &rotation in &rotation_angles {
-                    for &mirror in mirror_candidates {
-                        let ifp = match compute_ifp_with_margin_and_mirror(
-                            &boundary_polygon,
-                            geom,
-                            rotation,
-                            // The boundary polygon is already inset by `margin`.
-                            0.0,
-                            mirror,
-                        ) {
-                            Ok(ifp) => ifp,
-                            Err(_) => continue,
-                        };
-
-                        if ifp.is_empty() {
-                            continue;
-                        }
-
-                        let mut nfps: Vec<Nfp> = Vec::new();
-                        for placed in &placed_geometries {
-                            // Use cache for NFP computation
-                            let cache_key = (
-                                placed.geometry.id().as_str(),
-                                geom.id().as_str(),
-                                rotation - placed.rotation,
-                                placed.mirrored,
-                                mirror,
-                            );
-
-                            // Compute NFP at origin and cache it (with relative rotation)
-                            // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
-                            let nfp_at_origin =
-                                match self.nfp_cache.get_or_compute_mirrored(cache_key, || {
-                                    let placed_at_origin = placed.geometry.clone();
-                                    compute_nfp_mirrored(
-                                        &placed_at_origin,
-                                        geom,
-                                        rotation - placed.rotation,
-                                        placed.mirrored,
-                                        mirror,
-                                    )
-                                    // Grown by `spacing` before caching: an offset commutes with the
-                                    // rotation and translation below, and `config` never changes for
-                                    // this nester, so the cache never holds an NFP for another spacing.
-                                    .map(|nfp| offset_nfp(&nfp, spacing))
-                                }) {
-                                    Ok(nfp) => nfp,
-                                    Err(_) => continue,
-                                };
-
-                            // Transform NFP: first rotate by placed.rotation, then translate
-                            let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
-                            let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
-                            nfps.push(translated_nfp);
-                        }
-
-                        // `spacing` separates pieces from each other, not from the boundary —
-                        // clearance to the edge is `margin`, already applied to the boundary.
-                        nfps.extend(hole_nfps(boundary, geom, rotation, mirror, margin));
-                        let nfp_refs: Vec<&Nfp> = nfps.iter().collect();
-
-                        if let Some((x, y)) = find_bottom_left_placement(
-                            &ifp,
-                            &nfp_refs,
-                            sample_step,
-                            PackingAxis::of(boundary),
-                        ) {
-                            let is_better =
-                                match best_placement {
-                                    None => true,
-                                    Some((best_x, best_y, _, _)) => PackingAxis::of(boundary)
-                                        .precedes((x, y), (best_x, best_y), 1e-6),
-                                };
-                            if is_better {
-                                best_placement = Some((x, y, rotation, mirror));
-                            }
-                        }
-                    }
-                }
-
-                if let Some((x, y, rotation, mirror)) = best_placement {
-                    // Clamp to ensure geometry stays within boundary
-                    // (mirror-aware — see the same fix in `nfp_guided_blf`).
-                    let geom_aabb = geom.aabb_at_rotation_mirrored(rotation, mirror);
-                    let boundary_aabb = boundary.aabb();
-
-                    if let Some((clamped_x, clamped_y)) = clamp_placement_to_boundary_with_margin(
-                        x,
-                        y,
-                        geom_aabb,
-                        boundary_aabb,
-                        margin,
-                    ) {
-                        let placement = Placement::new_2d(
-                            geom.id().clone(),
-                            instance,
-                            clamped_x,
-                            clamped_y,
-                            rotation,
-                        )
-                        .with_mirrored(mirror);
-                        placements.push(placement);
-                        placed_geometries.push(
-                            PlacedGeometry::new(geom.clone(), (clamped_x, clamped_y), rotation)
-                                .with_mirrored(mirror),
-                        );
-                        total_placed_area += geom.measure();
-                        placed_count += 1;
-
-                        // Progress callback every piece
-                        callback(
-                            ProgressInfo::new()
-                                .with_phase("NFP Placement")
-                                .with_items(placed_count, total_pieces)
-                                .with_utilization(total_placed_area / boundary.measure())
-                                .with_elapsed(start.elapsed_ms()),
-                        );
-                    } else {
-                        result.unplaced.push(geom.id().clone());
-                    }
-                } else {
-                    result.unplaced.push(geom.id().clone());
-                }
-            }
-        }
-
-        result.placements = placements;
-        result.boundaries_used = 1;
-        result.utilization = total_placed_area / boundary.measure();
-        result.computation_time_ms = start.elapsed_ms();
-
-        // Final progress callback
-        callback(
-            ProgressInfo::new()
-                .with_phase("Complete")
-                .with_items(placed_count, total_pieces)
-                .with_utilization(result.utilization)
-                .with_elapsed(result.computation_time_ms)
-                .finished(),
-        );
-
-        Ok(result)
-    }
-
     /// Solves nesting with automatic multi-strip support.
     ///
     /// When items don't fit in a single strip, automatically creates additional strips.
@@ -1479,15 +1325,15 @@ impl Nester2D {
     }
 }
 
-impl Solver for Nester2D {
-    type Geometry = Geometry2D;
-    type Boundary = Boundary2D;
-    type Scalar = f64;
-
-    fn solve(
+impl Nester2D {
+    /// The solve both [`Solver`] entry points run: the same checks, strategy
+    /// run and placement filtering, with `progress` told of the run where the
+    /// strategy reports it.
+    fn solve_reporting(
         &self,
-        geometries: &[Self::Geometry],
-        boundary: &Self::Boundary,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        progress: Option<ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         boundary.validate()?;
         self.validate_geometries(geometries)?;
@@ -1495,7 +1341,7 @@ impl Solver for Nester2D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        let initial_result = self.run_strategy(geometries, boundary)?;
+        let initial_result = self.run_strategy_reporting(geometries, boundary, progress)?;
 
         // Validate all placements and remove any that are outside the boundary
         let mut result = validate_and_filter_placements(
@@ -1512,6 +1358,20 @@ impl Solver for Nester2D {
         result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
         Ok(result)
     }
+}
+
+impl Solver for Nester2D {
+    type Geometry = Geometry2D;
+    type Boundary = Boundary2D;
+    type Scalar = f64;
+
+    fn solve(
+        &self,
+        geometries: &[Self::Geometry],
+        boundary: &Self::Boundary,
+    ) -> Result<SolveResult<f64>> {
+        self.solve_reporting(geometries, boundary, None)
+    }
 
     fn solve_with_progress(
         &self,
@@ -1519,67 +1379,7 @@ impl Solver for Nester2D {
         boundary: &Self::Boundary,
         callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
-        boundary.validate()?;
-        self.validate_geometries(geometries)?;
-
-        // Reset cancellation flag
-        self.cancelled.store(false, Ordering::Relaxed);
-
-        let initial_result = match self.config.strategy {
-            Strategy::BottomLeftFill => {
-                self.bottom_left_fill_with_progress(geometries, boundary, &callback)?
-            }
-            Strategy::NfpGuided => {
-                self.nfp_guided_blf_with_progress(geometries, boundary, &callback)?
-            }
-            Strategy::GeneticAlgorithm => {
-                // The same run as the non-progress `genetic_algorithm` path,
-                // after the same greedy start, inside the limit.
-                let (greedy, remaining) =
-                    self.greedy_start(geometries, boundary, self.config.time_limit_ms);
-                let mut ga_config = self.ga_config();
-
-                // Apply time limit if specified
-                if self.config.time_limit_ms > 0 {
-                    ga_config =
-                        ga_config.with_time_limit(std::time::Duration::from_millis(remaining));
-                }
-
-                let ga_result = run_ga_nesting_with_progress(
-                    geometries,
-                    boundary,
-                    &self.config,
-                    ga_config,
-                    self.cancelled.clone(),
-                    callback,
-                    greedy.as_ref().map(|g| g.placements.as_slice()),
-                )?;
-                // Same BLF floor as the non-progress path: never return a
-                // layout worse than deterministic bottom-left-fill. The
-                // callback-driven entry points (FFI `solve_2d_with_callback`,
-                // WASM/demo) route through here, so the guard must apply here too.
-                self.not_worse_than_baselines(ga_result, geometries, boundary, greedy)
-            }
-            // The other strategies have no progress reporting yet: run the
-            // strategy that was asked for, without progress, rather than a
-            // different one that reports it.
-            _ => self.run_strategy(geometries, boundary)?,
-        };
-
-        // Validate all placements and remove any that are outside the boundary
-        let mut result = validate_and_filter_placements(
-            initial_result,
-            geometries,
-            boundary,
-            self.config.margin,
-        );
-
-        // Remove duplicate entries from unplaced list
-        result.deduplicate_unplaced();
-        // Authoritative instance-level request total (Σ quantity), recorded once
-        // at the top-level entry point where `geometries` is the full request.
-        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
-        Ok(result)
+        self.solve_reporting(geometries, boundary, Some(callback))
     }
 
     fn cancel(&self) {
@@ -1773,6 +1573,78 @@ mod tests {
         let unset = reports(Config::default());
         assert!(!unset.is_empty());
         assert!(unset.iter().all(|&(_, total)| total == 50), "{unset:?}");
+    }
+
+    /// A progress callback only observes a solve: the same request with the
+    /// same seed gives the same layout through `solve` and
+    /// `solve_with_progress`. The searches end on their generation budget,
+    /// not on the clock, so the comparison does not depend on the machine.
+    /// The progress path used to give the genetic search the whole time
+    /// limit (none at all when it was 0) where `solve` gives it a per-strip
+    /// budget.
+    #[test]
+    fn a_progress_callback_does_not_change_the_solve() {
+        let geometries = [
+            Geometry2D::rectangle("A", 30.0, 12.0)
+                .with_quantity(3)
+                .with_rotations_deg(vec![0.0, 90.0]),
+            Geometry2D::rectangle("B", 18.0, 18.0).with_quantity(2),
+            Geometry2D::new("L")
+                .with_polygon(vec![
+                    (0.0, 0.0),
+                    (20.0, 0.0),
+                    (20.0, 8.0),
+                    (8.0, 8.0),
+                    (8.0, 20.0),
+                    (0.0, 20.0),
+                ])
+                .with_quantity(2)
+                .with_rotations_deg(vec![0.0, 90.0, 180.0, 270.0]),
+        ];
+        let boundary = Boundary2D::rectangle(60.0, 50.0);
+        /// A placement as compared: id, instance, position, rotation, mirrored.
+        type Laid = (String, usize, Vec<f64>, Vec<f64>, bool);
+        let layout = |r: &SolveResult<f64>| -> Vec<Laid> {
+            r.placements
+                .iter()
+                .map(|p| {
+                    (
+                        p.geometry_id.clone(),
+                        p.instance,
+                        p.position.clone(),
+                        p.rotation.clone(),
+                        p.mirrored,
+                    )
+                })
+                .collect()
+        };
+        for strategy in [
+            Strategy::BottomLeftFill,
+            Strategy::NfpGuided,
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+        ] {
+            for time_limit_ms in [0, 60_000] {
+                let config = Config::default()
+                    .with_strategy(strategy)
+                    .with_seed(11)
+                    .with_population_size(6)
+                    .with_max_generations(4)
+                    .with_time_limit(time_limit_ms);
+                let plain = Nester2D::new(config.clone())
+                    .solve(&geometries, &boundary)
+                    .expect("solve");
+                let reported = Nester2D::new(config)
+                    .solve_with_progress(&geometries, &boundary, Box::new(|_| {}))
+                    .expect("solve with progress");
+                let case = format!("{strategy:?}, time_limit_ms {time_limit_ms}");
+                assert!(!plain.placements.is_empty(), "{case}");
+                assert_eq!(layout(&plain), layout(&reported), "{case}");
+                assert_eq!(plain.utilization, reported.utilization, "{case}");
+                assert_eq!(plain.generations, reported.generations, "{case}");
+                assert_eq!(plain.unplaced, reported.unplaced, "{case}");
+            }
+        }
     }
 
     #[test]
