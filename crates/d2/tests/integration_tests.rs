@@ -551,24 +551,33 @@ mod metaheuristic_quality_tests {
 
     /// Enlarging the allowed rotation set must never *worsen* the result
     /// (issue #3 expectation 2). Bottom-left fill searches a superset of
-    /// rotations, and so does the greedy no-fit placement at every step. A
-    /// time-limited search starts from, and is floored at, that greedy layout,
-    /// so it can only improve on it — with any rotation set. That holds when the
-    /// greedy pass fits in the limit, so the searches get a limit it always fits
-    /// in, even in a debug build running beside the other tests.
+    /// rotations, and so does the greedy no-fit placement at every step; both
+    /// run here without a limit, so those comparisons do not depend on load.
+    ///
+    /// A time-limited search is floored at bottom-left fill with its own
+    /// rotations -- always -- and at a greedy no-fit pass run inside its budget,
+    /// when that pass finishes in time. The first is asserted as is. The second
+    /// is a property of the time the pass gets, not of the code: with a fixed
+    /// limit it held on a quiet machine and failed beside other builds. So the
+    /// limit is sized from the greedy pass measured just before each search
+    /// (the search's budget is a quarter of the limit), and a miss is retried
+    /// once with twice the time before it counts.
     #[test]
     fn larger_rotation_set_never_worsens_strip_length() {
+        use std::time::Instant;
+
         let small = vec![0.0];
         let big = vec![0.0, 90.0, 180.0, 270.0];
         for greedy in [Strategy::BottomLeftFill, Strategy::NfpGuided] {
-            let (_, with_small) = solve(greedy, small.clone());
-            let (_, with_big) = solve(greedy, big.clone());
+            let (_, with_small) = solve_within(greedy, small.clone(), 0);
+            let (_, with_big) = solve_within(greedy, big.clone(), 0);
             assert!(
                 with_big <= with_small + 1e-3,
                 "{greedy:?}: larger rotation set worsened strip length {with_big} > {with_small}"
             );
         }
-        let (_, greedy_small) = solve(Strategy::NfpGuided, small);
+        let (_, blf_big) = solve_within(Strategy::BottomLeftFill, big.clone(), 0);
+        let (_, greedy_small) = solve_within(Strategy::NfpGuided, small, 0);
         for strat in [
             Strategy::GeneticAlgorithm,
             Strategy::Brkga,
@@ -576,10 +585,23 @@ mod metaheuristic_quality_tests {
             Strategy::Gdrr,
             Strategy::Alns,
         ] {
-            let (_, searched) = solve_within(strat, big.clone(), 5000);
+            let started = Instant::now();
+            solve_within(Strategy::NfpGuided, big.clone(), 0);
+            let greedy_ms = started.elapsed().as_millis() as u64;
+            let mut limit_ms = (greedy_ms * 16).max(5000);
+            let mut searched = solve_within(strat, big.clone(), limit_ms).1;
+            assert!(
+                searched <= blf_big + 1e-3,
+                "{strat:?}: {searched} is longer than bottom-left fill with the same rotations {blf_big}"
+            );
+            if searched > greedy_small + 1e-3 {
+                limit_ms *= 2;
+                searched = solve_within(strat, big.clone(), limit_ms).1;
+            }
             assert!(
                 searched <= greedy_small + 1e-3,
-                "{strat:?}: with more rotations {searched} is longer than greedy placement with fewer {greedy_small}"
+                "{strat:?}: with more rotations {searched} is longer than greedy placement with fewer \
+                 {greedy_small} (limit {limit_ms} ms; the greedy pass took {greedy_ms} ms)"
             );
         }
     }
