@@ -156,7 +156,7 @@ jobs:
           find bindings/csharp/UNesting/runtimes -type f -exec ls -lh {} \;
           # Assert, don't just print: every runtime identifier packed into the
           # nupkg must have produced a binary. Listing alone cannot fail, so a
-          # missing artifact used to reach `dotnet pack` unnoticed.
+          # missing artifact would reach `dotnet pack` unnoticed.
           for dir in bindings/csharp/UNesting/runtimes/*/native; do
             count=$(find "$dir" -type f | wc -l)
             if [ "$count" -ne 1 ]; then
@@ -175,14 +175,12 @@ jobs:
           echo "=== Package contents ==="
           unzip -l ./nupkg/${{ env.PACKAGE_NAME }}.${VERSION}.nupkg | grep -E "runtimes|build|lib"
 
-      # Publish gate: a package that packs is not a package that runs. Restore the
-      # packed nupkg into a throwaway consumer from a local-only feed and call the
-      # library, so a missing or unloadable native asset fails here rather than on
-      # a consumer's first call. Mirrors the Node smoke gate in npm-publish.yml
-      # and the wheel smoke gate in python-publish.yml.
+      # Restore the package just packed into a new console app and call it: a
+      # package that restores but cannot load its native library fails here,
+      # not on a consumer's first call.
       - name: NuGet package smoke test
         run: |
-          bash scripts/nuget_package_smoke.sh ./nupkg ${{ needs.check-version.outputs.version }}
+          bash scripts/nuget_package_smoke.sh ./nupkg ${{ env.PACKAGE_NAME }} ${{ needs.check-version.outputs.version }} bindings/csharp/package-smoke/Program.cs
 
       - name: Upload NuGet package artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

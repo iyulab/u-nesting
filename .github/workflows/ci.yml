@@ -219,6 +219,11 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
+      # The demo's own unit tests (rendering, transforms, viewport) need no wasm
+      # package. They ran only in pages.yml, so a change could break them and
+      # reach main unnoticed.
+      - name: Run JS unit tests
+        run: node --test demo/web/test/*.test.mjs
       - name: Install wasm-pack
         uses: taiki-e/install-action@84f5ac3124727fb3d284d4d22ee9ab3654fd09a6 # v2
         with:

@@ -1,30 +1,37 @@
 #!/usr/bin/env bash
-# Smoke-test a packed UNesting NuGet package before it is published.
+# Smoke-test a packed NuGet package before it is published.
 #
 # Restores the freshly packed .nupkg into a throwaway console project from a
-# local feed and actually calls the library, so a package that restores but
-# cannot load its native binary — the failure mode that shipping native assets
-# in `runtimes/{rid}/native/` invites — fails here instead of on a consumer's
-# first call.
+# local feed and runs a program that actually calls the library, so a package
+# that restores but cannot load its native binary -- the failure mode that
+# shipping native assets in `runtimes/{rid}/native/` invites -- fails here
+# instead of on a consumer's first call.
 #
-# Usage: scripts/nuget_package_smoke.sh <nupkg-dir> <version>
+# Usage: scripts/nuget_package_smoke.sh <nupkg-dir> <package-id> <version> <program.cs>
+#
+# <program.cs> is the console program to run (top-level statements); it throws
+# on anything unexpected. This file is the same in every repository that packs
+# a NuGet package; the program is each package's own.
 set -euo pipefail
 
-NUPKG_DIR="${1:?usage: nuget_package_smoke.sh <nupkg-dir> <version>}"
-VERSION="${2:?usage: nuget_package_smoke.sh <nupkg-dir> <version>}"
+usage="usage: nuget_package_smoke.sh <nupkg-dir> <package-id> <version> <program.cs>"
+NUPKG_DIR="${1:?$usage}"
+PACKAGE="${2:?$usage}"
+VERSION="${3:?$usage}"
+PROGRAM="${4:?$usage}"
 NUPKG_DIR="$(cd "$NUPKG_DIR" && pwd)"
+PROGRAM="$(cd "$(dirname "$PROGRAM")" && pwd)/$(basename "$PROGRAM")"
 
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # Isolate the global packages folder. Without this, NuGet resolves the version
 # from its machine-wide cache whenever that version was restored before, and the
-# gate silently validates a *previous* package instead of the one just packed —
+# gate silently validates a *previous* package instead of the one just packed --
 # it would pass even for a package with no native binary at all.
 export NUGET_PACKAGES="$WORK/packages"
 
 cd "$WORK"
-
 dotnet new console -o consumer >/dev/null
 cd consumer
 
@@ -40,37 +47,6 @@ cat > nuget.config <<XML
 </configuration>
 XML
 
-cat > Program.cs <<'CSHARP'
-using UNesting;
-using UNesting.Models;
-
-Console.WriteLine($"native version: {UNestingInfo.Version}");
-
-var request = new NestingRequest
-{
-    Geometries = { Geometry2D.Rectangle("rect", 100, 50, quantity: 4) },
-    Boundary = new Boundary2D { Width = 400, Height = 300 },
-    Config = new Config2D { Strategy = Strategy2D.NfpGuided, TimeLimitMs = 5000 },
-};
-
-using var nester = new Nester2D();
-var result = nester.Solve(request);
-
-Console.WriteLine($"all_placed={result.AllPlaced} placed={result.Placements.Count} " +
-                  $"sheets={result.SheetsUsed} utilization={result.Utilization:F4}");
-
-if (!result.AllPlaced)
-{
-    throw new Exception("not every part was placed");
-}
-
-if (result.Placements.Count != 4)
-{
-    throw new Exception($"expected 4 placements, got {result.Placements.Count}");
-}
-
-Console.WriteLine("nuget package smoke test passed");
-CSHARP
-
-dotnet add package UNesting --version "$VERSION" --source "$NUPKG_DIR" >/dev/null
+cp "$PROGRAM" Program.cs
+dotnet add package "$PACKAGE" --version "$VERSION" --source "$NUPKG_DIR" >/dev/null
 dotnet run --configuration Release
