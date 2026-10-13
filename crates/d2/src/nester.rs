@@ -763,11 +763,18 @@ impl Nester2D {
 
     /// Adaptive Large Neighborhood Search (ALNS) optimization.
     fn alns(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        let (time_limit, greedy) = {
-            let budget = self.search_budget_ms(10000);
-            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
-            (remaining, greedy)
-        };
+        self.alns_within(geometries, boundary, self.search_budget_ms(10000))
+    }
+
+    /// [`Self::alns`] in `budget_ms`, for a caller that has spent part of the
+    /// limit already.
+    fn alns_within(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        budget_ms: u64,
+    ) -> Result<SolveResult<f64>> {
+        let (greedy, time_limit) = self.greedy_start(geometries, boundary, budget_ms);
         let result = run_alns_nesting(
             geometries,
             boundary,
@@ -823,6 +830,7 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
+        let started = Timer::now();
         // Count total instances
         let total_instances: usize = geometries.iter().map(|g| g.quantity()).sum();
 
@@ -849,8 +857,17 @@ impl Nester2D {
             }
         }
 
-        // Fallback to ALNS (best heuristic)
-        self.alns(geometries, boundary)
+        // Fallback to ALNS (best heuristic), in what is left of the caller's
+        // limit. It used to get its usual budget afresh after the exact attempt
+        // had spent half the limit, so any limit under ten seconds ran over by
+        // up to half again.
+        let budget = match self.config.time_limit_ms {
+            0 => self.search_budget_ms(10000),
+            limit => self
+                .search_budget_ms(10000)
+                .min(limit.saturating_sub(started.elapsed_ms()).max(1)),
+        };
+        self.alns_within(geometries, boundary, budget)
     }
 
     /// The bottom-left fill both entry points run.

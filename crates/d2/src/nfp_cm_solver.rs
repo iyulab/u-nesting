@@ -43,14 +43,68 @@ use u_nesting_core::{Placement, SolveResult};
 
 #[cfg(feature = "milp")]
 use good_lp::{
-    constraint, default_solver, variable, Expression, ProblemVariables, Solution, SolverModel,
-    Variable, WithTimeLimit,
+    constraint, default_solver, solvers::SolutionStatus as SearchStatus, variable, Expression,
+    ProblemVariables, Solution, SolverModel, Variable, WithTimeLimit,
 };
+#[cfg(feature = "milp")]
+use u_nesting_core::exact::SolutionStatus;
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
+
+/// The instant the caller's time limit runs out, checked by every phase.
+///
+/// A solve is several phases -- candidates, the conflicts between them, the
+/// model, the search -- and the limit is the caller's for all of them together.
+/// It used to be looked at between piece pairs of the conflict pass only and
+/// then handed to the search again in full, so a 1 ms limit ran for seconds:
+/// the conflicts of one pair, the coarser pass that replaced them, building the
+/// model and loading it were all outside it.
+#[derive(Debug, Clone, Copy)]
+struct Deadline(Option<Instant>);
+
+impl Deadline {
+    /// `limit_ms` after `start`; a limit too far away to represent is none.
+    fn after(start: Instant, limit_ms: u64) -> Self {
+        Self(start.checked_add(Duration::from_millis(limit_ms)))
+    }
+
+    fn passed(self) -> bool {
+        self.0.is_some_and(|at| Instant::now() >= at)
+    }
+
+    /// Seconds left, or `None` without a limit.
+    #[cfg(feature = "milp")]
+    fn remaining_secs(self) -> Option<f64> {
+        self.0
+            .map(|at| at.saturating_duration_since(Instant::now()).as_secs_f64())
+    }
+}
+
+/// How many candidate pairs the conflict passes test between two looks at the
+/// clock -- often enough that one pair of pieces cannot outrun the limit, rarely
+/// enough that reading it costs nothing next to the test itself.
+const CLOCK_EVERY: usize = 256;
+
+/// Why a phase stopped before it was done.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stopped {
+    Cancelled,
+    TimeUp,
+}
+
+/// `Stopped` when the caller cancelled or the limit ran out.
+fn check(cancelled: &AtomicBool, deadline: Deadline) -> Result<(), Stopped> {
+    if cancelled.load(Ordering::Relaxed) {
+        Err(Stopped::Cancelled)
+    } else if deadline.passed() {
+        Err(Stopped::TimeUp)
+    } else {
+        Ok(())
+    }
+}
 
 /// Candidate placement position.
 #[derive(Debug, Clone)]
@@ -148,7 +202,9 @@ fn nfp_cm_nesting(
     cancelled: Arc<AtomicBool>,
 ) -> SolveResult<f64> {
     let start = Instant::now();
+    let deadline = Deadline::after(start, exact_config.time_limit_ms);
     let mut result = SolveResult::new();
+    result.strategy = Some("NfpCm".to_string());
 
     // Count total instances
     let total_instances: usize = geometries.iter().map(|g| g.quantity()).sum();
@@ -193,34 +249,49 @@ fn nfp_cm_nesting(
         return result;
     }
 
-    // Precompute NFP conflicts between candidates
-    let conflicts = compute_conflicts(
+    // Precompute NFP conflicts between candidates, then solve the model. A
+    // phase that runs out of time leaves nothing placed and says so: every
+    // piece is reported unplaced rather than a layout that was never searched.
+    let solved = compute_conflicts(
         &pieces,
         geometries,
         config.spacing,
         &cancelled,
-        start,
-        exact_config.time_limit_ms,
-    );
+        // The coarser pass takes over at a quarter of the limit, leaving the
+        // rest for the search.
+        Deadline::after(start, exact_config.time_limit_ms / 4),
+        deadline,
+    )
+    .and_then(|conflicts| {
+        solve_nfp_cm_milp(
+            &pieces,
+            &conflicts,
+            bound_width,
+            b_min[0] + margin,
+            &cancelled,
+            deadline,
+        )
+    });
 
-    if cancelled.load(Ordering::Relaxed) {
-        result.computation_time_ms = start.elapsed().as_millis() as u64;
-        return result;
-    }
-
-    // Solve NFP-CM MILP
-    match solve_nfp_cm_milp(
-        &pieces,
-        &conflicts,
-        bound_width,
-        b_min[0] + margin,
-        b_min[1] + margin,
-        &rotation_angles,
-        exact_config,
-        &cancelled,
-        start,
-    ) {
-        Some(solution) => {
+    match solved {
+        Err(Stopped::Cancelled) => {
+            result.cancelled = true;
+            result.computation_time_ms = start.elapsed().as_millis() as u64;
+            return result;
+        }
+        Err(Stopped::TimeUp) => {
+            log::warn!("NFP-CM: time limit reached before the search could run");
+            for piece in &pieces {
+                result.unplaced.push(piece.id.clone());
+            }
+        }
+        Ok(None) => {
+            log::warn!("NFP-CM solver failed");
+            for piece in &pieces {
+                result.unplaced.push(piece.id.clone());
+            }
+        }
+        Ok(Some(solution)) => {
             // Convert solution to placements
             for (piece_idx, candidate_idx) in &solution.assignments {
                 let piece = &pieces[*piece_idx];
@@ -263,18 +334,8 @@ fn nfp_cm_nesting(
                 }
             }
             result.best_fitness = Some(solution.objective);
-            result.strategy = Some("NfpCm".to_string());
             result.iterations = Some(solution.exact_result.iterations);
-
-            if solution.exact_result.is_optimal {
-                log::info!("NFP-CM found optimal solution");
-            }
-        }
-        None => {
-            log::warn!("NFP-CM solver failed");
-            for piece in &pieces {
-                result.unplaced.push(piece.id.clone());
-            }
+            log::info!("NFP-CM: {}", solution.exact_result.message);
         }
     }
 
@@ -519,36 +580,43 @@ fn compute_conflicts(
     pieces: &[PieceInfo],
     geometries: &[Geometry2D],
     spacing: f64,
-    cancelled: &Arc<AtomicBool>,
-    start: Instant,
-    time_limit_ms: u64,
-) -> Vec<Conflict> {
+    cancelled: &AtomicBool,
+    coarse_after: Deadline,
+    deadline: Deadline,
+) -> Result<Vec<Conflict>, Stopped> {
     let mut conflicts = Vec::new();
+    let mut tested = 0usize;
 
     // NFP cache — see `NfpCacheKey` doc comment.
     let mut nfp_cache: HashMap<NfpCacheKey, Option<Nfp>> = HashMap::new();
 
     for i in 0..pieces.len() {
         for j in (i + 1)..pieces.len() {
-            if cancelled.load(Ordering::Relaxed) {
-                return conflicts;
-            }
+            check(cancelled, deadline)?;
 
-            // Time limit check
-            if start.elapsed().as_millis() as u64 > time_limit_ms / 4 {
+            if coarse_after.passed() {
                 log::warn!("Conflict computation taking too long, using simplified model");
                 // Use simple AABB overlap check instead. It is coarser than the
                 // no-fit polygon -- it refuses placements the real shapes would
                 // allow -- but it has to keep `spacing`, or the fallback would
                 // permit what the caller asked to be kept apart.
-                return compute_aabb_conflicts(pieces, spacing);
+                return compute_aabb_conflicts(pieces, spacing, cancelled, deadline);
             }
 
             let geom_i = &geometries[pieces[i].geometry_idx];
             let geom_j = &geometries[pieces[j].geometry_idx];
 
             for (ci, cand_i) in pieces[i].candidates.iter().enumerate() {
+                // The no-fit polygon placed at `cand_i`, per orientation of
+                // the other piece. It depends on `cand_i` and that orientation
+                // only, so it is built once here rather than for every
+                // candidate of the other piece.
+                let mut placed: HashMap<(usize, bool), Option<Nfp>> = HashMap::new();
                 for (cj, cand_j) in pieces[j].candidates.iter().enumerate() {
+                    tested += 1;
+                    if tested.is_multiple_of(CLOCK_EVERY) {
+                        check(cancelled, deadline)?;
+                    }
                     // Check if these two placements conflict
                     let cache_key = (
                         pieces[i].geometry_idx,
@@ -563,19 +631,32 @@ fn compute_conflicts(
                     // crate's own offset. Growing commutes with the rigid
                     // motion applied below, so doing it on the cached local
                     // NFP is the same as doing it on the absolute one.
-                    let nfp_opt = nfp_cache.entry(cache_key).or_insert_with(|| {
-                        compute_nfp_mirrored(
-                            geom_i,
-                            geom_j,
-                            cand_j.rotation - cand_i.rotation,
-                            cand_i.mirror,
-                            cand_j.mirror,
-                        )
-                        .ok()
-                        .map(|nfp| offset_nfp(&nfp, spacing))
-                    });
+                    let absolute = placed
+                        .entry((cand_j.rotation_idx, cand_j.mirror))
+                        .or_insert_with(|| {
+                            nfp_cache
+                                .entry(cache_key)
+                                .or_insert_with(|| {
+                                    compute_nfp_mirrored(
+                                        geom_i,
+                                        geom_j,
+                                        cand_j.rotation - cand_i.rotation,
+                                        cand_i.mirror,
+                                        cand_j.mirror,
+                                    )
+                                    .ok()
+                                    .map(|nfp| offset_nfp(&nfp, spacing))
+                                })
+                                .as_ref()
+                                .map(|nfp| {
+                                    translate_nfp(
+                                        &rotate_nfp(nfp, cand_i.rotation),
+                                        (cand_i.origin_x, cand_i.origin_y),
+                                    )
+                                })
+                        });
 
-                    let overlaps = if let Some(nfp) = nfp_opt {
+                    let overlaps = if let Some(absolute_nfp) = absolute {
                         // `nfp` is expressed in `geom_i`'s own *local* frame
                         // (it was computed with `geom_i` fixed at rotation
                         // 0, per `compute_nfp_mirrored`'s contract) — valid
@@ -591,12 +672,7 @@ fn compute_conflicts(
                         // rotation, then translate to its actual origin —
                         // only then is a candidate's own absolute origin a
                         // valid point to test against it.
-                        let absolute_nfp = translate_nfp(
-                            &rotate_nfp(nfp, cand_i.rotation),
-                            (cand_i.origin_x, cand_i.origin_y),
-                        );
-
-                        point_in_nfp(&absolute_nfp, cand_j.origin_x, cand_j.origin_y)
+                        point_in_nfp(absolute_nfp, cand_j.origin_x, cand_j.origin_y)
                     } else {
                         // Fallback to AABB check
                         aabb_overlap(
@@ -620,17 +696,27 @@ fn compute_conflicts(
         }
     }
 
-    conflicts
+    Ok(conflicts)
 }
 
 /// Simplified AABB-based conflict computation.
-fn compute_aabb_conflicts(pieces: &[PieceInfo], spacing: f64) -> Vec<Conflict> {
+fn compute_aabb_conflicts(
+    pieces: &[PieceInfo],
+    spacing: f64,
+    cancelled: &AtomicBool,
+    deadline: Deadline,
+) -> Result<Vec<Conflict>, Stopped> {
     let mut conflicts = Vec::new();
+    let mut tested = 0usize;
 
     for i in 0..pieces.len() {
         for j in (i + 1)..pieces.len() {
             for (ci, cand_i) in pieces[i].candidates.iter().enumerate() {
                 for (cj, cand_j) in pieces[j].candidates.iter().enumerate() {
+                    tested += 1;
+                    if tested.is_multiple_of(CLOCK_EVERY) {
+                        check(cancelled, deadline)?;
+                    }
                     if aabb_overlap(
                         cand_i.x,
                         cand_i.y,
@@ -649,7 +735,7 @@ fn compute_aabb_conflicts(pieces: &[PieceInfo], spacing: f64) -> Vec<Conflict> {
         }
     }
 
-    conflicts
+    Ok(conflicts)
 }
 
 /// Check AABB overlap with spacing.
@@ -714,12 +800,9 @@ fn solve_nfp_cm_milp(
     conflicts: &[Conflict],
     bound_width: f64,
     origin_x: f64,
-    _origin_y: f64,
-    _rotation_angles: &[f64],
-    config: &ExactConfig,
-    cancelled: &Arc<AtomicBool>,
-    _start: Instant,
-) -> Option<NfpCmSolution> {
+    cancelled: &AtomicBool,
+    deadline: Deadline,
+) -> Result<Option<NfpCmSolution>, Stopped> {
     let n = pieces.len();
 
     // Create problem
@@ -742,12 +825,6 @@ fn solve_nfp_cm_milp(
     // Strip length variable
     let strip_length = vars.add(variable().min(0.0).max(bound_width).name("strip_length"));
 
-    // Objective: minimize strip length
-    //
-    // `config.time_limit_ms` bounds the solver itself (HiGHS), not just the
-    // conflict-precomputation heuristic below — without this, a hard
-    // instance could run the underlying MIP search indefinitely regardless
-    // of what the caller configured.
     // Objective: place as much as fits, and among the layouts that place the
     // same pieces prefer the shortest strip.
     //
@@ -774,15 +851,12 @@ fn solve_nfp_cm_milp(
         .sum();
     let mut problem = vars
         .maximise(placed_area - compactness * strip_length)
-        .using(default_solver)
-        .with_time_limit(config.time_limit_ms as f64 / 1000.0);
+        .using(default_solver);
 
     // Constraint: a piece takes at most one position. Not exactly one -- a
     // piece that cannot be placed is reported, not made infeasible.
     for (i, _piece) in pieces.iter().enumerate() {
-        if cancelled.load(Ordering::Relaxed) {
-            return None;
-        }
+        check(cancelled, deadline)?;
 
         let sum: Expression = z[i].iter().map(|&v| Expression::from(v)).sum();
         problem = problem.with(constraint!(sum <= 1.0));
@@ -790,6 +864,7 @@ fn solve_nfp_cm_milp(
 
     // Constraint: strip length must accommodate all placements
     for (i, piece) in pieces.iter().enumerate() {
+        check(cancelled, deadline)?;
         for (c, cand) in piece.candidates.iter().enumerate() {
             // x + width <= strip_length when z[i][c] = 1
             // Linearize: x + width - strip_length <= M * (1 - z[i][c])
@@ -804,9 +879,20 @@ fn solve_nfp_cm_milp(
     }
 
     // Constraint: conflicting placements cannot both be selected
-    for ((i, ci), (j, cj)) in conflicts {
+    for (k, ((i, ci), (j, cj))) in conflicts.iter().enumerate() {
+        if k.is_multiple_of(CLOCK_EVERY) {
+            check(cancelled, deadline)?;
+        }
         // z[i][ci] + z[j][cj] <= 1
         problem = problem.with(constraint!(z[*i][*ci] + z[*j][*cj] <= 1.0));
+    }
+
+    // The search gets what is left of the caller's limit, not the limit again.
+    // Loading the model into the solver is outside any limit it can keep, so
+    // that much can run past it -- one pass over the constraints above.
+    check(cancelled, deadline)?;
+    if let Some(left) = deadline.remaining_secs() {
+        problem = problem.with_time_limit(left);
     }
 
     // Solve
@@ -820,6 +906,7 @@ fn solve_nfp_cm_milp(
     match problem.solve() {
         Ok(solution) => {
             let obj_value = solution.value(strip_length);
+            let proven = matches!(solution.status(), SearchStatus::Optimal);
 
             // Extract assignments
             let mut assignments = Vec::new();
@@ -832,17 +919,31 @@ fn solve_nfp_cm_milp(
                 }
             }
 
-            let exact_result = ExactResult::optimal(obj_value);
+            // The search can stop at the limit with a layout it has not shown
+            // to be best. That used to be reported as optimal regardless.
+            let exact_result = if proven {
+                ExactResult::optimal(obj_value)
+            } else {
+                ExactResult {
+                    status: SolutionStatus::Timeout,
+                    objective_value: obj_value,
+                    best_bound: f64::NAN,
+                    gap: f64::NAN,
+                    is_optimal: false,
+                    message: "time limit reached before optimality was shown".to_string(),
+                    ..Default::default()
+                }
+            };
 
-            Some(NfpCmSolution {
+            Ok(Some(NfpCmSolution {
                 assignments,
                 objective: obj_value,
                 exact_result,
-            })
+            }))
         }
         Err(e) => {
             log::error!("NFP-CM MILP solver error: {:?}", e);
-            None
+            Ok(None)
         }
     }
 }

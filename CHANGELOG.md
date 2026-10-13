@@ -46,6 +46,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `MilpExact` keeps `time_limit_ms` across the whole solve. The limit was
+  looked at between piece pairs of the conflict pass only, not inside a pair,
+  not in the coarser pass that takes over at a quarter of the limit, not while
+  the model was built -- and the search was then given the full limit again:
+  a 1 ms limit ran for about 20 s. Every phase now reads one deadline, and the
+  search gets what is left of it. Loading the finished model into the solver
+  is the one step outside it. When the limit runs out before the search, every
+  piece is reported in `unplaced`; a cancelled solve sets `cancelled`.
+- `HybridExact` runs its heuristic fallback in what the exact attempt left of
+  the limit. It started a fresh budget, so a limit under ten seconds ran over
+  by up to half again.
+- The exact search no longer reports a layout it stopped at the time limit as
+  optimal.
+
 - The 2D genetic search runs the same with or without a progress callback. With
   a callback (`Solver::solve_with_progress`, the C interface's
   `*_with_progress` functions, the .NET `SolveWithProgress` and `SolveAsync`) it

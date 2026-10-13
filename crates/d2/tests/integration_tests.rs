@@ -986,20 +986,15 @@ mod bucket_b_tests {
         );
     }
 
-    /// Regression guard for a third bug found in the same area: the exact
-    /// solver's own `time_limit_ms` config bounded only its conflict-
-    /// precomputation heuristic, never the actual MIP solve — the one step
-    /// that can legitimately run the longest on a hard instance. A caller
-    /// setting a short time budget got no such bound where it mattered.
-    /// Deliberately configures a time limit far too short (1ms) to prove
-    /// optimality for this instance size, then asserts on two things: no
-    /// panic (the underlying solver must still return `Ok`/`Err`, never
-    /// abort, even with no feasible incumbent yet), and that the call
-    /// returns within a generous wall-clock ceiling — proof the solve step
-    /// itself is now actually bounded rather than free to keep searching.
+    /// The exact solver keeps the caller's time limit across all of its
+    /// phases, not only the search. A 1 ms limit used to run for 12 s: the
+    /// conflict pass looked at the clock between piece pairs only, its coarser
+    /// replacement and the model build not at all, and the search was then
+    /// handed the full limit again. A layout the search never ran for is not
+    /// reported: every piece comes back unplaced.
     #[cfg(feature = "milp")]
     #[test]
-    fn milp_exact_respects_time_limit_without_panicking() {
+    fn milp_exact_keeps_the_time_limit_across_its_phases() {
         use std::sync::atomic::AtomicBool;
         use std::sync::Arc;
         use std::time::Instant;
@@ -1011,26 +1006,73 @@ mod bucket_b_tests {
             .with_quantity(4)];
         let boundary = Boundary2D::rectangle(120.0, 120.0);
         let config = Config::default().with_spacing(0.5);
-        let exact_config = ExactConfig::default()
-            .with_time_limit_ms(1)
-            .with_max_items(15)
-            .with_rotation_steps(4)
-            .with_grid_step(10.0);
+
+        for limit_ms in [1_u64, 200] {
+            let exact_config = ExactConfig::default()
+                .with_time_limit_ms(limit_ms)
+                .with_max_items(15)
+                .with_rotation_steps(4)
+                .with_grid_step(10.0);
+
+            let start = Instant::now();
+            let result = run_nfp_cm_nesting(
+                &geometries,
+                &boundary,
+                &config,
+                &exact_config,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .expect("a valid configuration");
+            let took = start.elapsed();
+
+            // One clock reading per 256 candidate pairs is the granularity.
+            assert!(
+                took.as_millis() < u128::from(limit_ms) + 1_000,
+                "a {limit_ms} ms limit took {took:?}"
+            );
+            assert_eq!(
+                result.placements.len() + result.unplaced.len(),
+                4,
+                "every instance is placed or reported unplaced ({limit_ms} ms)"
+            );
+            assert!(
+                !result.cancelled,
+                "running out of time is not a cancellation"
+            );
+        }
+    }
+
+    /// The hybrid strategy's heuristic fallback runs in what the exact attempt
+    /// left of the limit. It used to start its own budget afresh, so a limit
+    /// under ten seconds ran over by up to half again.
+    #[cfg(feature = "milp")]
+    #[test]
+    fn hybrid_exact_keeps_the_time_limit_when_it_falls_back() {
+        use std::time::Instant;
+
+        let geometries = vec![Geometry2D::l_shape("L", 30.0, 20.0, 20.0, 10.0)
+            .with_flip(true)
+            .with_quantity(4)];
+        let boundary = Boundary2D::rectangle(120.0, 120.0);
+        let limit_ms = 2_000;
+        let nester = Nester2D::new(
+            Config::default()
+                .with_strategy(Strategy::HybridExact)
+                .with_spacing(0.5)
+                .with_time_limit(limit_ms),
+        );
 
         let start = Instant::now();
-        let _result = run_nfp_cm_nesting(
-            &geometries,
-            &boundary,
-            &config,
-            &exact_config,
-            Arc::new(AtomicBool::new(false)),
-        );
+        let result = nester
+            .solve(&geometries, &boundary)
+            .expect("a valid configuration");
+        let took = start.elapsed();
+
         assert!(
-            start.elapsed().as_secs() < 30,
-            "a 1ms time limit must bound the solve step itself, not just the \
-             conflict-precomputation heuristic — took {:?}",
-            start.elapsed()
+            took.as_millis() < u128::from(limit_ms) + 1_000,
+            "a {limit_ms} ms limit took {took:?}"
         );
+        assert_eq!(result.placements.len() + result.unplaced.len(), 4);
     }
 
     /// `Strategy::HybridExact` had no test coverage at all before this —
