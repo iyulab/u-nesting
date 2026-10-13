@@ -9,7 +9,8 @@ readme = "../../README.md"
 description = "C FFI interface for U-Nesting spatial optimization engine"
 keywords = ["ffi", "nesting", "bin-packing"]
 categories = ["api-bindings"]
-include = ["src/**/*", "Cargo.toml", "cbindgen.toml", "include/**/*", "../../README.md"]
+# Source, the header build and its config; the README comes from `readme`.
+include = ["/src/**", "/build.rs", "/cbindgen.toml"]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
