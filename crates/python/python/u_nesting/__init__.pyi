@@ -43,6 +43,8 @@ class Config(TypedDict, total=False):
     max_generations: Optional[int]
     crossover_rate: Optional[float]
     mutation_rate: Optional[float]
+    seed: Optional[int]
+    multi_sheet: Optional[bool]
 
 class Placement(TypedDict):
     """Placement result."""
@@ -53,16 +55,22 @@ class Placement(TypedDict):
     boundary_index: int
 
 class SolveResult(TypedDict):
-    """Solve operation result."""
+    """Solve operation result. Every refusal is reported here, never raised."""
     success: bool
     placements: List[Placement]
     boundaries_used: int
     utilization: float
+    total_requested: int
     unplaced: List[str]
+    unplaced_count: int
+    all_placed: bool
+    used_bounding_box: List[float]
+    used_utilization: float
     computation_time_ms: int
     error: Optional[str]
     code: Optional[str]
-    """Stable reason a solve was refused (``invalid_geometry``, ``duplicate_id``, ...)."""
+    """Stable reason a solve was refused (``malformed_input``, ``value_not_finite``,
+    ``parameter_out_of_range``, ``invalid_geometry``, ``duplicate_id``, ...)."""
     details: Optional[Dict[str, Any]]
     """The values behind ``code``: ``parameter``, ``id``, ``index``, ``min``, ``max``, ``got``, ..."""
 

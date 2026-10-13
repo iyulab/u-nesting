@@ -390,6 +390,12 @@ fn the_response_schema_has_the_keys_a_response_carries() {
             expected: Vec::new(),
         },
         Error::malformed(None, String::new()),
+        Error::NotFinite {
+            parameter: String::new(),
+            id: None,
+            index: None,
+            got: f64::NAN,
+        },
         Error::Cancelled,
         Error::invalid_geometry(None, String::new()),
         Error::DuplicateId {

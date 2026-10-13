@@ -178,6 +178,22 @@ pub enum Error {
         message: String,
     },
 
+    /// A number that is not finite (NaN or an infinity), where a request
+    /// holds numbers -- a transport whose values can carry one (a Python
+    /// float) refuses it before the request is read. `parameter` is the path
+    /// of the value, or of the list it is in, and `index` its position in
+    /// that list; `id` names the geometry it belongs to.
+    #[error("{}: expected a finite number, got {got}", match index {
+        Some(i) => format!("{parameter}[{i}]"),
+        None => parameter.clone(),
+    })]
+    NotFinite {
+        parameter: String,
+        id: Option<String>,
+        index: Option<usize>,
+        got: f64,
+    },
+
     /// The caller cancelled the run.
     #[error("cancelled by the caller")]
     Cancelled,
@@ -216,8 +232,8 @@ pub enum Error {
 impl Error {
     /// The stable name of the reason: `parameter_out_of_range`,
     /// `empty_input`, `invalid_option`, `unknown_option`, `malformed_input`,
-    /// `invalid_geometry`, `duplicate_id`, `invalid_boundary`, `cancelled`
-    /// or `internal`.
+    /// `value_not_finite`, `invalid_geometry`, `duplicate_id`,
+    /// `invalid_boundary`, `cancelled` or `internal`.
     pub fn code(&self) -> &'static str {
         match self {
             Error::OutOfRange { .. } => "parameter_out_of_range",
@@ -225,6 +241,7 @@ impl Error {
             Error::InvalidOption { .. } => "invalid_option",
             Error::UnknownOption { .. } => "unknown_option",
             Error::MalformedInput { .. } => "malformed_input",
+            Error::NotFinite { .. } => "value_not_finite",
             Error::Cancelled => "cancelled",
             Error::InvalidGeometry { .. } => "invalid_geometry",
             Error::DuplicateId { .. } => "duplicate_id",
@@ -239,7 +256,8 @@ impl Error {
             Error::OutOfRange { parameter, .. }
             | Error::EmptyInput { parameter }
             | Error::InvalidOption { parameter, .. }
-            | Error::UnknownOption { parameter, .. } => Some(parameter),
+            | Error::UnknownOption { parameter, .. }
+            | Error::NotFinite { parameter, .. } => Some(parameter),
             Error::MalformedInput { parameter, .. } | Error::InvalidBoundary { parameter, .. } => {
                 parameter.as_deref()
             }
@@ -260,7 +278,8 @@ impl Error {
             Error::OutOfRange { parameter, .. }
             | Error::EmptyInput { parameter }
             | Error::InvalidOption { parameter, .. }
-            | Error::UnknownOption { parameter, .. } => Some(parameter),
+            | Error::UnknownOption { parameter, .. }
+            | Error::NotFinite { parameter, .. } => Some(parameter),
             Error::MalformedInput { parameter, .. } | Error::InvalidBoundary { parameter, .. } => {
                 parameter.as_mut()
             }

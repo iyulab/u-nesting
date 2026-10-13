@@ -956,6 +956,17 @@ impl RefusalDetails {
                 d.expected = Some(expected.clone());
             }
             Error::MalformedInput { parameter, .. } => d.parameter = parameter.clone(),
+            // No `got`: JSON has no value for a number that is not finite.
+            Error::NotFinite {
+                parameter,
+                id,
+                index,
+                ..
+            } => {
+                d.parameter = Some(parameter.clone());
+                d.id = id.clone();
+                d.index = *index;
+            }
             Error::InvalidGeometry { id, .. } => d.id = id.clone(),
             Error::DuplicateId { id, first, second } => {
                 d.parameter = Some("geometries".to_string());

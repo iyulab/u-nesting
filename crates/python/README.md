@@ -109,25 +109,33 @@ Solve a 2D nesting problem.
 
 **Parameters:**
 
-> Keys are validated strictly: an unrecognized key in `geometries`, `boundary`
-> or `config` raises `ValueError` naming it, rather than being ignored. A typo
-> can therefore never silently fall back to a default. So does a value of the
-> wrong type -- a count given as a fraction (`2.5`) included. A count outside
-> its range (a negative one included) is a range refusal: a geometry's
-> `quantity` below 1 comes back as `code` `parameter_out_of_range` with
-> `details` `parameter` `geometries[i].quantity` and the geometry's `id`; a
-> `config` count (`population_size` below 2, `seed` below 0, ...) raises
-> `ValueError` naming the setting and its range.
+> Nothing a request asks for is raised as an exception: every refusal comes
+> back in the result dict, with `success` `False`, a stable `code` and the
+> values behind it in `details` -- the same codes and paths the C and
+> WebAssembly bindings give. Branch on `code`, not on the `error` text.
 >
-> What the solver refuses comes back in the result dict (`success: False`,
-> `code`, `details`): an empty `geometries` list is `empty_input`
-> (`parameter` `geometries`); a boundary side, dimension or `max_mass` of 0 or
-> below is `parameter_out_of_range` naming it (`boundary.width`,
-> `boundary.height`, `boundary.dimensions[i]`, `boundary.max_mass`, with
-> `exclusive_min` 0), and a setting is named by its path in `config` --
-> `config.strategy` for a strategy the dimension does not offer. A boundary
-> given as both a rectangle and a polygon, or half of a rectangle, raises
-> `ValueError`.
+> - Keys are read strictly: an unrecognized key in `geometries`, `boundary` or
+>   `config`, or a value of the wrong type -- a count given as a fraction
+>   (`2.5`) included -- is `malformed_input` with `details` `parameter` the
+>   path of the field (`config.stratgy`, `geometries[0].quantity`). A typo can
+>   never silently fall back to a default.
+> - A number that is not finite (`float("nan")`, `math.inf`) is
+>   `value_not_finite`: `parameter` is the path of the value
+>   (`config.spacing`), or of the list it is in with its position as `index`
+>   (`geometries[0].polygon[2]`, `index` 1 for the y coordinate), and `id`
+>   names the geometry. A value JSON cannot hold (a set, a non-string key) is
+>   `malformed_input`.
+> - A value outside its range (a negative one included) is
+>   `parameter_out_of_range`: a geometry's `quantity` below 1 has `parameter`
+>   `geometries[i].quantity` and the geometry's `id`; a `config` setting
+>   (`population_size` below 2, `seed` below 0, ...) has `parameter`
+>   `config.population_size`; a boundary side, dimension or `max_mass` of 0
+>   or below names it (`boundary.width`, `boundary.dimensions[i]`,
+>   `boundary.max_mass`, with `exclusive_min` 0).
+> - An empty `geometries` list is `empty_input` (`parameter` `geometries`); a
+>   strategy the dimension does not offer is `invalid_option` (`parameter`
+>   `config.strategy`); a boundary given as both a rectangle and a polygon, or
+>   half of a rectangle, is `invalid_boundary`.
 
 - `geometries`: List of geometry definitions
   - `id` (str): Unique identifier
@@ -143,11 +151,16 @@ Solve a 2D nesting problem.
   - `strategy` (str): "blf", "nfp", "ga", "brkga", "sa", "gdrr", "alns"
   - `spacing` (float): Gap between geometries
   - `margin` (float): Gap from boundary
-  - `time_limit_ms` (int): Timeout in milliseconds
+  - `time_limit_ms` (int): Timeout in milliseconds, at least 0 (0 = no
+    limit; default 30000)
+  - `target_utilization` (float): Stop a search once a layout reaches this
+    utilization, in [0, 1]
   - `population_size` (int): GA/BRKGA population, at least 2, run as given.
     Omitted, each search uses the size it is tuned for: 30 in 2D
   - `max_generations` (int): GA/BRKGA generation budget, at least 0, run as
     given. Omitted, 50 in 2D
+  - `crossover_rate` / `mutation_rate` (float): GA crossover and mutation
+    probabilities, in [0, 1] (default 0.85 / 0.05)
   - `seed` (int): RNG seed of `ga`, `brkga`, `sa`, `gdrr` and `alns`. The same
     problem with the same seed returns the same layout when the run ends on its
     own budget rather than on the clock (a 2D search keeps a time budget of its
@@ -167,8 +180,14 @@ Solve a 2D nesting problem.
   Unplaced instance count = `total_requested - len(placements)`
 - `unplaced` (list): **Deduplicated** IDs of items that couldn't be placed (not
   per-instance, so `len(unplaced)` under-reports the failed-instance count)
+- `unplaced_count` (int): Instance-level count of unplaced instances
+- `all_placed` (bool): Whether every requested instance was placed -- prefer it
+  to `success`, which only says the solve was not refused
+- `used_bounding_box` (list): `[width, height]` of the placed parts' footprint
+  (2D; `[0, 0]` for 3D)
+- `used_utilization` (float): Part area over `used_bounding_box` (2D; `0` for 3D)
 - `computation_time_ms` (int): Solve time
-- `error` (str | None): Readable text when the solver refused the problem
+- `error` (str | None): Readable text when the request was refused
 - `code` (str | None): Stable reason for that refusal (`invalid_geometry`,
   `duplicate_id`, `parameter_out_of_range`, ...)
 - `details` (dict | None): The values behind `code` (`id`, `first`, `index`,
@@ -186,13 +205,14 @@ Solve a 3D bin packing problem.
   - `dimensions` (list): [width, depth, height]
   - `quantity` (int): Number of copies
   - `mass` (float): Weight, at least 0 (optional)
+  - `orientation` (str): `"any"`, `"upright"` or `"fixed"` (optional)
 - `boundary`: Container definition
   - `dimensions` (list): [width, depth, height], each above 0
   - `max_mass` (float): Weight limit, above 0 (optional)
   - `gravity` (bool): Enable gravity constraint
   - `stability` (bool): Enable stability constraint
-- `config`: Same as solve_2d but `multi_sheet`, which raises `ValueError` (one
-  container, no sheets), and:
+- `config`: Same as solve_2d but `multi_sheet`, which is refused
+  (`invalid_option`, `config.multi_sheet`: one container, no sheets), and:
   - `strategy`: "blf", "ep", "ga", "brkga", "sa"
   - `population_size` / `max_generations` omitted: 100 / 500 for `ga`, 50 /
     100 for `brkga`
