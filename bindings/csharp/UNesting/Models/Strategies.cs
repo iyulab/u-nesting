@@ -18,6 +18,8 @@ public enum NestingSetting
     [JsonStringEnumMemberName("population_size")] PopulationSize,
     /// <summary><see cref="Config2D.MaxGenerations"/> / <see cref="Config3D.MaxGenerations"/>.</summary>
     [JsonStringEnumMemberName("max_generations")] MaxGenerations,
+    /// <summary><see cref="Config2D.MaxIterations"/> / <see cref="Config3D.MaxIterations"/>.</summary>
+    [JsonStringEnumMemberName("max_iterations")] MaxIterations,
     /// <summary><see cref="Config2D.CrossoverRate"/> / <see cref="Config3D.CrossoverRate"/>.</summary>
     [JsonStringEnumMemberName("crossover_rate")] CrossoverRate,
     /// <summary><see cref="Config2D.MutationRate"/> / <see cref="Config3D.MutationRate"/>.</summary>

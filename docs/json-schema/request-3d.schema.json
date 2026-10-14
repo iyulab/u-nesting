@@ -141,6 +141,11 @@
           "minimum": 0,
           "maximum": 4294967295
         },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Iteration budget for SA, GDRR and ALNS, run as given; a seeded run that ends on it rather than on the time limit is reproduced exactly. Omitted, each strategy uses the budget it is tuned for: 10000 for SA in 3D. Refused (invalid_option) under any other strategy.",
+          "minimum": 1
+        },
         "crossover_rate": {
           "type": "number",
           "description": "Crossover rate for GA (0.0-1.0)",

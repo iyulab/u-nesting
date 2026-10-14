@@ -128,6 +128,14 @@ public class Config2D
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public int? MaxGenerations { get; set; }
 
+    /// <summary>
+    /// Iteration budget for the single-solution searches, at least 1; null runs each with the
+    /// budget it is tuned for: 500 for SA, 1000 for GDRR and ALNS. A seeded run that ends on this budget rather than on
+    /// the time limit is reproduced exactly.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? MaxIterations { get; set; }
+
     /// <summary>GA crossover rate from 0 to 1 (0.85 when null).</summary>
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public double? CrossoverRate { get; set; }

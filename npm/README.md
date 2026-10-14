@@ -221,6 +221,7 @@ interface Request2D {
     population_size?: number;          // GA/BRKGA population, >= 2, run as given
                                        //   (omitted: 30, what the 2D searches are tuned for)
     max_generations?: number;          // GA/BRKGA generation budget, >= 0, run as given
+    max_iterations?: number;           // SA/GDRR/ALNS iteration budget, >= 1, run as given
                                        //   (omitted: 50)
     crossover_rate?: number;           // GA crossover rate (default: 0.85)
     mutation_rate?: number;            // GA mutation rate (default: 0.05)
@@ -254,8 +255,9 @@ lower utilization in 3D, loses to it).
 same `seed` returns the same layout -- **when the run ends on its own budget**
 (generations, iterations, convergence), not on the clock. Where `time_limit_ms`
 stops a search depends on the machine, so a run cut short by it is not
-reproduced; in 2D a search also keeps a time budget of its own (15 s for `ga` and
-`brkga`, 10 s for `sa`, `gdrr` and `alns`) when `time_limit_ms` is 0. Without a
+reproduced. With `time_limit_ms` 0 a search runs to its own budget
+(`max_generations`, `max_iterations`), so a seeded unlimited run is always the
+same. Without a
 `seed`, each run draws fresh randomness.
 
 ### Multi-Sheet Nesting

@@ -527,7 +527,7 @@ impl Packer3D {
             .with_final_temp(0.1)
             .with_cooling_rate(0.95)
             .with_iterations_per_temp(50)
-            .with_max_iterations(10000);
+            .with_max_iterations(self.config.max_iterations.unwrap_or(10000));
         sa_config.time_limit = self.search_time_limit(&started);
         sa_config.target_fitness = self.target_fitness();
 

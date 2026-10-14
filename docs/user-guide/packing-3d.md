@@ -116,10 +116,11 @@ it is complete, and a box that breaks them is taken out and reported as unplaced
 | `target_utilization` | number | none | `ga`, `brkga`, `sa`: stop once every box is packed at this utilization or more, in [0, 1] |
 | `population_size` | integer | 100 (`ga`), 50 (`brkga`) | GA/BRKGA population, at least 2; a value you set is run as given |
 | `max_generations` | integer | 500 (`ga`), 100 (`brkga`) | GA/BRKGA generation budget, at least 0; a value you set is run as given |
+| `max_iterations` | integer | 10000 (`sa`) | SA iteration budget, at least 1; a seeded run that ends on it rather than on the time limit is reproduced exactly |
 | `crossover_rate` | number | 0.85 | GA crossover probability, in [0, 1] |
 | `mutation_rate` | number | 0.05 | GA mutation probability, in [0, 1] |
 
-A setting that only some strategies read (`target_utilization`, `population_size`, `max_generations`, `crossover_rate`, `mutation_rate`, `seed`) is refused as `invalid_option` when the request's strategy does not read it, with the strategies that do in the message -- it is not accepted and ignored.
+A setting that only some strategies read (`target_utilization`, `population_size`, `max_generations`, `max_iterations`, `crossover_rate`, `mutation_rate`, `seed`) is refused as `invalid_option` when the request's strategy does not read it, with the strategies that do in the message -- it is not accepted and ignored.
 | `seed` | integer | none | RNG seed of `ga`, `brkga`, `sa`: the same request and seed give the same packing when the run ends on its own budget, not on `time_limit_ms` |
 
 `multi_sheet` is a 2D setting: a 3D request with it is refused (`invalid_option`,

@@ -222,6 +222,12 @@ pub struct ConfigRequest {
     #[serde(default, deserialize_with = "whole::optional")]
     pub max_generations: Option<i128>,
 
+    /// SA/GDRR/ALNS iteration budget: a whole number, at least 1. Omitted,
+    /// each strategy uses the budget it is tuned for (see
+    /// `Config::max_iterations`).
+    #[serde(default, deserialize_with = "whole::optional")]
+    pub max_iterations: Option<i128>,
+
     /// GA crossover rate.
     pub crossover_rate: Option<f64>,
 
@@ -1180,7 +1186,7 @@ impl RefusalDetails {
 impl ConfigRequest {
     /// The keys a request's `config` takes. A refusal of one of these
     /// settings is named, on the wire, by its path there: `config.spacing`.
-    pub const KEYS: [&'static str; 11] = [
+    pub const KEYS: [&'static str; 12] = [
         "spacing",
         "margin",
         "strategy",
@@ -1188,6 +1194,7 @@ impl ConfigRequest {
         "target_utilization",
         "population_size",
         "max_generations",
+        "max_iterations",
         "crossover_rate",
         "mutation_rate",
         "seed",
@@ -1241,6 +1248,7 @@ impl ConfigRequest {
             ("target_utilization", self.target_utilization.is_some()),
             ("population_size", self.population_size.is_some()),
             ("max_generations", self.max_generations.is_some()),
+            ("max_iterations", self.max_iterations.is_some()),
             ("crossover_rate", self.crossover_rate.is_some()),
             ("mutation_rate", self.mutation_rate.is_some()),
             ("seed", self.seed.is_some()),
@@ -1281,6 +1289,9 @@ impl ConfigRequest {
         }
         if let Some(gens) = self.max_generations {
             config.max_generations = Some(whole_at_least("max_generations", gens, 0)?);
+        }
+        if let Some(iterations) = self.max_iterations {
+            config.max_iterations = Some(Config::check_max_iterations(iterations)?);
         }
         if let Some(crossover) = self.crossover_rate {
             config.crossover_rate = crossover;
@@ -1368,6 +1379,7 @@ mod dto_strictness_tests {
             "target_utilization" => json!(0.9),
             "population_size" => json!(10),
             "max_generations" => json!(5),
+            "max_iterations" => json!(50),
             "crossover_rate" => json!(0.8),
             "mutation_rate" => json!(0.1),
             "seed" => json!(7),

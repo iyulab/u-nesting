@@ -334,6 +334,21 @@ public class ContractTests
     };
 
     private static readonly NestingRequest Full2DRectangle = Full2D(Boundary2D.Rectangle(100, 100));
+
+    /// The iteration budget, which the population searches do not read: beside SA.
+    private static readonly NestingRequest IterationBudget2D = new()
+    {
+        Geometries = [Geometry2D.Rectangle("a", 10, 10, 2)],
+        Boundary = Boundary2D.Rectangle(100, 100),
+        Config = new Config2D { Strategy = Strategy2D.SimulatedAnnealing, MaxIterations = 50, Seed = 7 },
+    };
+
+    private static readonly PackingRequest IterationBudget3D = new()
+    {
+        Geometries = [Geometry3D.Box("b", 10, 10, 10, 2)],
+        Boundary = Boundary3D.Box(30, 30, 30),
+        Config = new Config3D { Strategy = Strategy3D.SimulatedAnnealing, MaxIterations = 50, Seed = 7 },
+    };
     private static readonly NestingRequest Full2DPolygon = Full2D(new Boundary2D { Polygon = [[0, 0], [100, 0], [100, 100], [0, 100]] });
 
     private static readonly PackingRequest Full3D = new()
@@ -362,7 +377,7 @@ public class ContractTests
     public void A_request_with_every_setting_is_accepted_and_solved()
     {
         using var nester = new Nester2D();
-        foreach (var request in new[] { Full2DRectangle, Full2DPolygon })
+        foreach (var request in new[] { Full2DRectangle, Full2DPolygon, IterationBudget2D })
         {
             var result = nester.Solve(request);
             Assert.Equal(2, result.Placements.Count);
@@ -372,6 +387,7 @@ public class ContractTests
         var packed = packer.Solve(Full3D);
         Assert.Equal(3, packed.TotalRequested);
         Assert.NotEmpty(packed.Placements);
+        Assert.Equal(2, packer.Solve(IterationBudget3D).Placements.Count);
     }
 
     [Fact]
@@ -380,13 +396,18 @@ public class ContractTests
         var schema = Schema("request-2d");
         var written = Keys(Write(Full2DRectangle, NestingJson.Default.NestingRequest))
             .Union(Keys(Write(Full2DPolygon, NestingJson.Default.NestingRequest)))
+            .Union(Keys(Write(IterationBudget2D, NestingJson.Default.NestingRequest)))
             .ToHashSet();
         Compare(schema, written);
     }
 
     [Fact]
     public void The_3D_request_keys_are_the_engines()
-        => Compare(Schema("request-3d"), Keys(Write(Full3D, NestingJson.Default.PackingRequest)).ToHashSet());
+        => Compare(
+            Schema("request-3d"),
+            Keys(Write(Full3D, NestingJson.Default.PackingRequest))
+                .Union(Keys(Write(IterationBudget3D, NestingJson.Default.PackingRequest)))
+                .ToHashSet());
 
     [Fact]
     public void Each_option_is_a_name_the_engine_reads()

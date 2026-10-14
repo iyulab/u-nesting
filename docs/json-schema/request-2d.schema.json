@@ -167,6 +167,11 @@
           "minimum": 0,
           "maximum": 4294967295
         },
+        "max_iterations": {
+          "type": "integer",
+          "description": "Iteration budget for SA, GDRR and ALNS, run as given; a seeded run that ends on it rather than on the time limit is reproduced exactly. Omitted, each strategy uses the budget it is tuned for: 500 for SA, 1000 for GDRR and ALNS in 2D. Refused (invalid_option) under any other strategy.",
+          "minimum": 1
+        },
         "crossover_rate": {
           "type": "number",
           "description": "Crossover rate for GA (0.0-1.0)",
@@ -183,7 +188,7 @@
         },
         "seed": {
           "type": "integer",
-          "description": "RNG seed for the stochastic strategies (GA, BRKGA, SA, GDRR, ALNS): the same request with the same seed returns the same layout when the run ends on its own budget rather than on time_limit_ms (a search keeps a time budget of its own when time_limit_ms is 0). Omit it to seed from entropy",
+          "description": "RNG seed for the stochastic strategies (GA, BRKGA, SA, GDRR, ALNS): the same request with the same seed returns the same layout when the run ends on its own budget rather than on time_limit_ms; with time_limit_ms 0 a search runs to its own budget (max_generations, max_iterations). Omit it to seed from entropy",
           "minimum": 0,
           "maximum": 18446744073709551615
         },

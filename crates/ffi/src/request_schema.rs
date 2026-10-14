@@ -106,11 +106,13 @@ fn assert_levels(root: &Value, given: &Value, levels: &[(&str, &Value, &Value)])
 /// One valid value for every key a request's `config` takes.
 fn every_setting() -> Map<String, Value> {
     let settings = json!({
-        // `ga` reads every setting only some strategies read, so a request
-        // carrying all of them is one a strategy accepts.
+        // A valid value for each key; no one strategy reads them all (GA has
+        // generations, SA iterations), so these are shapes, solved one at a
+        // time beside a strategy that reads each.
         "spacing": 0.0, "margin": 0.0, "strategy": "ga", "time_limit_ms": 1000,
         "target_utilization": 0.9, "population_size": 4, "max_generations": 1,
-        "crossover_rate": 0.8, "mutation_rate": 0.1, "seed": 1, "multi_sheet": false
+        "max_iterations": 1, "crossover_rate": 0.8, "mutation_rate": 0.1, "seed": 1,
+        "multi_sheet": false
     });
     let settings = settings.as_object().expect("an object").clone();
     let keys: BTreeSet<&str> = settings.keys().map(String::as_str).collect();
@@ -191,7 +193,15 @@ fn the_2d_request_schema_has_the_keys_the_request_takes() {
     );
     assert_eq!(object_keys(&back["boundary"]), object_keys(&both));
     assert_eq!(object_keys(&back["config"]), object_keys(&full["config"]));
-    assert!(solves_2d(&full), "the full request solves");
+    // No one strategy reads every setting (GA has generations, SA
+    // iterations): the request solves beside GA once SA's budget is left out;
+    // each setting beside its own reader is the test below.
+    let mut ga = full.clone();
+    ga["config"]
+        .as_object_mut()
+        .expect("a config")
+        .remove("max_iterations");
+    assert!(solves_2d(&ga), "the full request, as GA reads it, solves");
 }
 
 #[test]
@@ -236,7 +246,15 @@ fn the_3d_request_schema_has_the_keys_the_request_takes() {
         object_keys(&back["boundary"]),
         object_keys(&full["boundary"])
     );
-    assert!(solves_3d(&full), "the full request solves");
+    // No one strategy reads every setting (GA has generations, SA
+    // iterations): the request solves beside GA once SA's budget is left out;
+    // each setting beside its own reader is the test below.
+    let mut ga = full.clone();
+    ga["config"]
+        .as_object_mut()
+        .expect("a config")
+        .remove("max_iterations");
+    assert!(solves_3d(&ga), "the full request, as GA reads it, solves");
 }
 
 /// The settings each schema lists are the settings a solve of that
@@ -251,7 +269,10 @@ fn each_config_schema_lists_the_settings_its_dimension_accepts() {
             // Each setting beside the strategy that reads it: a setting only
             // some strategies read is refused under one that does not.
             .filter(|(key, value)| {
-                let mut config = json!({ "strategy": "ga" });
+                // GA reads every setting only some strategies read but the
+                // iteration budget, which SA reads in both dimensions.
+                let reader = if key.as_str() == "max_iterations" { "sa" } else { "ga" };
+                let mut config = json!({ "strategy": reader });
                 config[key.as_str()] = (*value).clone();
                 solves(&config)
             })

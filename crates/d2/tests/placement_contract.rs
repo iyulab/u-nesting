@@ -414,8 +414,10 @@ fn the_ring_around_a_hole_is_filled() {
     // has to reach it: a packer that reads only the sheet's outline lays
     // pieces over the hole and the placement filter drops them, so the ring
     // comes back part-empty while the layout looks successful.
+    // Each search is bounded by a limit here, not left unlimited: 0
+    // runs a search to its iteration budget, minutes on 80 pieces.
     for strategy in STRATEGIES {
-        let result = Nester2D::new(config(strategy).with_time_limit(0))
+        let result = Nester2D::new(config(strategy).with_time_limit(15_000))
             .solve(&pieces, &boundary)
             .unwrap();
         assert_eq!(

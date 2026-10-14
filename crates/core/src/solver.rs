@@ -60,13 +60,14 @@ impl Dimension {
 /// The settings a request's `config` can carry besides `strategy`, in the
 /// order of `ConfigRequest::KEYS`. Which of them a strategy reads is
 /// [`Strategy::reads`].
-pub const SETTINGS: [&str; 10] = [
+pub const SETTINGS: [&str; 11] = [
     "spacing",
     "margin",
     "time_limit_ms",
     "target_utilization",
     "population_size",
     "max_generations",
+    "max_iterations",
     "crossover_rate",
     "mutation_rate",
     "seed",
@@ -144,6 +145,8 @@ impl Strategy {
     /// - `multi_sheet`: every 2D strategy (3D packing has no sheets).
     /// - `crossover_rate`, `mutation_rate`: the genetic algorithm.
     /// - `population_size`, `max_generations`: the two population searches.
+    /// - `max_iterations`: the single-solution searches (SA, GDRR, ALNS, and
+    ///   the hybrid's ALNS fallback).
     /// - `seed`: the stochastic searches (and the hybrid's ALNS fallback).
     /// - `target_utilization`: the searches that stop on a target (GA, BRKGA,
     ///   SA).
@@ -156,6 +159,7 @@ impl Strategy {
             "multi_sheet" => dimension == Dimension::TwoD,
             "crossover_rate" | "mutation_rate" => matches!(self, GeneticAlgorithm),
             "population_size" | "max_generations" => matches!(self, GeneticAlgorithm | Brkga),
+            "max_iterations" => matches!(self, SimulatedAnnealing | Gdrr | Alns | HybridExact),
             "seed" => matches!(
                 self,
                 GeneticAlgorithm | Brkga | SimulatedAnnealing | Gdrr | Alns | HybridExact
@@ -282,6 +286,15 @@ pub struct Config {
     /// limit, on cancellation and when the best layout stops improving.
     pub max_generations: Option<u32>,
 
+    /// Iteration budget for the single-solution searches (SA, GDRR, ALNS).
+    ///
+    /// `None` runs each with the budget it is tuned for -- 2D SA 500, GDRR
+    /// and ALNS 1000, 3D SA 10000; `Some(n)` allows `n` iterations (at least
+    /// one). A seeded run that ends on this budget, not on the clock, is
+    /// reproduced exactly (see [`Config::seed`]). A run also ends on the time
+    /// limit and on cancellation, and SA when it has cooled.
+    pub max_iterations: Option<u64>,
+
     /// Crossover rate for GA (0.0 - 1.0).
     pub crossover_rate: f64,
 
@@ -300,10 +313,9 @@ pub struct Config {
     /// on its own budget** -- the generation or iteration count, convergence,
     /// or the target utilization. A run cut short by the clock is not
     /// reproduced: how far a search gets before `time_limit_ms` (or a
-    /// cancellation) stops it depends on the machine and its load. In 2D a
-    /// search keeps a time budget of its own even when `time_limit_ms` is 0
-    /// (15 s for GA and BRKGA, 10 s for SA, GDRR and ALNS), so a large 2D
-    /// request can reach it.
+    /// cancellation) stops it depends on the machine and its load. With
+    /// `time_limit_ms` 0 a search runs to its own budget (`max_generations`,
+    /// `max_iterations`), so a seeded unlimited run is always reproduced.
     pub seed: Option<u64>,
 }
 
@@ -317,6 +329,7 @@ impl Default for Config {
             target_utilization: None,
             population_size: None,
             max_generations: None,
+            max_iterations: None,
             crossover_rate: 0.85,
             mutation_rate: 0.05,
             elite_count: 5,
@@ -337,13 +350,17 @@ impl Config {
     /// # Errors
     /// `ConfigError` naming the first field out of range: `spacing` or
     /// `margin` negative or not finite, `crossover_rate`/`mutation_rate` or
-    /// `target_utilization` outside `[0, 1]`, a `population_size` set below 2.
+    /// `target_utilization` outside `[0, 1]`, a `population_size` set below 2,
+    /// a `max_iterations` set to 0.
     pub fn validate(&self) -> Result<()> {
         use crate::error::{check_at_least, check_range};
         check_at_least("spacing", self.spacing, 0.0)?;
         check_at_least("margin", self.margin, 0.0)?;
         if let Some(size) = self.population_size {
             Self::check_population_size(size as i128)?;
+        }
+        if let Some(iterations) = self.max_iterations {
+            Self::check_max_iterations(i128::from(iterations))?;
         }
         check_range("crossover_rate", self.crossover_rate, 0.0, 1.0)?;
         check_range("mutation_rate", self.mutation_rate, 0.0, 1.0)?;
@@ -357,6 +374,12 @@ impl Config {
     /// request's value and a configuration's own are judged here alike.
     pub(crate) fn check_population_size(value: i128) -> Result<usize> {
         crate::error::whole_at_least("population_size", value, 2)
+    }
+
+    /// An iteration budget: at least 1. A request's value and a
+    /// configuration's own are judged here alike.
+    pub(crate) fn check_max_iterations(value: i128) -> Result<u64> {
+        crate::error::whole_at_least("max_iterations", value, 1)
     }
 
     /// Sets the optimization strategy.
@@ -406,6 +429,13 @@ impl Config {
     /// place of each strategy's own (see [`Config::max_generations`]).
     pub fn with_max_generations(mut self, generations: u32) -> Self {
         self.max_generations = Some(generations);
+        self
+    }
+
+    /// Sets the iteration budget of the single-solution searches, in place
+    /// of each strategy's own (see [`Config::max_iterations`]).
+    pub fn with_max_iterations(mut self, iterations: u64) -> Self {
+        self.max_iterations = Some(iterations);
         self
     }
 }

@@ -262,6 +262,14 @@ impl Nester2D {
         Self::new(Config::default())
     }
 
+    /// The iteration budget of a single-solution search: the caller's
+    /// `max_iterations`, `tuned` (the strategy's own) when it is unset.
+    fn iteration_budget<T: TryFrom<u64> + Copy>(&self, tuned: T) -> T {
+        self.config
+            .max_iterations
+            .map_or(tuned, |n| T::try_from(n).unwrap_or(tuned))
+    }
+
     /// The GA run the configuration asks for: the caller's population and
     /// generation budget, [`SEARCH_POPULATION`] / [`SEARCH_GENERATIONS`] for
     /// the ones left unset.
@@ -298,7 +306,7 @@ impl Nester2D {
         GdrrConfig {
             seed: self.config.seed,
             ..GdrrConfig::default()
-                .with_max_iterations(1000) // Reduced from 5000 for faster execution
+                .with_max_iterations(self.iteration_budget(1000))
                 .with_time_limit_ms(time_limit_ms)
                 .with_ruin_ratio(0.1, 0.3) // Smaller ruin ratio for faster convergence
                 .with_lahc_list_length(30) // Smaller list for faster convergence
@@ -310,7 +318,7 @@ impl Nester2D {
         AlnsConfig {
             seed: self.config.seed,
             ..AlnsConfig::default()
-                .with_max_iterations(1000) // Reduced from 5000 for faster execution
+                .with_max_iterations(self.iteration_budget(1000))
                 .with_time_limit_ms(time_limit_ms)
                 .with_segment_size(50) // Smaller segments for faster adaptation
                 .with_scores(33.0, 9.0, 13.0)
@@ -608,9 +616,6 @@ impl Nester2D {
         })
     }
 
-    /// The time a search strategy may spend on one strip: a quarter of the
-    /// limit (assuming up to about four strips), at least 5 s, never more than
-    /// the limit itself; `default_ms` when there is no limit.
     /// The fitness a search stops at for `target_utilization`: every part
     /// placed, at that utilization ([`nesting_fitness`] of a complete layout).
     fn target_fitness(&self) -> Option<f64> {
@@ -619,13 +624,19 @@ impl Nester2D {
             .map(|target| nesting_fitness(1, 1, target))
     }
 
-    fn search_budget_ms(&self, default_ms: u64) -> u64 {
-        if self.config.time_limit_ms > 0 {
-            (self.config.time_limit_ms / 4)
-                .max(5000)
-                .min(self.config.time_limit_ms)
-        } else {
-            default_ms
+    /// The time a search may spend: the whole of `time_limit_ms` -- a
+    /// multi-sheet solve gives each sheet its share of the limit -- and, when
+    /// it is 0, unlimited: a bound no run reaches, as for the exact solver.
+    /// Every search also ends on its own generation or iteration budget.
+    ///
+    /// It used to be a quarter of the limit (at least 5 s) from when every
+    /// sheet of a multi-sheet solve got the whole limit, and 10–15 s when the
+    /// limit was 0 -- so a one-sheet search used a quarter of the time it was
+    /// given, and an unlimited one stopped on a clock nobody set.
+    fn search_budget_ms(&self) -> u64 {
+        match self.config.time_limit_ms {
+            0 => u64::MAX / 2,
+            limit => limit,
         }
     }
 
@@ -666,7 +677,7 @@ impl Nester2D {
         progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let (time_limit_ms, greedy) = {
-            let budget = self.search_budget_ms(15000);
+            let budget = self.search_budget_ms();
             let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
@@ -698,7 +709,7 @@ impl Nester2D {
         progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let (time_limit_ms, greedy) = {
-            let budget = self.search_budget_ms(15000);
+            let budget = self.search_budget_ms();
             let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
@@ -731,7 +742,7 @@ impl Nester2D {
         progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let (time_limit_ms, greedy) = {
-            let budget = self.search_budget_ms(10000);
+            let budget = self.search_budget_ms();
             let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
@@ -741,7 +752,7 @@ impl Nester2D {
             .with_final_temp(1.0) // Higher final temp to finish faster
             .with_cooling_rate(0.9) // Faster cooling (was 0.95)
             .with_iterations_per_temp(20) // Fewer iterations per temp (was 50)
-            .with_max_iterations(500) // Much fewer max iterations (was 10000)
+            .with_max_iterations(self.iteration_budget(500))
             .with_time_limit(std::time::Duration::from_millis(time_limit_ms));
         let sa_config = match self.target_fitness() {
             Some(target) => sa_config.with_target_fitness(target),
@@ -769,7 +780,7 @@ impl Nester2D {
         progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let (time_limit, greedy) = {
-            let budget = self.search_budget_ms(10000);
+            let budget = self.search_budget_ms();
             let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
@@ -792,7 +803,7 @@ impl Nester2D {
         boundary: &Boundary2D,
         progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
-        self.alns_within(geometries, boundary, self.search_budget_ms(10000), progress)
+        self.alns_within(geometries, boundary, self.search_budget_ms(), progress)
     }
 
     /// [`Self::alns`] in `budget_ms`, for a caller that has spent part of the
@@ -893,10 +904,8 @@ impl Nester2D {
         // had spent half the limit, so any limit under ten seconds ran over by
         // up to half again.
         let budget = match self.config.time_limit_ms {
-            0 => self.search_budget_ms(10000),
-            limit => self
-                .search_budget_ms(10000)
-                .min(limit.saturating_sub(started.elapsed_ms()).max(1)),
+            0 => self.search_budget_ms(),
+            limit => limit.saturating_sub(started.elapsed_ms()).max(1),
         };
         self.alns_within(geometries, boundary, budget, None)
     }

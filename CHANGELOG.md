@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them ended the run. Rust: `StopReason` (re-exported from `u-metaheur`, whose
   runners report the same vocabulary), and `stop_reason` on `GaResult`,
   `BrkgaResult`, `SaResult`, `GdrrResult` and `AlnsResult`.
+- **`max_iterations`**: the iteration budget of `sa`, `gdrr` and `alns` (and the
+  hybrid's ALNS fallback), at least 1, on every binding and in the strategy
+  catalog — the counterpart of `max_generations`. Omitted, each uses the budget
+  it is tuned for (2D SA 500, GDRR and ALNS 1000, 3D SA 10000). A seeded run
+  that ends on it rather than on the clock is the same run every time.
 - `GdrrRunner::with_cancellation` and `AlnsRunner::with_cancellation`, as
   `GaRunner` has.
 - **Every strategy reports its progress while it runs** — every 2D and 3D search
@@ -76,6 +81,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BrkgaResult` and `SaResult` likewise; `SolveResult::completed_normally()` is
   removed. .NET: `NestingResult` and `PackingResult` take `StopReason` before
   `ElapsedMs`.
+- A 2D search runs for the whole of `time_limit_ms`, and `time_limit_ms: 0` is
+  unlimited for it as documented (each search still ends on its generation or
+  iteration budget). A search used to get a quarter of the limit (at least
+  5 s) — so a 60 s request searched for 15 s — and 10–15 s when the limit was 0.
 - `time_limit_ms` bounds a multi-sheet solve as a whole: what is left of it is
   shared among the sheets the remaining pieces need. Every sheet used to get the
   full limit afresh, so ten sheets could run ten times over it.

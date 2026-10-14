@@ -78,9 +78,10 @@ equivalent functions in `gdrr_nesting`, `alns_nesting`, `brkga_nesting` and
 
 ### Time budget of a 2D search
 
-A 2D search spends a quarter of `time_limit_ms` per strip, at least 5 s and
-never more than the limit; with `time_limit_ms` 0 it keeps a budget of its own
-(15 s for GA and BRKGA, 10 s for SA, GDRR and ALNS). It first runs the greedy
+A 2D search runs for the whole of `time_limit_ms` (a multi-sheet solve shares
+the limit among its sheets); with `time_limit_ms` 0 it runs until its own budget
+— `max_generations` for GA and BRKGA, `max_iterations` for SA, GDRR and ALNS —
+which can take minutes on a large request. It first runs the greedy
 NFP placement inside that budget, then searches from it, and never returns a
 layout worse than bottom-left fill.
 

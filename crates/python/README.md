@@ -159,15 +159,17 @@ Solve a 2D nesting problem.
     Omitted, each search uses the size it is tuned for: 30 in 2D
   - `max_generations` (int): GA/BRKGA generation budget, at least 0, run as
     given. Omitted, 50 in 2D
+  - `max_iterations` (int): SA/GDRR/ALNS iteration budget, at least 1; a seeded
+    run that ends on it rather than on the time limit is reproduced exactly
   - A setting only some strategies read (`target_utilization`, `population_size`,
-    `max_generations`, `crossover_rate`, `mutation_rate`, `seed`) is refused as
+    `max_generations`, `max_iterations`, `crossover_rate`, `mutation_rate`, `seed`) is refused as
     `invalid_option` under a strategy that does not read it, not ignored
   - `crossover_rate` / `mutation_rate` (float): GA crossover and mutation
     probabilities, in [0, 1] (default 0.85 / 0.05)
   - `seed` (int): RNG seed of `ga`, `brkga`, `sa`, `gdrr`, `alns` and `hybridexact`. The same
     problem with the same seed returns the same layout when the run ends on its
-    own budget rather than on the clock (a 2D search keeps a time budget of its
-    own, 10-15 s, when `time_limit_ms` is 0)
+    own budget rather than on the clock (with `time_limit_ms` 0 a search runs to
+    its own budget, `max_generations` / `max_iterations`)
   - `multi_sheet` (bool): Distribute overflow across multiple sheets (default:
     `False`). When `True`, parts that do not fit on one sheet spill onto extra
     sheets instead of becoming unplaced; `boundaries_used` reports the sheet count

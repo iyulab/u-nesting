@@ -200,3 +200,44 @@ fn a_multi_sheet_solve_is_bounded_by_one_time_limit() {
         8 * 20
     );
 }
+
+/// `max_iterations` is the budget of SA, GDRR and ALNS: a seeded run that ends
+/// on it, not on the clock, is the same run every time.
+#[test]
+fn an_iteration_budget_ends_a_seeded_run_the_same_way_every_time() {
+    let pieces = l_pieces(2);
+    let boundary = Boundary2D::rectangle(500.0, 5000.0);
+    for strategy in [Strategy::SimulatedAnnealing, Strategy::Gdrr, Strategy::Alns] {
+        let run = || {
+            Nester2D::new(
+                Config::default()
+                    .with_strategy(strategy)
+                    .with_time_limit(0)
+                    .with_max_iterations(20)
+                    .with_seed(3),
+            )
+            .solve(&pieces, &boundary)
+            .expect("solved")
+        };
+        let (a, b) = (run(), run());
+        assert_eq!(a.stop_reason, StopReason::IterationLimit, "{strategy:?}");
+        assert!(
+            a.iterations.is_some_and(|n| n <= 20),
+            "{strategy:?}: {:?}",
+            a.iterations
+        );
+        let layout = |r: &u_nesting_d2::SolveResult<f64>| {
+            r.placements
+                .iter()
+                .map(|p| {
+                    (
+                        p.geometry_id.clone(),
+                        p.instance,
+                        p.position.iter().map(|v| v.to_bits()).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(layout(&a), layout(&b), "{strategy:?}");
+    }
+}

@@ -560,7 +560,7 @@ mod metaheuristic_quality_tests {
     /// is a property of the time the pass gets, not of the code: with a fixed
     /// limit it held on a quiet machine and failed beside other builds. So the
     /// limit is sized from the greedy pass measured just before each search
-    /// (the search's budget is a quarter of the limit), and a miss is retried
+    /// (the search runs for the whole limit), and a miss is retried
     /// once with twice the time before it counts.
     #[test]
     fn larger_rotation_set_never_worsens_strip_length() {

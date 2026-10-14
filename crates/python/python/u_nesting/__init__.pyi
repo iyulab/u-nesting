@@ -41,6 +41,7 @@ class Config(TypedDict, total=False):
     target_utilization: Optional[float]
     population_size: Optional[int]
     max_generations: Optional[int]
+    max_iterations: Optional[int]
     crossover_rate: Optional[float]
     mutation_rate: Optional[float]
     seed: Optional[int]
