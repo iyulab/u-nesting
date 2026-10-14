@@ -161,6 +161,7 @@ The C interface and WebAssembly response:
   "all_placed": false,
   "used_bounding_box": [380.0, 290.0],
   "used_utilization": 0.71,
+  "stop_reason": "time_limit",
   "elapsed_ms": 1500
 }
 ```
@@ -176,6 +177,7 @@ The C interface and WebAssembly response:
 | `unplaced_count` | Instance-level count of parts that couldn't be placed |
 | `all_placed` | Whether every requested instance was placed |
 | `used_bounding_box`, `used_utilization` | The placed parts' footprint and their area over it |
+| `stop_reason` | Why the run stopped: `completed`, `optimal`, `target_reached`, `iteration_limit`, `no_improvement`, `time_limit` (the best layout found when `time_limit_ms` ran out) or `cancelled` |
 | `elapsed_ms` | Solving time in milliseconds |
 
 The Python result has the same values under its own names: `geometry_id`,

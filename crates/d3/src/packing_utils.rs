@@ -77,28 +77,13 @@ pub fn packing_fitness(placed_count: usize, total_count: usize, utilization: f64
     placement_ratio * 100.0 + utilization * 10.0
 }
 
-/// The geometry ids with an instance `placements` does not contain -- one
-/// entry per missing instance, in request order.
-///
-/// A geometry with a quantity counts per instance: two of three copies placed
-/// leaves its id unplaced.
+/// The geometry ids with a copy `placements` does not contain, one entry per
+/// missing copy -- [`u_nesting_core::result::unplaced_ids`] for boxes.
 pub fn build_unplaced_list(
     placements: &[Placement<f64>],
     geometries: &[Geometry3D],
 ) -> Vec<String> {
-    let placed: std::collections::HashSet<(&str, usize)> = placements
-        .iter()
-        .map(|p| (p.geometry_id.as_str(), p.instance))
-        .collect();
-    let mut unplaced = Vec::new();
-    for geom in geometries {
-        for instance in 0..geom.quantity() {
-            if !placed.contains(&(geom.id().as_str(), instance)) {
-                unplaced.push(geom.id().clone());
-            }
-        }
-    }
-    unplaced
+    u_nesting_core::result::unplaced_ids(placements, geometries)
 }
 
 /// Result of the layer-based placement algorithm.

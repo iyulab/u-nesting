@@ -28,8 +28,11 @@
 //! let result = runner.run(&mut problem, progress_callback);
 //! ```
 
+use crate::result::StopReason;
 use crate::timing::Timer;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Configuration for the GDRR algorithm.
 #[derive(Debug, Clone)]
@@ -255,6 +258,8 @@ pub struct GdrrResult<S> {
     pub iterations: usize,
     /// Total time elapsed in milliseconds
     pub elapsed_ms: u64,
+    /// Why the run stopped: its iteration cap, its time limit or cancellation
+    pub stop_reason: StopReason,
     /// Number of improvements found
     pub improvements: usize,
     /// Final goal value
@@ -350,6 +355,7 @@ pub trait GdrrProblem {
 /// The GDRR algorithm runner.
 pub struct GdrrRunner {
     config: GdrrConfig,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl GdrrRunner {
@@ -358,8 +364,20 @@ impl GdrrRunner {
     /// # Errors
     /// As [`GdrrConfig::validate`].
     pub fn new(config: GdrrConfig) -> crate::error::Result<Self> {
+        Self::with_cancellation(config, Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Creates a runner that stops when `cancelled` is set -- the caller's
+    /// own flag, observed between iterations.
+    ///
+    /// # Errors
+    /// As [`GdrrConfig::validate`].
+    pub fn with_cancellation(
+        config: GdrrConfig,
+        cancelled: Arc<AtomicBool>,
+    ) -> crate::error::Result<Self> {
         config.validate()?;
-        Ok(Self { config })
+        Ok(Self { config, cancelled })
     }
 
     /// Run the GDRR algorithm on the given problem.
@@ -405,18 +423,22 @@ impl GdrrRunner {
             + self.config.cluster_ruin_weight
             + self.config.worst_ruin_weight;
 
-        // Main loop
-        loop {
+        // Main loop -- each exit names its reason
+        let stop_reason = loop {
             // Check termination conditions
             let elapsed = start_time.elapsed();
             let elapsed_ms = elapsed.as_millis() as u64;
 
             if iteration >= self.config.max_iterations {
-                break;
+                break StopReason::IterationLimit;
+            }
+
+            if self.cancelled.load(Ordering::Relaxed) {
+                break StopReason::Cancelled;
             }
 
             if self.config.time_limit_ms > 0 && elapsed_ms >= self.config.time_limit_ms {
-                break;
+                break StopReason::TimeLimit;
             }
 
             // Select ruin ratio
@@ -518,7 +540,7 @@ impl GdrrRunner {
 
             iteration += 1;
             lahc_index += 1;
-        }
+        };
 
         let elapsed_ms = start_time.elapsed_ms();
 
@@ -527,6 +549,7 @@ impl GdrrRunner {
             best_fitness,
             iterations: iteration,
             elapsed_ms,
+            stop_reason,
             improvements,
             final_goal: current_goal,
         }

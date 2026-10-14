@@ -17,7 +17,7 @@ use crate::packing_utils::{
     build_instances, build_unplaced_list, layer_place_items, packing_fitness, seed_orientations,
     InstanceInfo, PlacementItem,
 };
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use u_nesting_core::sa::{
     NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaRunner, SaSolution,
@@ -249,8 +249,7 @@ pub fn run_sa_packing(
     result.best_fitness = Some(sa_result.best.objective());
     result.fitness_history = Some(sa_result.history);
     result.strategy = Some("SimulatedAnnealing".to_string());
-    result.cancelled = cancelled.load(Ordering::Relaxed);
-    result.target_reached = sa_result.target_reached;
+    result.stop_reason = sa_result.stop_reason;
 
     Ok(result)
 }

@@ -189,6 +189,7 @@ Solve a 2D nesting problem.
 - `used_bounding_box` (list): `[width, height]` of the placed parts' footprint
   (2D; `[0, 0]` for 3D)
 - `used_utilization` (float): Part area over `used_bounding_box` (2D; `0` for 3D)
+- `stop_reason` (str): Why the run stopped — `completed` (the method ran to its own end), `optimal` (an exact method proved it), `target_reached` (every part placed at `target_utilization` or more), `iteration_limit`, `no_improvement` (the search stalled), `time_limit` (`time_limit_ms` ran out; the layout is the best found by then) or `cancelled`. `None` on a refusal
 - `computation_time_ms` (int): Solve time
 - `error` (str | None): Readable text when the request was refused
 - `code` (str | None): Stable reason for that refusal (`invalid_geometry`,

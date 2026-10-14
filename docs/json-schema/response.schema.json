@@ -4,7 +4,7 @@
   "title": "U-Nesting 2D Solve Response",
   "description": "Wire response schema for solve_2d (SolveResponse). The 3D response (Pack3DResponse) is structurally similar but uses bins_used instead of sheets_used and each placement carries z and an orientation label.",
   "type": "object",
-  "required": ["version", "success", "placements", "sheets_used", "utilization", "total_requested", "unplaced", "unplaced_count", "all_placed", "used_bounding_box", "used_utilization", "elapsed_ms"],
+  "required": ["version", "success", "placements", "sheets_used", "utilization", "total_requested", "unplaced", "unplaced_count", "all_placed", "used_bounding_box", "used_utilization", "stop_reason", "elapsed_ms"],
   "properties": {
     "version": {
       "type": "string",
@@ -88,6 +88,11 @@
       "type": "number",
       "description": "Placed area over the used bounding box's area: how tightly the pieces pack within their own extent (not a fixed-width stock efficiency). 0 when nothing was placed, in multi-sheet solves and on error responses.",
       "minimum": 0
+    },
+    "stop_reason": {
+      "type": ["string", "null"],
+      "enum": ["completed", "optimal", "target_reached", "iteration_limit", "no_improvement", "time_limit", "cancelled", null],
+      "description": "Why the run stopped: completed (the strategy ran to its own end), optimal (an exact method proved it), target_reached (every piece placed at target_utilization or more), iteration_limit, no_improvement (the search stalled), time_limit (time_limit_ms ran out; the layout is the best found by then) or cancelled. null on a refusal."
     },
     "elapsed_ms": {
       "type": "integer",

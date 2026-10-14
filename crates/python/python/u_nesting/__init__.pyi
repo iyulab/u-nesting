@@ -1,6 +1,6 @@
 """Type stubs for u_nesting module."""
 
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Literal, Optional, TypedDict
 
 class Geometry2D(TypedDict, total=False):
     """2D geometry input."""
@@ -66,6 +66,19 @@ class SolveResult(TypedDict):
     all_placed: bool
     used_bounding_box: List[float]
     used_utilization: float
+    stop_reason: Optional[
+        Literal[
+            "completed",
+            "optimal",
+            "target_reached",
+            "iteration_limit",
+            "no_improvement",
+            "time_limit",
+            "cancelled",
+        ]
+    ]
+    """Why the run stopped; ``None`` on a refusal. ``time_limit`` means the layout
+    is the best found when ``time_limit_ms`` ran out."""
     computation_time_ms: int
     error: Optional[str]
     code: Optional[str]

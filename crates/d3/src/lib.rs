@@ -93,7 +93,9 @@ pub use spatial_index::{Aabb3D, SpatialEntry3D, SpatialIndex3D};
 pub use stability::{
     PlacedBox, StabilityAnalyzer, StabilityConstraint, StabilityReport, StabilityResult,
 };
-pub use u_nesting_core::{Config, Error, Placement, Result, SolveResult, Solver, Strategy};
+pub use u_nesting_core::{
+    Config, Error, Placement, Result, SolveResult, Solver, StopReason, Strategy,
+};
 
 /// Builds a [`Pack3DResponse`](u_nesting_core::api_types::Pack3DResponse) from a
 /// 3D solve result, decoding each placement's orientation index into a string
@@ -152,6 +154,7 @@ pub fn build_pack3d_response(
         unplaced: result.unplaced.clone(),
         unplaced_count,
         all_placed: unplaced_count == 0,
+        stop_reason: Some(result.stop_reason),
         elapsed_ms: result.computation_time_ms,
     }
 }

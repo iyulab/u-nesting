@@ -39,8 +39,11 @@
 //! let result = runner.run(&mut problem, progress_callback);
 //! ```
 
+use crate::result::StopReason;
 use crate::timing::Timer;
 use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Configuration for the ALNS algorithm.
 #[derive(Debug, Clone)]
@@ -303,6 +306,8 @@ pub struct AlnsResult<S> {
     pub iterations: usize,
     /// Total time elapsed in milliseconds
     pub elapsed_ms: u64,
+    /// Why the run stopped: its iteration cap, its time limit or cancellation
+    pub stop_reason: StopReason,
     /// Number of improvements found
     pub improvements: usize,
     /// Final temperature
@@ -372,6 +377,7 @@ pub trait AlnsProblem {
 /// The ALNS algorithm runner.
 pub struct AlnsRunner {
     config: AlnsConfig,
+    cancelled: Arc<AtomicBool>,
 }
 
 impl AlnsRunner {
@@ -380,8 +386,20 @@ impl AlnsRunner {
     /// # Errors
     /// As [`AlnsConfig::validate`].
     pub fn new(config: AlnsConfig) -> crate::error::Result<Self> {
+        Self::with_cancellation(config, Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Creates a runner that stops when `cancelled` is set -- the caller's
+    /// own flag, observed between iterations.
+    ///
+    /// # Errors
+    /// As [`AlnsConfig::validate`].
+    pub fn with_cancellation(
+        config: AlnsConfig,
+        cancelled: Arc<AtomicBool>,
+    ) -> crate::error::Result<Self> {
         config.validate()?;
-        Ok(Self { config })
+        Ok(Self { config, cancelled })
     }
 
     /// Run the ALNS algorithm on the given problem.
@@ -431,18 +449,22 @@ impl AlnsRunner {
         let mut segment_accepts = 0;
         let mut segment_total = 0;
 
-        // Main loop
-        loop {
+        // Main loop -- each exit names its reason
+        let stop_reason = loop {
             // Check termination conditions
             let elapsed = start_time.elapsed();
             let elapsed_ms = elapsed.as_millis() as u64;
 
             if iteration >= self.config.max_iterations {
-                break;
+                break StopReason::IterationLimit;
+            }
+
+            if self.cancelled.load(Ordering::Relaxed) {
+                break StopReason::Cancelled;
             }
 
             if self.config.time_limit_ms > 0 && elapsed_ms >= self.config.time_limit_ms {
-                break;
+                break StopReason::TimeLimit;
             }
 
             // Select destroy operator using roulette wheel
@@ -561,7 +583,7 @@ impl AlnsRunner {
             progress_callback(&progress);
 
             iteration += 1;
-        }
+        };
 
         let elapsed_ms = start_time.elapsed_ms();
 
@@ -570,6 +592,7 @@ impl AlnsRunner {
             best_fitness,
             iterations: iteration,
             elapsed_ms,
+            stop_reason,
             improvements,
             final_temperature: temperature,
             destroy_weights: destroy_stats

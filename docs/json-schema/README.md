@@ -122,6 +122,7 @@ schema lists and no others, and the engine refuses one it does not read
   "all_placed": true,
   "used_bounding_box": [100.0, 50.0],
   "used_utilization": 1.0,
+  "stop_reason": "completed",
   "elapsed_ms": 1234
 }
 ```
@@ -129,6 +130,12 @@ schema lists and no others, and the engine refuses one it does not read
 A refused request has `success` `false`, readable `error` text, a stable `code`
 and the values behind it in `details` (`parameter`, `id`, `index`, `min`, `max`,
 `got`, ...); branch on `code`, not on the text.
+
+`stop_reason` says why the run stopped: `completed` (the strategy ran to its own
+end), `optimal` (an exact method proved it), `target_reached` (every piece placed at
+`target_utilization` or more), `iteration_limit`, `no_improvement` (the search
+stalled), `time_limit` (`time_limit_ms` ran out — the layout is the best found by
+then) or `cancelled`; `null` on a refusal.
 
 `total_requested` is the Σ of every geometry's `quantity` (instance-level). Because
 `unplaced` lists **deduplicated** geometry IDs, the number of unplaced instances is

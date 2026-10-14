@@ -509,8 +509,7 @@ pub fn run_brkga_nesting(
     result.best_fitness = Some(brkga_result.best.fitness());
     result.fitness_history = Some(brkga_result.history);
     result.strategy = Some("BRKGA".to_string());
-    result.cancelled = cancelled.load(Ordering::Relaxed);
-    result.target_reached = brkga_result.target_reached;
+    result.stop_reason = brkga_result.stop_reason;
 
     Ok(result)
 }

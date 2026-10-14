@@ -17,7 +17,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{
     offered_names, Config, Dimension, ProgressCallback, ProgressInfo, Solver, Strategy,
 };
-use u_nesting_core::{Error, Placement, Result, SolveResult};
+use u_nesting_core::{Error, Placement, Result, SolveResult, StopReason};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -323,17 +323,14 @@ impl Packer3D {
                 .with_elapsed(0),
         );
 
-        let mut cancelled = false;
-        let mut timed_out = false;
+        let mut stop = None;
         let (fill, _stopped) = layer_fill_in_order(
             geometries,
             boundary,
             &self.config,
             || {
-                cancelled = self.cancelled.load(Ordering::Relaxed);
-                timed_out = self.config.time_limit_ms > 0
-                    && start.elapsed_ms() >= self.config.time_limit_ms;
-                cancelled || timed_out
+                stop = self.stop_requested(&start);
+                stop.is_some()
             },
             |fill| {
                 report(
@@ -351,15 +348,15 @@ impl Packer3D {
         result.boundaries_used = usize::from(!fill.placements.is_empty());
         result.utilization = fill.utilization;
         result.placements = fill.placements;
-        result.cancelled = cancelled;
         result.computation_time_ms = start.elapsed_ms();
-        let phase = if cancelled {
-            "Cancelled"
-        } else if timed_out {
-            "Time Limit Reached"
-        } else {
-            "Complete"
+        let phase = match stop {
+            Some(StopReason::Cancelled) => "Cancelled",
+            Some(_) => "Time Limit Reached",
+            None => "Complete",
         };
+        if let Some(stop) = stop {
+            result.stop_reason = stop;
+        }
         report(
             ProgressInfo::new()
                 .with_phase(phase)
@@ -369,6 +366,18 @@ impl Packer3D {
                 .finished(),
         );
         result
+    }
+
+    /// Whether a constructive fill must stop before its next box, and why:
+    /// the caller cancelled, or `time_limit_ms` (0 = unlimited) ran out.
+    fn stop_requested(&self, start: &Timer) -> Option<StopReason> {
+        if self.cancelled.load(Ordering::Relaxed) {
+            Some(StopReason::Cancelled)
+        } else if self.config.time_limit_ms > 0 && start.elapsed_ms() >= self.config.time_limit_ms {
+            Some(StopReason::TimeLimit)
+        } else {
+            None
+        }
     }
 
     /// The time a search may run after the layer fill it starts from:
@@ -505,7 +514,7 @@ impl Packer3D {
     ) -> Result<SolveResult<f64>> {
         let start = Timer::now();
 
-        let mut cancelled = false;
+        let mut stop = None;
         let (ep_placements, utilization) = run_ep_packing(
             geometries,
             boundary,
@@ -513,10 +522,8 @@ impl Packer3D {
             self.config.spacing,
             boundary.max_mass(),
             || {
-                cancelled = self.cancelled.load(Ordering::Relaxed);
-                cancelled
-                    || (self.config.time_limit_ms > 0
-                        && start.elapsed_ms() >= self.config.time_limit_ms)
+                stop = self.stop_requested(&start);
+                stop.is_some()
             },
         );
 
@@ -541,7 +548,9 @@ impl Packer3D {
         result.boundaries_used = usize::from(!placements.is_empty());
         result.placements = placements;
         result.utilization = utilization;
-        result.cancelled = cancelled;
+        if let Some(stop) = stop {
+            result.stop_reason = stop;
+        }
         result.unplaced = unplaced;
         result.computation_time_ms = start.elapsed_ms();
         result.strategy = Some("ExtremePoint".to_string());

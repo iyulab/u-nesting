@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::{check_above, check_at_least, check_range, Result};
+use crate::result::StopReason;
 use crate::timing::{expired, Timer};
 
 #[cfg(feature = "serde")]
@@ -268,8 +269,9 @@ pub struct SaResult<S: SaSolution> {
     pub iterations: u64,
     /// Total elapsed time.
     pub elapsed: Duration,
-    /// Whether the target fitness was reached.
-    pub target_reached: bool,
+    /// Why the run stopped: [`StopReason::Completed`] when the schedule
+    /// cooled to its final temperature.
+    pub stop_reason: StopReason,
     /// Number of reheats performed.
     pub reheat_count: u32,
     /// Fitness history (sampled at temperature changes).
@@ -333,7 +335,7 @@ impl<P: SaProblem> SaRunner<P> {
 
         let mut temperature = self.config.initial_temp;
         let mut iteration = 0u64;
-        let mut target_reached = false;
+        let reached = |fitness: f64| self.config.target_fitness.is_some_and(|t| fitness >= t);
         let mut reheat_count = 0u32;
         let mut stagnation_count = 0u64;
 
@@ -350,30 +352,27 @@ impl<P: SaProblem> SaRunner<P> {
         let mut accepted_count = 0usize;
         let mut total_count = 0usize;
 
-        while temperature > self.config.final_temp {
-            // Check cancellation
+        // Each exit names its reason; the target is judged first, so a target
+        // met by the last step is reported as met.
+        let stop_reason = loop {
+            if reached(best_fitness) {
+                break StopReason::TargetReached;
+            }
+            if temperature <= self.config.final_temp {
+                break StopReason::Completed;
+            }
+            if self
+                .config
+                .max_iterations
+                .is_some_and(|max| iteration >= max)
+            {
+                break StopReason::IterationLimit;
+            }
             if self.cancelled.load(Ordering::Relaxed) {
-                break;
+                break StopReason::Cancelled;
             }
-
-            // Check time limit
             if expired(&start, self.config.time_limit) {
-                break;
-            }
-
-            // Check max iterations
-            if let Some(max) = self.config.max_iterations {
-                if iteration >= max {
-                    break;
-                }
-            }
-
-            // Check target fitness
-            if let Some(target) = self.config.target_fitness {
-                if best_fitness >= target {
-                    target_reached = true;
-                    break;
-                }
+                break StopReason::TimeLimit;
             }
 
             // Iterations at this temperature — each evaluation can be a full
@@ -451,7 +450,7 @@ impl<P: SaProblem> SaRunner<P> {
             // Reset adaptive counters
             accepted_count = 0;
             total_count = 0;
-        }
+        };
 
         // Final history entry
         history.push(best_fitness);
@@ -461,7 +460,7 @@ impl<P: SaProblem> SaRunner<P> {
             final_temperature: temperature,
             iterations: iteration,
             elapsed: start.elapsed(),
-            target_reached,
+            stop_reason,
             reheat_count,
             history,
         }

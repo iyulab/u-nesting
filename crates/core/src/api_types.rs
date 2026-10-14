@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::whole_at_least;
+use crate::result::StopReason;
 use crate::solver::{Config, Dimension, Strategy};
 use crate::Error;
 
@@ -337,6 +338,15 @@ pub struct SolveResponse {
     #[serde(default)]
     pub used_utilization: f64,
 
+    /// Why the run stopped: `completed` (the method ran to its own end),
+    /// `optimal` (an exact method proved it), `target_reached` (every piece
+    /// placed at `target_utilization` or more), `iteration_limit` (the
+    /// generation or iteration budget), `no_improvement` (the search stalled),
+    /// `time_limit` (`time_limit_ms` ran out -- the layout is the best found
+    /// by then) or `cancelled`. `null` on a refusal.
+    #[serde(default)]
+    pub stop_reason: Option<StopReason>,
+
     /// Computation time in milliseconds.
     pub elapsed_ms: u64,
 }
@@ -528,6 +538,7 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
             all_placed: unplaced_count == 0,
             used_bounding_box: r.used_bounding_box,
             used_utilization,
+            stop_reason: Some(r.stop_reason),
             elapsed_ms: r.computation_time_ms,
         }
     }
@@ -596,6 +607,15 @@ pub struct Pack3DResponse {
     #[serde(default)]
     pub all_placed: bool,
 
+    /// Why the run stopped: `completed` (the method ran to its own end),
+    /// `optimal` (an exact method proved it), `target_reached` (every piece
+    /// placed at `target_utilization` or more), `iteration_limit` (the
+    /// generation or iteration budget), `no_improvement` (the search stalled),
+    /// `time_limit` (`time_limit_ms` ran out -- the layout is the best found
+    /// by then) or `cancelled`. `null` on a refusal.
+    #[serde(default)]
+    pub stop_reason: Option<StopReason>,
+
     /// Computation time in milliseconds.
     pub elapsed_ms: u64,
 }
@@ -649,6 +669,7 @@ impl Pack3DResponse {
             unplaced: Vec::new(),
             unplaced_count: 0,
             all_placed: false,
+            stop_reason: None,
             elapsed_ms: 0,
         }
     }
@@ -1014,6 +1035,7 @@ impl SolveResponse {
             all_placed: false,
             used_bounding_box: [0.0, 0.0],
             used_utilization: 0.0,
+            stop_reason: None,
             elapsed_ms: 0,
         }
     }

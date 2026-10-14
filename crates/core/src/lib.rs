@@ -86,7 +86,7 @@ pub use geometry::{
     GeometryId, RotationConstraint,
 };
 pub use placement::Placement;
-pub use result::{SolveResult, SolveSummary};
+pub use result::{SolveResult, SolveSummary, StopReason};
 pub use sa::{
     CoolingSchedule, NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaResult,
     SaRunner, SaSolution,

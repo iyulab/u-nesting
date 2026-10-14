@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Every solve says why it stopped**: `stop_reason` on every solve response
+  (WASM `solve_2d`/`solve_3d`, C ABI, Python, .NET `NestingResult.StopReason` /
+  `PackingResult.StopReason`) and on `SolveResult` — `completed` (the strategy ran
+  to its own end), `optimal` (an exact method proved it), `target_reached` (every
+  piece placed at `target_utilization` or more), `iteration_limit`,
+  `no_improvement` (the search went its stall budget without improving),
+  `time_limit` (the layout is the best found when `time_limit_ms` ran out) or
+  `cancelled`; `null` on a refusal. Each strategy sets it where it stops, so a
+  caller that offered a time limit, a target or a cancel button can tell which of
+  them ended the run. Rust: `StopReason`, and `stop_reason` on `GaResult`,
+  `BrkgaResult`, `SaResult`, `GdrrResult` and `AlnsResult`.
+- `GdrrRunner::with_cancellation` and `AlnsRunner::with_cancellation`, as
+  `GaRunner` has.
+
 - **A 2D layout checker**: `u_nesting_d2::check::check_layout(geometries,
   boundary, &LayoutRules { spacing, margin, multi_sheet }, placements, unplaced)`
   reports every way a layout breaks its problem — a piece outside the boundary or
@@ -42,8 +56,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** `SolveResult::cancelled` and `SolveResult::target_reached` are
+  replaced by `stop_reason` (`== StopReason::Cancelled`,
+  `== StopReason::TargetReached`), and `target_reached` on `GaResult`,
+  `BrkgaResult` and `SaResult` likewise; `SolveResult::completed_normally()` is
+  removed. .NET: `NestingResult` and `PackingResult` take `StopReason` before
+  `ElapsedMs`.
+- `time_limit_ms` bounds a multi-sheet solve as a whole: what is left of it is
+  shared among the sheets the remaining pieces need. Every sheet used to get the
+  full limit afresh, so ten sheets could run ten times over it.
 - A strategy 2D nesting does not offer (`ep`, or an exact strategy without the
   `milp` feature) is refused before anything runs, by the same validation.
+
+### Fixed
+
+- 0.19.0 said `ga`, `brkga` and `sa` "report `target_reached`", but no binding
+  carried it — the flag was set in Rust and dropped by every response. It is now
+  `stop_reason: "target_reached"`.
+- A cancelled bottom-left or NFP fill returned no placements at all; it now
+  returns what it placed, as a timed-out one does.
+- A 2D strategy that stopped early (time limit, cancellation) could report an
+  `unplaced` list that left out pieces it never reached; `unplaced` now follows
+  from the placements, as in 3D.
+- `gdrr` and `alns` ignored cancellation and ran on to their iteration cap or the
+  time limit.
+- A multi-sheet solve reported `elapsed_ms: 0`.
+- A target met in the last generation of `ga` or `brkga` was reported as not met.
+- The exact strategies' proof of optimality, or the time limit that stopped them
+  short of one, was only logged; it is now the stop reason.
+- The npm README's response schema left out `unplaced_count`, `all_placed`,
+  `used_bounding_box` and `used_utilization`.
 
 ## [0.20.0] - 2026-10-14
 

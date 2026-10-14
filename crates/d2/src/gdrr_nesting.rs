@@ -709,11 +709,11 @@ pub fn run_gdrr_nesting(
         geometries.to_vec(),
         boundary.clone(),
         config.clone(),
-        cancelled,
+        cancelled.clone(),
         gdrr_config.time_limit_ms,
     );
 
-    let runner = GdrrRunner::new(gdrr_config.clone())?;
+    let runner = GdrrRunner::with_cancellation(gdrr_config.clone(), cancelled)?;
     let gdrr_result: GdrrResult<GdrrNestingSolution> = runner.run(&mut problem, |_progress| {
         // Progress callback - can be used for logging
     });
@@ -741,6 +741,7 @@ pub fn run_gdrr_nesting(
     result.utilization = gdrr_result.best_solution.utilization();
     result.computation_time_ms = gdrr_result.elapsed_ms;
     result.iterations = Some(gdrr_result.iterations as u64);
+    result.stop_reason = gdrr_result.stop_reason;
     result.best_fitness = Some(gdrr_result.best_fitness);
     result.strategy = Some("GDRR".to_string());
 

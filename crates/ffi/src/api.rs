@@ -1118,6 +1118,57 @@ mod tests {
         }
     }
 
+    /// Every C entry point's response says why the run stopped, as the
+    /// engine recorded it; a refusal carries `null`.
+    #[test]
+    fn a_solve_says_why_it_stopped() {
+        type Entry = unsafe extern "C" fn(*const c_char, *mut *mut c_char) -> i32;
+        let call = |entry: Entry, request: &str| -> serde_json::Value {
+            let request = CString::new(request).unwrap();
+            let mut out: *mut c_char = std::ptr::null_mut();
+            unsafe {
+                entry(request.as_ptr(), &mut out);
+                let json = serde_json::from_str(CStr::from_ptr(out).to_str().unwrap()).unwrap();
+                unesting_free_string(out);
+                json
+            }
+        };
+        let plates = |quantity: usize, config: &str| {
+            format!(
+                r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]], "quantity": {quantity}}}],
+                    "boundary": {{"width": 2000, "height": 2000}}, "config": {config}}}"#
+            )
+        };
+        let r = call(unesting_solve_2d, &plates(4, r#"{"strategy": "nfp"}"#));
+        assert_eq!(r["stop_reason"], "completed", "{r}");
+        let r = call(
+            unesting_solve_2d,
+            &plates(20_000, r#"{"strategy": "blf", "time_limit_ms": 1}"#),
+        );
+        assert_eq!(r["stop_reason"], "time_limit", "{r}");
+        let r = call(
+            unesting_solve_3d,
+            r#"{"geometries": [{"id": "crate", "dimensions": [1, 1, 1], "quantity": 3}],
+                "boundary": {"dimensions": [5, 5, 5]},
+                "config": {"strategy": "sa", "target_utilization": 0.0, "seed": 1}}"#,
+        );
+        assert_eq!(r["stop_reason"], "target_reached", "{r}");
+        let r = call(unesting_solve_2d, &plates(0, "{}"));
+        assert_eq!(r["success"], false);
+        assert!(r["stop_reason"].is_null(), "{r}");
+
+        // The progress entry point answers the same way.
+        let request = CString::new(plates(4, r#"{"strategy": "blf"}"#)).unwrap();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        unsafe {
+            unesting_solve_2d_with_progress(request.as_ptr(), None, std::ptr::null_mut(), &mut out);
+            let r: serde_json::Value =
+                serde_json::from_str(CStr::from_ptr(out).to_str().unwrap()).unwrap();
+            assert_eq!(r["stop_reason"], "completed", "{r}");
+            unesting_free_string(out);
+        }
+    }
+
     #[test]
     fn test_solve_2d_basic() {
         let request = r#"{

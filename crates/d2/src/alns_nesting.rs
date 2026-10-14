@@ -582,11 +582,11 @@ pub fn run_alns_nesting(
         geometries.to_vec(),
         boundary.clone(),
         config.clone(),
-        cancelled,
+        cancelled.clone(),
         alns_config.time_limit_ms,
     );
 
-    let runner = AlnsRunner::new(alns_config.clone())?;
+    let runner = AlnsRunner::with_cancellation(alns_config.clone(), cancelled)?;
     let alns_result: AlnsResult<AlnsNestingSolution> = runner.run(&mut problem, |_progress| {
         // Progress callback
     });
@@ -614,6 +614,7 @@ pub fn run_alns_nesting(
         alns_result.best_solution.placed_area / alns_result.best_solution.boundary_area;
     result.computation_time_ms = alns_result.elapsed_ms;
     result.iterations = Some(alns_result.iterations as u64);
+    result.stop_reason = alns_result.stop_reason;
     result.best_fitness = Some(alns_result.best_fitness);
     result.strategy = Some("ALNS".to_string());
 

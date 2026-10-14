@@ -39,7 +39,7 @@ use crate::placement_utils::offset_nfp;
 use u_nesting_core::exact::{ExactConfig, ExactResult};
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::Config;
-use u_nesting_core::{Placement, SolveResult};
+use u_nesting_core::{Placement, SolveResult, StopReason};
 
 #[cfg(feature = "milp")]
 use good_lp::{
@@ -275,12 +275,13 @@ fn nfp_cm_nesting(
 
     match solved {
         Err(Stopped::Cancelled) => {
-            result.cancelled = true;
+            result.stop_reason = StopReason::Cancelled;
             result.computation_time_ms = start.elapsed().as_millis() as u64;
             return result;
         }
         Err(Stopped::TimeUp) => {
             log::warn!("NFP-CM: time limit reached before the search could run");
+            result.stop_reason = StopReason::TimeLimit;
             for piece in &pieces {
                 result.unplaced.push(piece.id.clone());
             }
@@ -335,6 +336,12 @@ fn nfp_cm_nesting(
             }
             result.best_fitness = Some(solution.objective);
             result.iterations = Some(solution.exact_result.iterations);
+            // Proven, or the best the search had when the limit stopped it.
+            result.stop_reason = if solution.exact_result.is_optimal {
+                StopReason::Optimal
+            } else {
+                StopReason::TimeLimit
+            };
             log::info!("NFP-CM: {}", solution.exact_result.message);
         }
     }

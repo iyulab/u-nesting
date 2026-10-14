@@ -150,6 +150,7 @@ The C interface and WebAssembly response:
   "unplaced": [],
   "unplaced_count": 0,
   "all_placed": true,
+  "stop_reason": "completed",
   "elapsed_ms": 850
 }
 ```
@@ -164,6 +165,7 @@ The C interface and WebAssembly response:
 | `unplaced` | **Deduplicated** IDs of boxes that couldn't be placed (not per-instance) |
 | `unplaced_count` | Instance-level count of boxes that couldn't be placed |
 | `all_placed` | Whether every requested instance was placed |
+| `stop_reason` | Why the run stopped: `completed`, `target_reached`, `iteration_limit`, `no_improvement`, `time_limit` (the best packing found when `time_limit_ms` ran out) or `cancelled` |
 | `elapsed_ms` | Solving time in milliseconds |
 
 The Python result has the same values under its own names: `geometry_id`,

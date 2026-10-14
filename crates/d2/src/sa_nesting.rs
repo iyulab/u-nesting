@@ -450,8 +450,7 @@ pub fn run_sa_nesting(
     result.best_fitness = Some(sa_result.best.objective());
     result.fitness_history = Some(sa_result.history);
     result.strategy = Some("SimulatedAnnealing".to_string());
-    result.cancelled = cancelled.load(Ordering::Relaxed);
-    result.target_reached = sa_result.target_reached;
+    result.stop_reason = sa_result.stop_reason;
 
     Ok(result)
 }

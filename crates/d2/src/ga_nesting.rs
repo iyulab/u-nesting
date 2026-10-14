@@ -645,8 +645,7 @@ pub fn run_ga_nesting(
     result.best_fitness = Some(ga_result.best.fitness());
     result.fitness_history = Some(ga_result.history);
     result.strategy = Some("GeneticAlgorithm".to_string());
-    result.cancelled = cancelled.load(Ordering::Relaxed);
-    result.target_reached = ga_result.target_reached;
+    result.stop_reason = ga_result.stop_reason;
 
     Ok(result)
 }

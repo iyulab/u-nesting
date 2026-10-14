@@ -245,6 +245,9 @@ public sealed record Placement2D(
 /// whose full width is consumed — use <c>placed_area / (sheet_width * UsedBoundingBox[1])</c>
 /// there. 0 in a multi-sheet solve and when nothing was placed.
 /// </param>
+/// <param name="StopReason">
+/// Why the run stopped — at the time limit, at the target, on cancellation or at its own end.
+/// </param>
 /// <param name="ElapsedMs">Solve time in milliseconds.</param>
 public sealed record NestingResult(
     string Version,
@@ -257,4 +260,5 @@ public sealed record NestingResult(
     bool AllPlaced,
     IReadOnlyList<double> UsedBoundingBox,
     double UsedUtilization,
+    StopReason StopReason,
     long ElapsedMs);

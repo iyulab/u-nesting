@@ -284,6 +284,51 @@ mod tests {
         serde_json::from_str(&response).expect("every answer is JSON")
     }
 
+    /// Every solve response says why the run stopped -- the reason the engine
+    /// recorded, not one derived here -- and a refusal carries `null`.
+    #[test]
+    fn a_solve_says_why_it_stopped() {
+        let plates = |quantity: usize, config: &str| {
+            format!(
+                r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]], "quantity": {quantity}}}],
+                    "boundary": {{"width": 2000, "height": 2000}}, "config": {config}}}"#
+            )
+        };
+        let r = answer(solve_2d(&plates(4, r#"{"strategy": "blf"}"#)));
+        assert_eq!(r["stop_reason"], "completed", "{r}");
+        let r = answer(solve_2d(&plates(
+            4,
+            r#"{"strategy": "blf", "multi_sheet": true}"#,
+        )));
+        assert_eq!(r["stop_reason"], "completed", "{r}");
+        let r = answer(solve_2d(&plates(
+            4,
+            r#"{"strategy": "ga", "target_utilization": 0.0, "seed": 1}"#,
+        )));
+        assert_eq!(r["stop_reason"], "target_reached", "{r}");
+        let r = answer(solve_2d(&plates(
+            20_000,
+            r#"{"strategy": "blf", "time_limit_ms": 1}"#,
+        )));
+        assert_eq!(r["stop_reason"], "time_limit", "{r}");
+        assert_eq!(r["all_placed"], false, "{r}");
+
+        let r = answer(solve_3d(
+            r#"{"geometries": [{"id": "crate", "dimensions": [1, 1, 1], "quantity": 3}],
+                "boundary": {"dimensions": [5, 5, 5]}, "config": {"strategy": "ep"}}"#,
+        ));
+        assert_eq!(r["stop_reason"], "completed", "{r}");
+
+        let r = answer(solve_2d(&plates(0, "{}")));
+        assert_eq!(r["success"], false);
+        assert_eq!(r["stop_reason"], Value::Null, "{r}");
+        let r = answer(solve_3d(
+            r#"{"geometries": [], "boundary": {"dimensions": [0, 5, 5]}}"#,
+        ));
+        assert_eq!(r["success"], false);
+        assert_eq!(r["stop_reason"], Value::Null, "{r}");
+    }
+
     /// A count is read as a number: negative and too small are the same
     /// range refusal; a fraction is the wrong shape, named by its path.
     #[test]

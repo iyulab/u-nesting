@@ -3,7 +3,7 @@
 use u_nesting_core::ga::{GaConfig, PermutationChromosome};
 use u_nesting_core::geometry::RotationConstraint;
 use u_nesting_core::placement::{Placement, PlacementStats};
-use u_nesting_core::result::SolveResult;
+use u_nesting_core::result::{SolveResult, StopReason};
 use u_nesting_core::transform::{Transform2D, Transform3D, AABB2D, AABB3D};
 
 mod transform_tests {
@@ -365,8 +365,7 @@ mod solve_result_tests {
             best_fitness: Some(0.95),
             fitness_history: Some(vec![0.5, 0.7, 0.85, 0.95]),
             strategy: Some("BLF+GA".to_string()),
-            cancelled: false,
-            target_reached: true,
+            stop_reason: StopReason::TargetReached,
             strip_stats: vec![],
             total_piece_area: 0.0,
             total_material_used: 0.0,
@@ -377,7 +376,6 @@ mod solve_result_tests {
         assert_eq!(result.placements.len(), 2);
         assert_eq!(result.boundaries_used, 1);
         assert!((result.utilization - 0.75).abs() < 1e-10);
-        assert!(result.target_reached);
-        assert!(!result.cancelled);
+        assert_eq!(result.stop_reason, StopReason::TargetReached);
     }
 }

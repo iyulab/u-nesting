@@ -22,7 +22,7 @@ use crate::packing_utils::{
     InstanceInfo, PlacementItem,
 };
 use rand::Rng;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use u_nesting_core::brkga::{BrkgaConfig, BrkgaProblem, BrkgaRunner, RandomKeyChromosome};
 use u_nesting_core::solver::Config;
@@ -236,8 +236,7 @@ pub fn run_brkga_packing(
     result.best_fitness = Some(brkga_result.best.fitness());
     result.fitness_history = Some(brkga_result.history);
     result.strategy = Some("BRKGA".to_string());
-    result.cancelled = cancelled.load(Ordering::Relaxed);
-    result.target_reached = brkga_result.target_reached;
+    result.stop_reason = brkga_result.stop_reason;
 
     Ok(result)
 }

@@ -7,8 +7,8 @@ use i_overlay::core::overlay_rule::OverlayRule;
 #[cfg(feature = "milp")]
 use i_overlay::float::single::SingleFloatOverlay;
 use u_nesting_d2::{
-    Boundary, Boundary2D, Config, Geometry, Geometry2D, Geometry2DExt, Nester2D, Solver, Strategy,
-    Transform2D, AABB2D,
+    Boundary, Boundary2D, Config, Geometry, Geometry2D, Geometry2DExt, Nester2D, Solver,
+    StopReason, Strategy, Transform2D, AABB2D,
 };
 
 /// Shoelace area of a closed ring (sign-agnostic). Shared oracle helper —
@@ -1057,8 +1057,9 @@ mod bucket_b_tests {
                 4,
                 "every instance is placed or reported unplaced ({limit_ms} ms)"
             );
-            assert!(
-                !result.cancelled,
+            assert_ne!(
+                result.stop_reason,
+                StopReason::Cancelled,
                 "running out of time is not a cancellation"
             );
         }
@@ -1278,8 +1279,9 @@ fn a_reached_target_stops_the_search() {
             .solve(&geometries, &boundary)
             .expect("a valid request");
         assert!(result.unplaced.is_empty(), "{strategy:?}: every part fits");
-        assert!(
-            result.target_reached,
+        assert_eq!(
+            result.stop_reason,
+            StopReason::TargetReached,
             "{strategy:?}: a target of 0 is met by the first complete layout"
         );
     }

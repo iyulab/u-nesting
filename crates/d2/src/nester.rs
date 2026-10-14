@@ -26,7 +26,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{
     offered_names, Config, Dimension, ProgressCallback, ProgressInfo, Solver, Strategy,
 };
-use u_nesting_core::{Error, Placement, Result, SolveResult};
+use u_nesting_core::{Error, Placement, Result, SolveResult, StopReason};
 
 use crate::placement_utils::{hole_nfps, inset_boundary, nesting_fitness, offset_nfp};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -176,6 +176,14 @@ struct BlfCandidate {
     opened_row: bool,
 }
 
+/// The progress phase a fill reports when it stops early.
+fn stop_phase(stop: StopReason) -> &'static str {
+    match stop {
+        StopReason::Cancelled => "Cancelled",
+        _ => "Time Limit Reached",
+    }
+}
+
 impl Nester2D {
     /// Runs the configured strategy. A strategy 2D nesting does not provide
     /// (`ExtremePoint` is 3D only; the exact solvers need the `milp` feature)
@@ -220,11 +228,36 @@ impl Nester2D {
         }
     }
 
+    /// Whether a constructive fill must stop before its next piece, and why:
+    /// the caller cancelled, or `time_limit_ms` (0 = unlimited) ran out.
+    fn stop_requested(&self, start: &Timer) -> Option<StopReason> {
+        if self.cancelled.load(Ordering::Relaxed) {
+            Some(StopReason::Cancelled)
+        } else if self.config.time_limit_ms > 0 && start.elapsed_ms() >= self.config.time_limit_ms {
+            Some(StopReason::TimeLimit)
+        } else {
+            None
+        }
+    }
+
     /// Creates a new nester with the given configuration.
     pub fn new(config: Config) -> Self {
         Self {
             config,
             cancelled: Arc::new(AtomicBool::new(false)),
+            nfp_cache: NfpCache::new(),
+        }
+    }
+
+    /// This nester with `time_limit_ms` in place of its own, observing the
+    /// same cancellation flag.
+    fn with_time_limit(&self, time_limit_ms: u64) -> Self {
+        Self {
+            config: Config {
+                time_limit_ms,
+                ..self.config.clone()
+            },
+            cancelled: self.cancelled.clone(),
             nfp_cache: NfpCache::new(),
         }
     }
@@ -367,28 +400,16 @@ impl Nester2D {
             let mirror_candidates = mirror_candidates(geom);
 
             for instance in 0..geom.quantity() {
-                if self.cancelled.load(Ordering::Relaxed) {
-                    result.computation_time_ms = start.elapsed_ms();
-                    report(
-                        ProgressInfo::new()
-                            .with_phase("Cancelled")
-                            .with_items(placed_count, total_pieces)
-                            .with_elapsed(result.computation_time_ms)
-                            .finished(),
-                    );
-                    return Ok(result);
-                }
-
-                // Check time limit (0 = unlimited)
-                if self.config.time_limit_ms > 0 && start.elapsed_ms() >= self.config.time_limit_ms
-                {
+                // A cancelled or timed-out fill returns what it placed so far.
+                if let Some(stop) = self.stop_requested(&start) {
                     result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
                     result.utilization = total_placed_area / boundary.measure();
                     result.computation_time_ms = start.elapsed_ms();
                     result.placements = placements;
+                    result.stop_reason = stop;
                     report(
                         ProgressInfo::new()
-                            .with_phase("Time Limit Reached")
+                            .with_phase(stop_phase(stop))
                             .with_items(placed_count, total_pieces)
                             .with_elapsed(result.computation_time_ms)
                             .finished(),
@@ -981,28 +1002,16 @@ impl Nester2D {
             let rotation_angles: Vec<f64> = geom.rotations();
 
             for instance in 0..geom.quantity() {
-                if self.cancelled.load(Ordering::Relaxed) {
-                    result.computation_time_ms = start.elapsed_ms();
-                    report(
-                        ProgressInfo::new()
-                            .with_phase("Cancelled")
-                            .with_items(placed_count, total_pieces)
-                            .with_elapsed(result.computation_time_ms)
-                            .finished(),
-                    );
-                    return Ok(result);
-                }
-
-                // Check time limit (0 = unlimited)
-                if self.config.time_limit_ms > 0 && start.elapsed_ms() >= self.config.time_limit_ms
-                {
+                // A cancelled or timed-out fill returns what it placed so far.
+                if let Some(stop) = self.stop_requested(&start) {
                     result.boundaries_used = if placements.is_empty() { 0 } else { 1 };
                     result.utilization = total_placed_area / boundary.measure();
                     result.computation_time_ms = start.elapsed_ms();
                     result.placements = placements;
+                    result.stop_reason = stop;
                     report(
                         ProgressInfo::new()
-                            .with_phase("Time Limit Reached")
+                            .with_phase(stop_phase(stop))
                             .with_items(placed_count, total_pieces)
                             .with_elapsed(result.computation_time_ms)
                             .finished(),
@@ -1233,11 +1242,16 @@ impl Nester2D {
     ) -> Result<SolveResult<f64>> {
         self.validate(geometries, boundary)?;
         self.cancelled.store(false, Ordering::Relaxed);
+        let start = Timer::now();
 
         let (b_min, b_max) = boundary.aabb();
         let strip_width = b_max[0] - b_min[0];
 
+        let sheet_area = boundary.measure();
         let mut final_result = SolveResult::new();
+        // The run's reason is the last sheet's, unless the run stops between
+        // sheets on cancellation or the time limit.
+        let mut stop_reason = StopReason::Completed;
         let mut remaining_geometries: Vec<Geometry2D> = geometries.to_vec();
         let mut strip_index = 0;
         let max_strips = 100; // Safety limit
@@ -1249,11 +1263,38 @@ impl Nester2D {
 
         while !remaining_geometries.is_empty() && strip_index < max_strips {
             if self.cancelled.load(Ordering::Relaxed) {
+                stop_reason = StopReason::Cancelled;
                 break;
             }
 
+            // The time limit bounds the whole run, not every sheet: what is
+            // left of it is shared among the sheets the remaining pieces need
+            // at least (their area over the sheet's), so one sheet's search
+            // does not spend the budget the others need.
+            let sheet_nester = match self.config.time_limit_ms {
+                0 => None,
+                limit => match limit.saturating_sub(start.elapsed_ms()) {
+                    0 => {
+                        stop_reason = StopReason::TimeLimit;
+                        break;
+                    }
+                    left => {
+                        let remaining_area: f64 = remaining_geometries
+                            .iter()
+                            .map(|g| g.measure() * g.quantity() as f64)
+                            .sum();
+                        let sheets_ahead = (remaining_area / sheet_area).ceil().max(1.0);
+                        Some(self.with_time_limit((left as f64 / sheets_ahead).ceil() as u64))
+                    }
+                },
+            };
+
             // Solve on current strip
-            let strip_result = self.run_strategy(&remaining_geometries, boundary)?;
+            let strip_result = sheet_nester
+                .as_ref()
+                .unwrap_or(self)
+                .run_strategy(&remaining_geometries, boundary)?;
+            stop_reason = strip_result.stop_reason;
 
             // Validate and filter out-of-bounds placements for this strip
             let strip_result = validate_and_filter_placements(
@@ -1311,6 +1352,12 @@ impl Nester2D {
                 .collect();
 
             strip_index += 1;
+
+            // A cancelled sheet ends the run; one that spent its share of the
+            // time limit leaves the rest to the sheets after it.
+            if stop_reason == StopReason::Cancelled {
+                break;
+            }
         }
 
         // Any geometry still remaining (too large to place, or hit the strip cap) is
@@ -1320,6 +1367,7 @@ impl Nester2D {
         }
 
         final_result.boundaries_used = strip_index;
+        final_result.stop_reason = stop_reason;
         final_result.deduplicate_unplaced();
         // Authoritative instance-level request total (Σ quantity), mirroring solve().
         final_result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
@@ -1382,6 +1430,7 @@ impl Nester2D {
         if total_material_used > 0.0 {
             final_result.utilization = total_piece_area / total_material_used;
         }
+        final_result.computation_time_ms = start.elapsed_ms();
 
         Ok(final_result)
     }
@@ -1412,8 +1461,10 @@ impl Nester2D {
             self.config.margin,
         );
 
-        // Remove duplicate entries from unplaced list
-        result.deduplicate_unplaced();
+        // What the layout leaves short follows from the layout: a strategy
+        // that stopped early, or a placement the filter removed, cannot leave
+        // the list out of step with the placements.
+        result.record_unplaced(geometries);
         // Authoritative instance-level request total (Σ quantity), recorded once
         // at the top-level entry point where `geometries` is the full request.
         result.total_requested = geometries.iter().map(|g| g.quantity()).sum();

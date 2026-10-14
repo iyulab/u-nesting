@@ -260,6 +260,9 @@ public sealed record Placement3D(
 /// <param name="Unplaced">Ids of the boxes with at least one copy left unpacked, each once.</param>
 /// <param name="UnplacedCount">Copies left unpacked: <c>Placements.Count + UnplacedCount == TotalRequested</c>.</param>
 /// <param name="AllPlaced">Whether every requested copy was packed; check this to detect a partial result.</param>
+/// <param name="StopReason">
+/// Why the run stopped — at the time limit, at the target, on cancellation or at its own end.
+/// </param>
 /// <param name="ElapsedMs">Solve time in milliseconds.</param>
 public sealed record PackingResult(
     string Version,
@@ -270,4 +273,5 @@ public sealed record PackingResult(
     IReadOnlyList<string> Unplaced,
     int UnplacedCount,
     bool AllPlaced,
+    StopReason StopReason,
     long ElapsedMs);

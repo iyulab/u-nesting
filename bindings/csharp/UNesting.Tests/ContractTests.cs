@@ -57,6 +57,36 @@ public class ContractTests
         }),
     };
 
+    [Fact]
+    public void A_solve_says_why_it_stopped()
+    {
+        using var nester = new Nester2D();
+        var fill = nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10, 2)],
+            Boundary = Boundary2D.Rectangle(50, 50),
+            Config = new Config2D { Strategy = Strategy2D.BottomLeftFill },
+        });
+        Assert.Equal(StopReason.Completed, fill.StopReason);
+
+        var search = nester.Solve(new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10, 2)],
+            Boundary = Boundary2D.Rectangle(50, 50),
+            Config = new Config2D { Strategy = Strategy2D.GeneticAlgorithm, TargetUtilization = 0, Seed = 1 },
+        });
+        Assert.Equal(StopReason.TargetReached, search.StopReason);
+
+        using var packer = new Packer3D();
+        var packed = packer.Solve(new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("b", 10, 10, 10, 2)],
+            Boundary = Boundary3D.Box(30, 30, 30),
+            Config = new Config3D { Strategy = Strategy3D.ExtremePoint },
+        });
+        Assert.Equal(StopReason.Completed, packed.StopReason);
+    }
+
     private static (string, JsonNode?) Solve2D(NestingRequest request)
     {
         using var nester = new Nester2D();

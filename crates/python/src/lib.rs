@@ -42,7 +42,7 @@ use u_nesting_core::api_types::{
 };
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
-use u_nesting_core::Error;
+use u_nesting_core::{Error, StopReason};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
 
@@ -102,6 +102,10 @@ struct SolveOutput {
     /// should compute `piece_area / (boundary_width × used_bounding_box[1])`.
     #[serde(default)]
     used_utilization: f64,
+    /// Why the run stopped (`completed`, `optimal`, `target_reached`,
+    /// `iteration_limit`, `no_improvement`, `time_limit`, `cancelled`);
+    /// `None` on a refusal.
+    stop_reason: Option<StopReason>,
     computation_time_ms: u64,
     error: Option<String>,
     /// Stable name of the reason the solve was refused (`invalid_geometry`,
@@ -129,6 +133,7 @@ impl SolveOutput {
             all_placed: false,
             used_bounding_box: [0.0, 0.0],
             used_utilization: 0.0,
+            stop_reason: None,
             computation_time_ms: 0,
             error: Some(e.to_string()),
             code: Some(e.code().to_string()),
@@ -190,7 +195,8 @@ impl SolveOutput {
 /// Returns:
 ///     Dictionary with keys: success, placements, boundaries_used,
 ///     utilization, total_requested, unplaced, unplaced_count, all_placed,
-///     used_bounding_box, used_utilization, computation_time_ms, error, code,
+///     used_bounding_box, used_utilization, stop_reason, computation_time_ms,
+///     error, code,
 ///     details. Every refusal -- a malformed or unknown key, a setting out of
 ///     range, a geometry or boundary the solver cannot use -- comes back here
 ///     with `success` False; nothing is raised.
@@ -429,6 +435,7 @@ fn solved_output(result: u_nesting_core::SolveResult<f64>) -> SolveOutput {
         all_placed,
         used_bounding_box,
         used_utilization,
+        stop_reason: Some(result.stop_reason),
         computation_time_ms: result.computation_time_ms,
         error: None,
         code: None,

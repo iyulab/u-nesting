@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::error::{check_at_least, check_range, Result};
+use crate::result::StopReason;
 use crate::timing::{evaluate_within, expired, Timer};
 
 #[cfg(feature = "serde")]
@@ -219,8 +220,8 @@ pub struct GaResult<I: Individual> {
     pub generations: u32,
     /// Total elapsed time.
     pub elapsed: Duration,
-    /// Whether the target fitness was reached.
-    pub target_reached: bool,
+    /// Why the run stopped.
+    pub stop_reason: StopReason,
     /// Fitness history (best fitness per generation).
     pub history: Vec<f64>,
 }
@@ -323,25 +324,23 @@ where
         let mut best_fitness: f64 = best.fitness().into();
         let mut stagnation_count = 0u32;
         let mut generation = 0u32;
-        let mut target_reached = false;
+        let reached = |fitness: f64| self.config.target_fitness.is_some_and(|t| fitness >= t);
 
-        while generation < self.config.max_generations {
-            // Check cancellation
+        // Each exit names its reason. The target is judged before the
+        // generation budget, so a target met by the last generation is
+        // reported as met.
+        let stop_reason = loop {
+            if reached(best_fitness) {
+                break StopReason::TargetReached;
+            }
+            if generation >= self.config.max_generations {
+                break StopReason::IterationLimit;
+            }
             if self.cancelled.load(Ordering::Relaxed) {
-                break;
+                break StopReason::Cancelled;
             }
-
-            // Check time limit
             if expired(&start, self.config.time_limit) {
-                break;
-            }
-
-            // Check target fitness
-            if let Some(target) = self.config.target_fitness {
-                if best_fitness >= target {
-                    target_reached = true;
-                    break;
-                }
+                break StopReason::TimeLimit;
             }
 
             // Record history
@@ -411,7 +410,7 @@ where
             // Check stagnation
             if let Some(limit) = self.config.stagnation_limit {
                 if stagnation_count >= limit {
-                    break;
+                    break StopReason::NoImprovement;
                 }
             }
 
@@ -439,7 +438,7 @@ where
 
             population = new_population;
             generation += 1;
-        }
+        };
 
         // Final history entry
         history.push(best_fitness);
@@ -466,7 +465,7 @@ where
             best,
             generations: generation,
             elapsed: start.elapsed(),
-            target_reached,
+            stop_reason,
             history,
         }
     }

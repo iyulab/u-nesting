@@ -409,6 +409,12 @@ interface SolveResponse {
                            // unplaced instances = total_requested - placements.length
   unplaced: string[];      // deduplicated geometry ids (NOT per-instance), so
                            // unplaced.length under-reports the failed-instance count
+  unplaced_count: number;  // instance-level: placements.length + unplaced_count == total_requested
+  all_placed: boolean;     // every requested instance placed; success alone does not say so
+  used_bounding_box: [number, number]; // [width, height] of the placed footprint;
+                                       // [0, 0] for multi-sheet solves and when nothing is placed
+  used_utilization: number; // placed area over used_bounding_box (packing density)
+  stop_reason: StopReason | null; // why the run stopped; null on a refusal
   elapsed_ms: number;
 }
 ```
@@ -437,8 +443,28 @@ interface Pack3DResponse {
                            // unplaced instances = total_requested - placements.length
   unplaced: string[];      // deduplicated geometry ids (NOT per-instance), so
                            // unplaced.length under-reports the failed-instance count
+  unplaced_count: number;  // instance-level: placements.length + unplaced_count == total_requested
+  all_placed: boolean;     // every requested instance packed; success alone does not say so
+  stop_reason: StopReason | null; // why the run stopped; null on a refusal
   elapsed_ms: number;
 }
+```
+
+### Why a run stopped
+
+`stop_reason` is the run's own account of the layout it returned — a layout cut
+short by the time limit and one the strategy finished look alike otherwise.
+
+```typescript
+type StopReason =
+  | "completed"        // the strategy ran to its own end (a fill tried every part,
+                       // or a search spent its internal budget)
+  | "optimal"          // an exact method proved the layout optimal
+  | "target_reached"   // every part placed at config.target_utilization or more
+  | "iteration_limit"  // the search spent its generation/iteration budget
+  | "no_improvement"   // the search went its stall budget without improving
+  | "time_limit"       // config.time_limit_ms ran out: the best layout found by then
+  | "cancelled";       // the caller cancelled: what was placed by then
 ```
 
 ### Refusals

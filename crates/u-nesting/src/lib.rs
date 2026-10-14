@@ -49,7 +49,7 @@ pub use u_nesting_d3 as d3;
 pub use u_nesting_cutting as cutting;
 
 // Re-export commonly used types at root level
-pub use u_nesting_core::{Config, Placement, SolveResult, Solver, Strategy};
+pub use u_nesting_core::{Config, Placement, SolveResult, Solver, StopReason, Strategy};
 
 // The README's Rust examples are the first code most users copy, so they are
 // compiled and run with the doc-tests. Without this they were checked by

@@ -2,7 +2,7 @@
 //! packed at that utilization or more, the search ends and says so. It used to
 //! be validated and never read -- no search stopped on it.
 
-use u_nesting_d3::{Boundary3D, Config, Geometry3D, Packer3D, Solver, Strategy};
+use u_nesting_d3::{Boundary3D, Config, Geometry3D, Packer3D, Solver, StopReason, Strategy};
 
 #[test]
 fn a_reached_target_stops_the_search() {
@@ -22,8 +22,9 @@ fn a_reached_target_stops_the_search() {
             .solve(&geometries, &boundary)
             .expect("a valid request");
         assert!(result.unplaced.is_empty(), "{strategy:?}: every box fits");
-        assert!(
-            result.target_reached,
+        assert_eq!(
+            result.stop_reason,
+            StopReason::TargetReached,
             "{strategy:?}: a target of 0 is met by the first complete packing"
         );
     }

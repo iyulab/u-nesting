@@ -24,6 +24,66 @@ pub struct StripStats {
     pub strip_height: f64,
 }
 
+/// Why a solve stopped: the run's own account of the layout it returns.
+///
+/// A layout cut short by the time limit and one the method finished read the
+/// same from their placements; only the run knows which it is. Each strategy
+/// sets this where it stops, so a caller that offered a time limit, a target
+/// or a cancel button can say which of them ended the run.
+///
+/// The names follow the termination statuses of mathematical-programming
+/// solvers (Gurobi `OPTIMAL` · `ITERATION_LIMIT` · `TIME_LIMIT` ·
+/// `USER_OBJ_LIMIT` · `INTERRUPTED`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+pub enum StopReason {
+    /// The method ran to its own end: a constructive fill tried every piece,
+    /// or a search spent the budget it is given internally.
+    Completed,
+    /// An exact method proved the layout optimal.
+    Optimal,
+    /// Every piece was placed at `target_utilization` or more, so the search
+    /// stopped there.
+    TargetReached,
+    /// The search spent its generation or iteration budget
+    /// (`max_generations`, or the method's own iteration cap).
+    IterationLimit,
+    /// The search went its stall budget of generations without improving
+    /// its best layout, and stopped there (MATLAB `ga`'s stall generations).
+    NoImprovement,
+    /// `time_limit_ms` ran out; the layout is the best found by then.
+    TimeLimit,
+    /// The caller cancelled the run; the layout is what was placed by then.
+    Cancelled,
+}
+
+impl StopReason {
+    /// Every reason, in declaration order.
+    pub const ALL: [Self; 7] = [
+        Self::Completed,
+        Self::Optimal,
+        Self::TargetReached,
+        Self::IterationLimit,
+        Self::NoImprovement,
+        Self::TimeLimit,
+        Self::Cancelled,
+    ];
+
+    /// The wire name (`"time_limit"`, `"target_reached"`, ...).
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Optimal => "optimal",
+            Self::TargetReached => "target_reached",
+            Self::IterationLimit => "iteration_limit",
+            Self::NoImprovement => "no_improvement",
+            Self::TimeLimit => "time_limit",
+            Self::Cancelled => "cancelled",
+        }
+    }
+}
+
 /// Result of a nesting or packing solve operation.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -59,11 +119,9 @@ pub struct SolveResult<S> {
     /// Strategy used for solving.
     pub strategy: Option<String>,
 
-    /// Whether the solve was cancelled early.
-    pub cancelled: bool,
-
-    /// Whether the target utilization was reached.
-    pub target_reached: bool,
+    /// Why the run stopped -- at the time limit, at the target, on
+    /// cancellation, or at its own end.
+    pub stop_reason: StopReason,
 
     /// Per-strip statistics for multi-strip packing.
     /// Contains used_length, piece_area, piece_count for each strip.
@@ -105,8 +163,7 @@ impl<S> SolveResult<S> {
             best_fitness: None,
             fitness_history: None,
             strategy: None,
-            cancelled: false,
-            target_reached: false,
+            stop_reason: StopReason::Completed,
             strip_stats: Vec::new(),
             total_piece_area: 0.0,
             total_material_used: 0.0,
@@ -133,11 +190,6 @@ impl<S> SolveResult<S> {
     /// Returns true if the solve was successful (at least one placement).
     pub fn is_successful(&self) -> bool {
         !self.placements.is_empty()
-    }
-
-    /// Returns true if the solve completed within the time limit.
-    pub fn completed_normally(&self) -> bool {
-        !self.cancelled
     }
 
     /// Sets the strategy name.
@@ -172,7 +224,7 @@ impl<S> SolveResult<S> {
     /// have beaten; flooring it here means a search never returns less. A tie
     /// keeps the search's layout. When a baseline wins, its placements are
     /// returned with the search's provenance -- strategy, generations,
-    /// iterations, fitness history, target flag -- because the search did run.
+    /// iterations, fitness history, stop reason -- because the search did run.
     pub fn floored_at(
         self,
         baselines: impl IntoIterator<Item = Self>,
@@ -191,8 +243,7 @@ impl<S> SolveResult<S> {
                 floored.iterations = self.iterations;
                 floored.best_fitness = self.best_fitness;
                 floored.fitness_history = self.fitness_history;
-                floored.target_reached = self.target_reached;
-                floored.cancelled = self.cancelled;
+                floored.stop_reason = self.stop_reason;
                 floored
             }
             None => self,
@@ -204,6 +255,17 @@ impl<S> SolveResult<S> {
     pub fn deduplicate_unplaced(&mut self) {
         let mut seen = std::collections::HashSet::new();
         self.unplaced.retain(|id| seen.insert(id.clone()));
+    }
+
+    /// Sets `unplaced` from the placements: each geometry with a copy the
+    /// placements do not contain, once, in request order.
+    ///
+    /// The layout is the one fact; what it leaves short follows from it, so
+    /// a strategy that stops early (time limit, cancellation) cannot report a
+    /// list that disagrees with what it placed.
+    pub fn record_unplaced<G: crate::geometry::Geometry>(&mut self, geometries: &[G]) {
+        self.unplaced = unplaced_ids(&self.placements, geometries);
+        self.deduplicate_unplaced();
     }
 
     /// Computes placement statistics.
@@ -304,6 +366,30 @@ impl SolveResult<f64> {
             }
         }
     }
+}
+
+/// The geometry ids with a copy `placements` does not contain -- one entry
+/// per missing copy, in request order.
+///
+/// A geometry with a quantity counts per copy: two of three copies placed
+/// leaves its id unplaced.
+pub fn unplaced_ids<S, G: crate::geometry::Geometry>(
+    placements: &[Placement<S>],
+    geometries: &[G],
+) -> Vec<GeometryId> {
+    let placed: std::collections::HashSet<(&str, usize)> = placements
+        .iter()
+        .map(|p| (p.geometry_id.as_str(), p.instance))
+        .collect();
+    let mut unplaced = Vec::new();
+    for geom in geometries {
+        for instance in 0..geom.quantity() {
+            if !placed.contains(&(geom.id().as_str(), instance)) {
+                unplaced.push(geom.id().clone());
+            }
+        }
+    }
+    unplaced
 }
 
 /// Summary statistics for a solve result.
