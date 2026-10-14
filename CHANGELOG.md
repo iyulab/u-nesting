@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `time_limit` (the layout is the best found when `time_limit_ms` ran out) or
   `cancelled`; `null` on a refusal. Each strategy sets it where it stops, so a
   caller that offered a time limit, a target or a cancel button can tell which of
-  them ended the run. Rust: `StopReason`, and `stop_reason` on `GaResult`,
+  them ended the run. Rust: `StopReason` (re-exported from `u-metaheur`, whose
+  runners report the same vocabulary), and `stop_reason` on `GaResult`,
   `BrkgaResult`, `SaResult`, `GdrrResult` and `AlnsResult`.
 - `GdrrRunner::with_cancellation` and `AlnsRunner::with_cancellation`, as
   `GaRunner` has.

@@ -24,65 +24,11 @@ pub struct StripStats {
     pub strip_height: f64,
 }
 
-/// Why a solve stopped: the run's own account of the layout it returns.
-///
-/// A layout cut short by the time limit and one the method finished read the
-/// same from their placements; only the run knows which it is. Each strategy
-/// sets this where it stops, so a caller that offered a time limit, a target
-/// or a cancel button can say which of them ended the run.
-///
-/// The names follow the termination statuses of mathematical-programming
-/// solvers (Gurobi `OPTIMAL` · `ITERATION_LIMIT` · `TIME_LIMIT` ·
-/// `USER_OBJ_LIMIT` · `INTERRUPTED`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-pub enum StopReason {
-    /// The method ran to its own end: a constructive fill tried every piece,
-    /// or a search spent the budget it is given internally.
-    Completed,
-    /// An exact method proved the layout optimal.
-    Optimal,
-    /// Every piece was placed at `target_utilization` or more, so the search
-    /// stopped there.
-    TargetReached,
-    /// The search spent its generation or iteration budget
-    /// (`max_generations`, or the method's own iteration cap).
-    IterationLimit,
-    /// The search went its stall budget of generations without improving
-    /// its best layout, and stopped there (MATLAB `ga`'s stall generations).
-    NoImprovement,
-    /// `time_limit_ms` ran out; the layout is the best found by then.
-    TimeLimit,
-    /// The caller cancelled the run; the layout is what was placed by then.
-    Cancelled,
-}
-
-impl StopReason {
-    /// Every reason, in declaration order.
-    pub const ALL: [Self; 7] = [
-        Self::Completed,
-        Self::Optimal,
-        Self::TargetReached,
-        Self::IterationLimit,
-        Self::NoImprovement,
-        Self::TimeLimit,
-        Self::Cancelled,
-    ];
-
-    /// The wire name (`"time_limit"`, `"target_reached"`, ...).
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Completed => "completed",
-            Self::Optimal => "optimal",
-            Self::TargetReached => "target_reached",
-            Self::IterationLimit => "iteration_limit",
-            Self::NoImprovement => "no_improvement",
-            Self::TimeLimit => "time_limit",
-            Self::Cancelled => "cancelled",
-        }
-    }
-}
+/// Why a solve stopped -- the same vocabulary every runner in `u-metaheur`
+/// reports, so a nesting run and any other search say it in one set of words.
+/// Each strategy here sets it where it stops; `Completed` is a fill that tried
+/// every piece, or a search that spent the budget it is given internally.
+pub use u_metaheur::StopReason;
 
 /// Result of a nesting or packing solve operation.
 #[derive(Debug, Clone)]
