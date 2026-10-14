@@ -23,7 +23,9 @@ use u_nesting_core::ga::GaConfig;
 use u_nesting_core::gdrr::GdrrConfig;
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::sa::SaConfig;
-use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
+use u_nesting_core::solver::{
+    offered_names, Config, Dimension, ProgressCallback, ProgressInfo, Solver, Strategy,
+};
 use u_nesting_core::{Error, Placement, Result, SolveResult};
 
 use crate::placement_utils::{hole_nfps, inset_boundary, nesting_fitness, offset_nfp};
@@ -213,16 +215,19 @@ impl Nester2D {
             Strategy::HybridExact => self.hybrid_exact(geometries, boundary),
             Strategy::ExtremePoint => Err(Error::invalid_option(
                 "strategy",
-                "strategy ExtremePoint is 3D only; 2D nesting offers BottomLeftFill, \
-                 NfpGuided, GeneticAlgorithm, Brkga, SimulatedAnnealing, Gdrr and Alns"
-                    .into(),
+                format!(
+                    "strategy \"ep\" is 3D only; 2D nesting offers {}",
+                    offered_names(Dimension::TwoD)
+                ),
             )),
             #[cfg(not(feature = "milp"))]
             Strategy::MilpExact | Strategy::HybridExact => Err(Error::invalid_option(
                 "strategy",
                 format!(
-                    "strategy {:?} needs the `milp` feature, which this build does not have",
-                    self.config.strategy
+                    "strategy \"{}\" needs the `milp` feature, which this build does not \
+                     have; it offers {}",
+                    self.config.strategy.name(),
+                    offered_names(Dimension::TwoD)
                 ),
             )),
         }

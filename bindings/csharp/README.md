@@ -174,6 +174,20 @@ catch (OperationCanceledException)
 | `Brkga` | Biased random-key GA |
 | `SimulatedAnnealing` | Simulated annealing |
 
+Each strategy reads only some settings (`TargetUtilization` is read by the genetic,
+BRKGA and annealing searches, `Seed` by the stochastic ones, ...); a setting the chosen
+strategy does not read is refused (`invalid_option`), not ignored. Ask the library which
+before building a form, instead of restating the table:
+
+```csharp
+var catalog = UNestingInfo.Strategies;               // StrategyCatalog
+bool shown = catalog.Reads(Strategy2D.NfpGuided, NestingSetting.TargetUtilization); // false
+foreach (var s in catalog.TwoD)                      // StrategyInfo2D(Name, Reads)
+    Console.WriteLine($"{s.Name}: {string.Join(", ", s.Reads)}");
+```
+
+The catalog is the table the refusal itself is made from, so the two cannot disagree.
+
 A setting left `null` in `Config2D` / `Config3D` is not sent, so the engine's default
 applies; `0` is a value (`MaxGenerations = 0` evaluates the first population only,
 `TimeLimitMs = 0` runs without a time limit).

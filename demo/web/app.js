@@ -408,7 +408,11 @@ $('exportPng').addEventListener('click', () => {
   const meta = await call('meta');
   if (meta.ok) {
     $('version').textContent = 'v' + meta.version;
-    strategiesByDim = meta.strategies;
+    // The catalog lists each strategy with the settings it reads; the
+    // dropdown needs the names.
+    for (const dim of ['2d', '3d']) {
+      strategiesByDim[dim] = (meta.strategies[dim] || []).map((s) => s.name);
+    }
   }
   setMode('2d');
 })();

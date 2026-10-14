@@ -114,10 +114,19 @@ def version() -> str:
     """Get the library version."""
     ...
 
-def available_strategies() -> List[str]:
-    """List available optimization strategies.
+class StrategyInfo(TypedDict):
+    """One strategy of ``available_strategies()``."""
+    name: str
+    reads: List[str]
 
-    Returns the union of 2D and 3D strategy names: ``nfp``, ``gdrr`` and
-    ``alns`` apply to 2D nesting, ``ep`` to 3D packing, the rest to both.
+StrategyCatalog = TypedDict("StrategyCatalog", {"2d": List[StrategyInfo], "3d": List[StrategyInfo]})
+
+def available_strategies() -> StrategyCatalog:
+    """The strategies each dimension offers and the settings each reads.
+
+    ``{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}``
+    -- the table a solve's refusal of a setting the strategy does not read
+    (``invalid_option``) comes from, so a caller can offer only the settings
+    that change the chosen strategy's run.
     """
     ...

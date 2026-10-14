@@ -14,7 +14,9 @@ use u_nesting_core::ga::GaConfig;
 use u_nesting_core::geom::nalgebra_types::{NaPoint3 as Point3, NaVector3 as Vector3};
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::sa::SaConfig;
-use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
+use u_nesting_core::solver::{
+    offered_names, Config, Dimension, ProgressCallback, ProgressInfo, Solver, Strategy,
+};
 use u_nesting_core::{Error, Placement, Result, SolveResult};
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -61,8 +63,9 @@ impl Packer3D {
             other => Err(Error::invalid_option(
                 "strategy",
                 format!(
-                    "strategy {other:?} is not available for 3D packing; it offers \
-                 BottomLeftFill, ExtremePoint, GeneticAlgorithm, Brkga and SimulatedAnnealing"
+                    "strategy \"{}\" is not available for 3D packing; it offers {}",
+                    other.name(),
+                    offered_names(Dimension::ThreeD)
                 ),
             )),
         }
@@ -485,12 +488,19 @@ impl Packer3D {
     ) -> Result<SolveResult<f64>> {
         let start = Timer::now();
 
+        let mut cancelled = false;
         let (ep_placements, utilization) = run_ep_packing(
             geometries,
             boundary,
             self.config.margin,
             self.config.spacing,
             boundary.max_mass(),
+            || {
+                cancelled = self.cancelled.load(Ordering::Relaxed);
+                cancelled
+                    || (self.config.time_limit_ms > 0
+                        && start.elapsed_ms() >= self.config.time_limit_ms)
+            },
         );
 
         // Convert EP placements to Placement structs. The orientation index must be
@@ -511,9 +521,10 @@ impl Packer3D {
         let unplaced = build_unplaced_list(&placements, geometries);
 
         let mut result = SolveResult::new();
+        result.boundaries_used = usize::from(!placements.is_empty());
         result.placements = placements;
-        result.boundaries_used = 1;
         result.utilization = utilization;
+        result.cancelled = cancelled;
         result.unplaced = unplaced;
         result.computation_time_ms = start.elapsed_ms();
         result.strategy = Some("ExtremePoint".to_string());

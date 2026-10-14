@@ -222,6 +222,23 @@ Solve a 3D bin packing problem.
 
 **Returns:** Same structure as solve_2d
 
+### `available_strategies() -> dict`
+
+The strategies each dimension offers and the settings each reads:
+`{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`. A setting the
+chosen strategy does not read is refused (`invalid_option`), not ignored; this is the
+table that refusal is made from, so a caller can offer only the settings that change
+the run:
+
+```python
+import u_nesting
+
+catalog = u_nesting.available_strategies()
+reads = {s["name"]: set(s["reads"]) for s in catalog["2d"]}
+assert "target_utilization" in reads["ga"]
+assert "target_utilization" not in reads["nfp"]
+```
+
 ## Strategy Selection Guide
 
 | Strategy | Speed | Quality | Best For |

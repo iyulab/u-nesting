@@ -110,6 +110,12 @@ internal static class NativeLibrary
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr unesting_version();
 
+    /// <summary>
+    /// Returns the strategy catalog as JSON. Allocated once by the library; not freed.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr unesting_strategies();
+
     #endregion
 
     #region Helper Methods

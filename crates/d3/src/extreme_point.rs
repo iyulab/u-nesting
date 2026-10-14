@@ -391,13 +391,15 @@ pub enum EpSelectionStrategy {
 /// Result of EP packing: (geometry_id, instance, position, orientation).
 pub type EpPlacement = (String, usize, Vector3<f64>, usize);
 
-/// Runs EP-based packing.
+/// Runs EP-based packing, largest box first. `stop` is asked before each box;
+/// once it answers `true` the boxes placed so far are the result.
 pub fn run_ep_packing(
     geometries: &[Geometry3D],
     boundary: &Boundary3D,
     margin: f64,
     spacing: f64,
     max_mass: Option<f64>,
+    mut stop: impl FnMut() -> bool,
 ) -> (Vec<EpPlacement>, f64) {
     let mut eps = ExtremePointSet::new(boundary, margin, spacing);
     let mut placements = Vec::new();
@@ -412,6 +414,11 @@ pub fn run_ep_packing(
     items.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(Ordering::Equal));
 
     for (geom_idx, instance, _) in items {
+        // Checked before each box: a cancelled or timed-out run keeps the
+        // boxes placed so far and reports the rest as unplaced.
+        if stop() {
+            break;
+        }
         let geom = &geometries[geom_idx];
 
         // Check mass constraint
@@ -464,7 +471,8 @@ mod tests {
         let geometries = vec![Geometry3D::new("B1", 20.0, 20.0, 20.0)];
         let boundary = Boundary3D::new(100.0, 100.0, 100.0);
 
-        let (placements, utilization) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
+        let (placements, utilization) =
+            run_ep_packing(&geometries, &boundary, 0.0, 0.0, None, || false);
 
         assert_eq!(placements.len(), 1);
         assert!(utilization > 0.0);
@@ -475,11 +483,26 @@ mod tests {
         let geometries = vec![Geometry3D::new("B1", 20.0, 20.0, 20.0).with_quantity(8)];
         let boundary = Boundary3D::new(100.0, 100.0, 100.0);
 
-        let (placements, utilization) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
+        let (placements, utilization) =
+            run_ep_packing(&geometries, &boundary, 0.0, 0.0, None, || false);
 
         // Eight 20-cubes fit comfortably in 100^3; a correct EP set places all of them.
         assert_eq!(placements.len(), 8);
         assert!(utilization > 0.05);
+    }
+
+    #[test]
+    fn a_stop_keeps_the_boxes_placed_so_far() {
+        // The time limit and cancellation reach extreme point through `stop`:
+        // asked before each box, it ends the run with what is placed.
+        let geometries = vec![Geometry3D::new("B1", 20.0, 20.0, 20.0).with_quantity(8)];
+        let boundary = Boundary3D::new(100.0, 100.0, 100.0);
+        let mut asked = 0;
+        let (placements, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None, || {
+            asked += 1;
+            asked > 3
+        });
+        assert_eq!(placements.len(), 3);
     }
 
     #[test]
@@ -491,7 +514,8 @@ mod tests {
         let geometries = vec![Geometry3D::new("cube", 50.0, 50.0, 50.0).with_quantity(8)];
         let boundary = Boundary3D::new(100.0, 100.0, 100.0);
 
-        let (placements, utilization) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
+        let (placements, utilization) =
+            run_ep_packing(&geometries, &boundary, 0.0, 0.0, None, || false);
 
         assert_eq!(
             placements.len(),
@@ -542,7 +566,7 @@ mod tests {
             let geometries = vec![Geometry3D::new(label, w, d, h)
                 .with_quantity(qty)
                 .with_orientation(Any)];
-            let (placements, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
+            let (placements, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None, || false);
 
             for (id, instance, pos, orientation) in &placements {
                 let dims = geometries[0].dimensions_for_orientation(*orientation);
@@ -572,7 +596,7 @@ mod tests {
         let geometries = vec![Geometry3D::new("B1", 20.0, 20.0, 20.0).with_quantity(4)];
         let boundary = Boundary3D::new(100.0, 100.0, 100.0);
 
-        let (placements, _) = run_ep_packing(&geometries, &boundary, 5.0, 0.0, None);
+        let (placements, _) = run_ep_packing(&geometries, &boundary, 5.0, 0.0, None, || false);
 
         // With margin, first box should start at (5, 5, 5)
         if !placements.is_empty() {
@@ -588,8 +612,10 @@ mod tests {
         let geometries = vec![Geometry3D::new("B1", 40.0, 40.0, 40.0).with_quantity(8)];
         let boundary = Boundary3D::new(100.0, 100.0, 100.0);
 
-        let (placements_no_spacing, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
-        let (placements_with_spacing, _) = run_ep_packing(&geometries, &boundary, 0.0, 5.0, None);
+        let (placements_no_spacing, _) =
+            run_ep_packing(&geometries, &boundary, 0.0, 0.0, None, || false);
+        let (placements_with_spacing, _) =
+            run_ep_packing(&geometries, &boundary, 0.0, 5.0, None, || false);
 
         // 40 + 5 + 40 = 85 fits 100 on every axis: the gap costs no boxes.
         assert_eq!(placements_no_spacing.len(), 8);
@@ -636,7 +662,7 @@ mod tests {
             .with_orientation(OrientationConstraint::Any)];
         let boundary = Boundary3D::new(100.0, 100.0, 100.0);
 
-        let (placements, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None);
+        let (placements, _) = run_ep_packing(&geometries, &boundary, 0.0, 0.0, None, || false);
 
         // With orientation flexibility, both should fit
         assert_eq!(placements.len(), 2);

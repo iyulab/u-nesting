@@ -34,23 +34,126 @@ pub enum Strategy {
     HybridExact,
 }
 
+/// The two problem families a strategy runs on: 2D nesting and 3D packing.
+/// On the wire (a request's `mode`, the strategy catalog) `"2d"` / `"3d"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+pub enum Dimension {
+    /// 2D nesting of parts on sheets.
+    #[cfg_attr(feature = "serde", serde(rename = "2d"))]
+    TwoD,
+    /// 3D packing of boxes into bins.
+    #[cfg_attr(feature = "serde", serde(rename = "3d"))]
+    ThreeD,
+}
+
+impl Dimension {
+    /// The dimension's name on the wire: `"2d"` or `"3d"`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::TwoD => "2d",
+            Self::ThreeD => "3d",
+        }
+    }
+}
+
+/// The settings a request's `config` can carry besides `strategy`, in the
+/// order of `ConfigRequest::KEYS`. Which of them a strategy reads is
+/// [`Strategy::reads`].
+pub const SETTINGS: [&str; 10] = [
+    "spacing",
+    "margin",
+    "time_limit_ms",
+    "target_utilization",
+    "population_size",
+    "max_generations",
+    "crossover_rate",
+    "mutation_rate",
+    "seed",
+    "multi_sheet",
+];
+
+/// The short names of the strategies `dimension` offers in this build, joined
+/// for a message: `"blf, nfp, ga, ..."` -- what a refusal of a strategy the
+/// dimension does not offer lists.
+pub fn offered_names(dimension: Dimension) -> String {
+    Strategy::offered(dimension)
+        .into_iter()
+        .map(Strategy::name)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 impl Strategy {
-    /// The short name of each strategy -- what a refusal of an unknown name
-    /// lists as expected. [`Strategy::parse`] reads these and the longer
-    /// forms in [`Strategy::SPELLINGS`].
-    /// Whether this strategy reads `setting` -- one of the settings only some
-    /// strategies use. A request that names one its strategy does not read is
-    /// refused rather than run without it (see `ConfigRequest::to_config`).
-    /// Settings every strategy reads are not listed and always read.
+    /// Every strategy, in the order of [`Strategy::NAMES`].
+    pub const ALL: [Self; 10] = [
+        Self::BottomLeftFill,
+        Self::NfpGuided,
+        Self::GeneticAlgorithm,
+        Self::Brkga,
+        Self::SimulatedAnnealing,
+        Self::ExtremePoint,
+        Self::Gdrr,
+        Self::Alns,
+        Self::MilpExact,
+        Self::HybridExact,
+    ];
+
+    /// The strategy's short name -- its entry in [`Strategy::NAMES`].
+    pub fn name(self) -> &'static str {
+        let index = Self::ALL
+            .iter()
+            .position(|&s| s == self)
+            .expect("ALL lists every strategy");
+        Self::NAMES[index]
+    }
+
+    /// Whether `dimension` offers this strategy in this build. 2D nesting
+    /// offers every strategy but extreme point; the exact strategies only in a
+    /// build with the `milp` feature. 3D packing offers bottom-left (layer)
+    /// fill, extreme point and the three population/annealing searches.
+    pub fn is_offered(self, dimension: Dimension) -> bool {
+        use Strategy::*;
+        match dimension {
+            Dimension::TwoD => {
+                self != ExtremePoint
+                    && (cfg!(feature = "milp") || !matches!(self, MilpExact | HybridExact))
+            }
+            Dimension::ThreeD => matches!(
+                self,
+                BottomLeftFill | ExtremePoint | GeneticAlgorithm | Brkga | SimulatedAnnealing
+            ),
+        }
+    }
+
+    /// The strategies `dimension` offers in this build, in
+    /// [`Strategy::NAMES`] order.
+    pub fn offered(dimension: Dimension) -> Vec<Self> {
+        Self::ALL
+            .into_iter()
+            .filter(|s| s.is_offered(dimension))
+            .collect()
+    }
+
+    /// Whether this strategy, run in `dimension`, reads `setting` (one of
+    /// [`SETTINGS`]). This is the one table both the refusal of a setting the
+    /// strategy does not read (`ConfigRequest::to_config`) and the published
+    /// description of each strategy ([`Strategy::reads`]) come from.
     ///
+    /// - `spacing`, `margin`, `time_limit_ms`: every strategy.
+    /// - `multi_sheet`: every 2D strategy (3D packing has no sheets).
     /// - `crossover_rate`, `mutation_rate`: the genetic algorithm.
     /// - `population_size`, `max_generations`: the two population searches.
     /// - `seed`: the stochastic searches (and the hybrid's ALNS fallback).
     /// - `target_utilization`: the searches that stop on a target (GA, BRKGA,
     ///   SA).
-    pub fn reads_setting(self, setting: &str) -> bool {
+    ///
+    /// A name outside [`SETTINGS`] is read by nothing.
+    pub fn reads_setting(self, dimension: Dimension, setting: &str) -> bool {
         use Strategy::*;
         match setting {
+            "spacing" | "margin" | "time_limit_ms" => true,
+            "multi_sheet" => dimension == Dimension::TwoD,
             "crossover_rate" | "mutation_rate" => matches!(self, GeneticAlgorithm),
             "population_size" | "max_generations" => matches!(self, GeneticAlgorithm | Brkga),
             "seed" => matches!(
@@ -58,20 +161,31 @@ impl Strategy {
                 GeneticAlgorithm | Brkga | SimulatedAnnealing | Gdrr | Alns | HybridExact
             ),
             "target_utilization" => matches!(self, GeneticAlgorithm | Brkga | SimulatedAnnealing),
-            _ => true,
+            _ => false,
         }
     }
 
-    /// The names of the strategies that read `setting` (see
-    /// [`Self::reads_setting`]).
-    pub fn readers_of(setting: &str) -> Vec<&'static str> {
-        Self::NAMES
-            .iter()
-            .copied()
-            .filter(|n| Self::parse(n).is_some_and(|s| s.reads_setting(setting)))
+    /// The settings this strategy reads in `dimension`, in [`SETTINGS`] order
+    /// (see [`Self::reads_setting`]).
+    pub fn reads(self, dimension: Dimension) -> Vec<&'static str> {
+        SETTINGS
+            .into_iter()
+            .filter(|s| self.reads_setting(dimension, s))
             .collect()
     }
 
+    /// The names of the strategies `dimension` offers that read `setting`.
+    pub fn readers_of(dimension: Dimension, setting: &str) -> Vec<&'static str> {
+        Self::offered(dimension)
+            .into_iter()
+            .filter(|s| s.reads_setting(dimension, setting))
+            .map(Self::name)
+            .collect()
+    }
+
+    /// The short name of each strategy -- what a refusal of an unknown name
+    /// lists as expected. [`Strategy::parse`] reads these and the longer
+    /// forms in [`Strategy::SPELLINGS`].
     pub const NAMES: [&'static str; 10] = [
         "blf",
         "nfp",

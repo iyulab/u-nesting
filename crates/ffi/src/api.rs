@@ -216,6 +216,28 @@ pub extern "C" fn unesting_version() -> *const c_char {
     VERSION.as_ptr() as *const c_char
 }
 
+/// Returns the strategies each dimension offers in this build and the
+/// settings each reads, as JSON:
+/// `{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`.
+///
+/// It is the table a solve's refusal of a setting the strategy does not read
+/// (`invalid_option`) comes from, so a caller can offer only the settings that
+/// change the chosen strategy's run.
+///
+/// # Safety
+/// - The returned string is allocated once per process and must not be freed
+#[no_mangle]
+pub extern "C" fn unesting_strategies() -> *const c_char {
+    static CATALOG: std::sync::OnceLock<CString> = std::sync::OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            let json = serde_json::to_string(&StrategyCatalog::of_build())
+                .expect("a catalog of names serializes");
+            CString::new(json).expect("JSON has no interior NUL")
+        })
+        .as_ptr()
+}
+
 /// Solves a 2D nesting problem with progress callback.
 ///
 /// # Parameters
@@ -874,6 +896,17 @@ mod tests {
             response.error.as_deref(),
             Some("Internal error: ok-sentinel")
         );
+    }
+
+    #[test]
+    fn strategies_are_the_catalog_of_this_build() {
+        let json = unsafe { CStr::from_ptr(unesting_strategies()) }
+            .to_str()
+            .expect("UTF-8");
+        let catalog: StrategyCatalog = serde_json::from_str(json).expect("a catalog");
+        assert_eq!(catalog, StrategyCatalog::of_build());
+        // The same pointer every call: allocated once, never freed.
+        assert_eq!(unesting_strategies(), unesting_strategies());
     }
 
     #[test]

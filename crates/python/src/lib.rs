@@ -37,7 +37,9 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use u_nesting_core::api_types::{from_json, ConfigRequest, RefusalDetails, Request2D, Request3D};
+use u_nesting_core::api_types::{
+    from_json, ConfigRequest, RefusalDetails, Request2D, Request3D, StrategyCatalog,
+};
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
 use u_nesting_core::Error;
@@ -486,16 +488,19 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-/// List available strategies.
+/// The strategies each dimension offers and the settings each reads.
 ///
-/// The union of the 2D and 3D strategy names this build accepts: `nfp`, `gdrr`
-/// and `alns` apply to 2D nesting, `ep` to 3D packing, and the rest to both.
-/// Exact (MILP) strategies are deliberately absent — the public path currently
-/// handles axis-aligned rectangles only, so advertising them would promise more
-/// than it delivers.
+/// Returns ``{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...],
+/// "3d": [...]}``. It is the table a solve's refusal of a setting the strategy
+/// does not read (``invalid_option``) comes from, so a caller can offer only
+/// the settings that change the chosen strategy's run. The exact (MILP)
+/// strategies are listed only in a build with the `milp` feature, which the
+/// published wheels do not have.
 #[pyfunction]
-fn available_strategies() -> Vec<&'static str> {
-    vec!["blf", "nfp", "ga", "brkga", "sa", "ep", "gdrr", "alns"]
+fn available_strategies(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    let catalog = serde_json::to_string(&StrategyCatalog::of_build())
+        .map_err(|e| PyValueError::new_err(format!("Serialization error: {e}")))?;
+    py.import("json")?.call_method1("loads", (catalog,))
 }
 
 /// U-Nesting Python module.
@@ -552,32 +557,32 @@ mod tests {
     }
 
     #[test]
-    fn every_advertised_strategy_is_accepted() {
-        // `available_strategies()` is the list the binding publishes to Python
-        // callers; each entry must round-trip through the canonical parser, or
-        // the module advertises a name its own solver rejects.
-        for name in available_strategies() {
-            let input = ConfigRequest {
-                strategy: Some(name.to_string()),
-                ..config_input()
-            };
-            assert!(
-                build_config(Some(input)).is_ok(),
-                "advertised strategy '{name}' was rejected by build_config"
-            );
+    fn every_catalogued_strategy_is_accepted_in_its_dimension() {
+        // The catalog is what the module publishes to Python callers; each
+        // entry must be accepted by the configuration of its dimension, with
+        // every setting it says it reads, or the module advertises a run its
+        // own solver refuses.
+        let catalog = StrategyCatalog::of_build();
+        for (infos, to_config) in [
+            (
+                &catalog.two_d,
+                ConfigRequest::to_config as fn(&ConfigRequest) -> _,
+            ),
+            (&catalog.three_d, ConfigRequest::to_config_3d),
+        ] {
+            assert!(!infos.is_empty());
+            for info in infos {
+                let input = ConfigRequest {
+                    strategy: Some(info.name.clone()),
+                    ..config_input()
+                };
+                assert!(
+                    to_config(&input).is_ok(),
+                    "catalogued strategy '{}' was refused",
+                    info.name
+                );
+            }
         }
-    }
-
-    #[test]
-    fn advertised_strategies_cover_every_supported_solver() {
-        // Regression guard: `gdrr` and `alns` solve 2D problems in this build but
-        // were missing from the published list, so callers could not discover
-        // them. Locked as a golden set — extending the solvers means extending
-        // this list in the same change.
-        assert_eq!(
-            available_strategies(),
-            vec!["blf", "nfp", "ga", "brkga", "sa", "ep", "gdrr", "alns"]
-        );
     }
 
     #[test]

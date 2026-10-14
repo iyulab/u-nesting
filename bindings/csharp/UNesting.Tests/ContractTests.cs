@@ -94,6 +94,23 @@ public class ContractTests
     }
 
     [Fact]
+    public void The_strategy_catalog_carries_exactly_what_the_engine_sent()
+    {
+        var raw = UNestingInfo.StrategiesJson;
+        var written = JsonSerializer.SerializeToNode(UNestingInfo.Strategies, NestingJson.Default.StrategyCatalog);
+        var difference = Difference(JsonNode.Parse(raw), written, "$");
+        Assert.True(difference is null, $"{difference}\nengine: {raw}\nrecord: {written?.ToJsonString()}");
+
+        // The enums are the strategies the engine offers, each dimension.
+        var catalog = UNestingInfo.Strategies;
+        Assert.Equal(Enum.GetValues<Strategy2D>().Order(), catalog.TwoD.Select(s => s.Name).Order());
+        Assert.Equal(Enum.GetValues<Strategy3D>().Order(), catalog.ThreeD.Select(s => s.Name).Order());
+        Assert.True(catalog.Reads(Strategy2D.GeneticAlgorithm, NestingSetting.TargetUtilization));
+        Assert.False(catalog.Reads(Strategy2D.NfpGuided, NestingSetting.TargetUtilization));
+        Assert.False(catalog.Reads(Strategy3D.BottomLeftFill, NestingSetting.MultiSheet));
+    }
+
+    [Fact]
     public void A_turned_box_reads_its_orientation()
     {
         // 30 wide does not fit 12 wide: the box can only go in turned.

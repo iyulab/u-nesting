@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A strategy catalog: which strategies each dimension offers and which settings
+  each reads**, on every binding — `available_strategies()` (WASM, Python),
+  `unesting_strategies()` (C ABI) and `UNestingInfo.Strategies` (.NET, a typed
+  `StrategyCatalog` with a `NestingSetting` enum and `Reads(strategy, setting)`):
+  `{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`. It is
+  made from the same table as the refusal of a setting the strategy does not read,
+  so a form can show only the fields that change the run without restating it.
+  Rust: `Strategy::reads(dimension)`, `Strategy::offered(dimension)`,
+  `Dimension`, `SETTINGS` and `api_types::StrategyCatalog::of_build()`.
+
 ### Changed
+
+- **Breaking (WASM, Python):** `available_strategies()` returns the catalog above
+  instead of names only (WASM: `{"2d": [names], "3d": [names]}`; Python: one list
+  of both dimensions' names). Migrate: `catalog["2d"].map(s => s.name)` for the old
+  2D list.
+- **Breaking (Rust API):** `Strategy::reads_setting` and `Strategy::readers_of` take
+  the `Dimension`; `api_types::Mode` is replaced by `solver::Dimension` (same wire
+  names, `"2d"` / `"3d"`).
+- The refusal of a setting the strategy does not read covers every setting
+  through one table; in 3D, `multi_sheet` is refused as "not read by any 3D
+  strategy". A strategy the dimension does not offer is refused naming the
+  offered strategies by their request names (`blf, nfp, ...`), not the Rust ones.
 
 - Depends on `i_overlay` 9 (was 8.1). Polygon offsets (spacing, kerf) are
   computed by the new version; a layout can differ where a part now fits a
@@ -27,6 +51,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   .NET bindings' exceptions do — `Status` is the native status (was `ErrorCode`),
   `ErrorCode` the error body's `code` (was `Reason`), and `Parameter` / `Index`
   now say which value the refusal is about without reading `Details`. Migrate: `ex.ErrorCode` → `ex.Status`, `ex.Reason` → `ex.ErrorCode`.
+
+### Fixed
+
+- 3D `ep` (extreme point) now stops on `time_limit_ms` and on cancellation,
+  keeping the boxes placed so far; it ran to the end regardless. An extreme-point
+  packing that places nothing reports 0 bins used (it said 1).
 
 ## [0.19.0] - 2026-10-13
 

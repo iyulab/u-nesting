@@ -41,9 +41,11 @@ function req3d(strategy) {
   });
 }
 
-test('available_strategies returns 2D + 3D lists', () => {
+test('available_strategies lists each dimension with the settings each strategy reads', () => {
   const s = JSON.parse(available_strategies());
-  assert.ok(Array.isArray(s.strategies_2d) || Array.isArray(s['2d']) || s, 'strategies present');
+  assert.deepEqual(s['2d'].map((i) => i.name), STRATEGIES_2D);
+  assert.deepEqual(s['3d'].map((i) => i.name).sort(), [...STRATEGIES_3D].sort());
+  for (const info of [...s['2d'], ...s['3d']]) assert.ok(info.reads.includes('spacing'), info.name);
 });
 
 for (const strategy of STRATEGIES_2D) {

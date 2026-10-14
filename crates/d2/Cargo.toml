@@ -30,7 +30,7 @@ criterion.workspace = true
 [features]
 default = []
 serde = ["dep:serde", "u-nesting-core/serde"]
-milp = ["dep:good_lp"]
+milp = ["dep:good_lp", "u-nesting-core/milp"]
 parallel = ["dep:rayon", "u-nesting-core/parallel"]
 
 [[bench]]

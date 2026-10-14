@@ -6,22 +6,56 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::whole_at_least;
-use crate::solver::{Config, Strategy};
+use crate::solver::{Config, Dimension, Strategy};
 use crate::Error;
 
 /// API version from Cargo.toml.
 pub const API_VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Request mode.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    /// 2D nesting mode.
+/// One strategy as [`StrategyCatalog`] describes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StrategyInfo {
+    /// The strategy's short name, as a request's `config.strategy` takes it.
+    pub name: String,
+    /// The `config` settings the strategy reads, in `ConfigRequest::KEYS`
+    /// order. A request naming any other setting with this strategy is
+    /// refused (`invalid_option`).
+    pub reads: Vec<String>,
+}
+
+/// The strategies each dimension offers in this build, and the settings each
+/// reads -- generated from the same table the refusal of an unread setting is
+/// ([`Strategy::reads_setting`]), so the two cannot disagree. On the wire:
+/// `{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StrategyCatalog {
+    /// The 2D nesting strategies.
     #[serde(rename = "2d")]
-    D2,
-    /// 3D bin packing mode.
+    pub two_d: Vec<StrategyInfo>,
+    /// The 3D packing strategies.
     #[serde(rename = "3d")]
-    D3,
+    pub three_d: Vec<StrategyInfo>,
+}
+
+impl StrategyCatalog {
+    /// The catalog of this build.
+    pub fn of_build() -> Self {
+        let describe = |dimension| {
+            Strategy::offered(dimension)
+                .into_iter()
+                .map(|s| StrategyInfo {
+                    name: s.name().to_string(),
+                    reads: s.reads(dimension).into_iter().map(String::from).collect(),
+                })
+                .collect()
+        };
+        Self {
+            two_d: describe(Dimension::TwoD),
+            three_d: describe(Dimension::ThreeD),
+        }
+    }
 }
 
 /// Request for 2D nesting.
@@ -36,7 +70,7 @@ pub struct Request2D {
     /// Accepted (and validated) here so a dispatched request round-trips
     /// under the strict unknown-field policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<Mode>,
+    pub mode: Option<Dimension>,
 
     /// Geometries to place.
     pub geometries: Vec<Geometry2DRequest>,
@@ -61,7 +95,7 @@ pub struct Request3D {
     /// Accepted (and validated) here so a dispatched request round-trips
     /// under the strict unknown-field policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub mode: Option<Mode>,
+    pub mode: Option<Dimension>,
 
     /// Geometries to place.
     pub geometries: Vec<Geometry3DRequest>,
@@ -1008,25 +1042,25 @@ impl ConfigRequest {
     }
 
     /// The configuration a 3D packing request asks for: as
-    /// [`Self::to_config`], with `multi_sheet` -- a 2D setting -- refused
-    /// rather than ignored.
+    /// [`Self::to_config`], with the settings judged against what each
+    /// strategy reads in 3D -- `multi_sheet`, a 2D setting, is refused rather
+    /// than ignored.
     pub fn to_config_3d(&self) -> crate::Result<Config> {
-        if self.multi_sheet.is_some() {
-            return Err(Error::invalid_option(
-                "multi_sheet",
-                "multi_sheet spreads 2D parts over sheets; 3D packing has none -- leave it out"
-                    .to_string(),
-            ));
-        }
-        self.to_config()
+        self.to_config_in(Dimension::ThreeD)
     }
 
-    /// The solver configuration this request asks for, refused as the solver
-    /// would refuse it: a strategy name nobody knows is `unknown_option`, a
-    /// setting outside its range is `parameter_out_of_range` -- never clamped
-    /// into range. A negative count is out of range like a too-small one
-    /// (`population_size` -1 and 1 are both refused with `min` 2).
+    /// The solver configuration a 2D nesting request asks for, refused as the
+    /// solver would refuse it: a strategy name nobody knows is
+    /// `unknown_option`, a setting the strategy does not read is
+    /// `invalid_option` (see [`Strategy::reads_setting`]), a setting outside
+    /// its range is `parameter_out_of_range` -- never clamped into range. A
+    /// negative count is out of range like a too-small one (`population_size`
+    /// -1 and 1 are both refused with `min` 2).
     pub fn to_config(&self) -> crate::Result<Config> {
+        self.to_config_in(Dimension::TwoD)
+    }
+
+    fn to_config_in(&self, dimension: Dimension) -> crate::Result<Config> {
         let mut config = Config::default();
         if let Some(strategy) = &self.strategy {
             config.strategy = Strategy::parse(strategy).ok_or_else(|| Error::UnknownOption {
@@ -1035,27 +1069,37 @@ impl ConfigRequest {
                 expected: Strategy::NAMES.iter().map(|n| n.to_string()).collect(),
             })?;
         }
-        // A setting only some strategies read is refused when the chosen one
-        // does not: run without it, the request would claim a setting that
-        // changed nothing. (It used to be accepted and ignored.)
+        // A setting the chosen strategy does not read is refused: run without
+        // it, the request would claim a setting that changed nothing. (It used
+        // to be accepted and ignored.)
         let present = [
+            ("spacing", self.spacing.is_some()),
+            ("margin", self.margin.is_some()),
+            ("time_limit_ms", self.time_limit_ms.is_some()),
+            ("target_utilization", self.target_utilization.is_some()),
             ("population_size", self.population_size.is_some()),
             ("max_generations", self.max_generations.is_some()),
             ("crossover_rate", self.crossover_rate.is_some()),
             ("mutation_rate", self.mutation_rate.is_some()),
             ("seed", self.seed.is_some()),
-            ("target_utilization", self.target_utilization.is_some()),
+            ("multi_sheet", self.multi_sheet.is_some()),
         ];
         for (setting, given) in present {
-            if given && !config.strategy.reads_setting(setting) {
-                let name = self.strategy.as_deref().unwrap_or(Strategy::NAMES[0]);
-                return Err(Error::invalid_option(
-                    setting,
+            if given && !config.strategy.reads_setting(dimension, setting) {
+                let readers = Strategy::readers_of(dimension, setting);
+                let message = if readers.is_empty() {
                     format!(
-                        "{setting} is read by {} -- strategy \"{name}\" does not read it; leave it out",
-                        Strategy::readers_of(setting).join(", ")
-                    ),
-                ));
+                        "{setting} is not read by any {} strategy -- leave it out",
+                        dimension.key().to_uppercase()
+                    )
+                } else {
+                    format!(
+                        "{setting} is read by {} -- strategy \"{}\" does not read it; leave it out",
+                        readers.join(", "),
+                        config.strategy.name()
+                    )
+                };
+                return Err(Error::invalid_option(setting, message));
             }
         }
         if let Some(spacing) = self.spacing {
@@ -1142,6 +1186,77 @@ mod dto_strictness_tests {
             keys(serde_json::to_value(super::CuttingConfigRequest::default()).unwrap()),
             sorted(&super::CuttingConfigRequest::KEYS)
         );
+        // The settings a strategy can read are the keys but `strategy`, in
+        // the same order.
+        let settings: Vec<&str> = super::ConfigRequest::KEYS
+            .into_iter()
+            .filter(|k| *k != "strategy")
+            .collect();
+        assert_eq!(settings, crate::solver::SETTINGS);
+    }
+
+    /// The catalog and the refusal are one table: with each strategy a
+    /// dimension offers, a setting is accepted exactly when the catalog says
+    /// the strategy reads it -- and every setting is in play somewhere.
+    #[test]
+    fn the_catalog_is_what_the_configuration_accepts() {
+        let value = |setting: &str| match setting {
+            "spacing" | "margin" => json!(1.0),
+            "time_limit_ms" => json!(1000),
+            "target_utilization" => json!(0.9),
+            "population_size" => json!(10),
+            "max_generations" => json!(5),
+            "crossover_rate" => json!(0.8),
+            "mutation_rate" => json!(0.1),
+            "seed" => json!(7),
+            "multi_sheet" => json!(true),
+            other => panic!("no sample value for {other}"),
+        };
+        let catalog = super::StrategyCatalog::of_build();
+        for (infos, to_config) in [
+            (
+                &catalog.two_d,
+                super::ConfigRequest::to_config as fn(&super::ConfigRequest) -> _,
+            ),
+            (&catalog.three_d, super::ConfigRequest::to_config_3d),
+        ] {
+            for info in infos {
+                for setting in crate::solver::SETTINGS {
+                    let request: super::ConfigRequest = serde_json::from_value(
+                        json!({ "strategy": info.name, setting: value(setting) }),
+                    )
+                    .expect("a request");
+                    let read = info.reads.iter().any(|r| r == setting);
+                    match to_config(&request) {
+                        Ok(_) => assert!(read, "{} accepted {setting} it does not read", info.name),
+                        Err(e) => {
+                            assert!(!read, "{} refused {setting} it reads: {e}", info.name);
+                            assert_eq!(e.code(), "invalid_option", "{e}");
+                        }
+                    }
+                }
+            }
+        }
+        let names = |infos: &[super::StrategyInfo]| -> Vec<String> {
+            infos.iter().map(|i| i.name.clone()).collect()
+        };
+        assert_eq!(
+            names(&catalog.three_d),
+            ["blf", "ga", "brkga", "sa", "ep"].map(String::from)
+        );
+        assert!(names(&catalog.two_d)
+            .starts_with(&["blf", "nfp", "ga", "brkga", "sa", "gdrr", "alns"].map(String::from)));
+        // Every setting is read by some strategy in some dimension.
+        for setting in crate::solver::SETTINGS {
+            assert!(
+                catalog
+                    .two_d
+                    .iter()
+                    .chain(&catalog.three_d)
+                    .any(|i| i.reads.iter().any(|r| r == setting)),
+                "{setting}"
+            );
+        }
     }
 
     /// Every refusal on the wire names a setting by its path in the request,

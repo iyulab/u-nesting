@@ -31,7 +31,7 @@ re-bundling services fail on the same import. Use a bundler or Node.
 | `solve_3d(json: string): string` | Solve a 3D bin packing problem |
 | `optimize_cutting_path(json: string): string` | Optimize cutting path for placed parts |
 | `version(): string` | Get API version |
-| `available_strategies(): string` | List available strategies |
+| `available_strategies(): string` | The strategies each dimension offers and the settings each reads |
 
 All functions use **JSON string I/O**.
 
@@ -275,6 +275,30 @@ const res = JSON.parse(solve_2d(JSON.stringify({
 })));
 // res.sheets_used === 3, res.placements.length === 20, res.unplaced === []
 // group placements by sheet_index to draw each sheet
+```
+
+### Which settings a strategy reads
+
+Each strategy reads only some settings; a setting the chosen strategy does not read
+is refused (`invalid_option`), not ignored. `available_strategies()` answers which,
+from the same table the refusal is made from:
+
+```javascript
+import { available_strategies } from '@iyulab/u-nesting';
+
+const catalog = JSON.parse(available_strategies());
+// { "2d": [{ "name": "blf", "reads": ["spacing", "margin", "time_limit_ms", "multi_sheet"] },
+//          { "name": "ga", "reads": ["spacing", "margin", "time_limit_ms", "target_utilization", ...] }, ...],
+//   "3d": [{ "name": "blf", "reads": [...] }, ...] }
+const reads = (dim, strategy, setting) =>
+  catalog[dim].some((s) => s.name === strategy && s.reads.includes(setting));
+console.log(reads('2d', 'nfp', 'target_utilization')); // false -- leave the field out
+console.log(reads('2d', 'ga', 'target_utilization'));  // true
+```
+
+```typescript
+type StrategyInfo = { name: string; reads: string[] };
+type StrategyCatalog = { "2d": StrategyInfo[]; "3d": StrategyInfo[] };
 ```
 
 ### Available 2D Strategies

@@ -10,7 +10,7 @@
 //! - [`solve_3d`] — Solve a 3D bin packing problem
 //! - [`optimize_cutting_path`] — Optimize cutting path for placed parts
 //! - [`version`] — Get API version
-//! - [`available_strategies`] — List available strategies for WASM
+//! - [`available_strategies`] — The strategies each dimension offers and the settings each reads
 
 use u_nesting_core::api_types::*;
 use u_nesting_core::geometry::Boundary;
@@ -72,22 +72,19 @@ pub fn version() -> String {
     API_VERSION.to_string()
 }
 
-/// Returns a JSON array of available strategy names for WASM builds.
+/// The strategies each dimension offers in this build and the settings each
+/// reads: `{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`.
 ///
-/// MILP and HybridExact are not available in WASM (requires native HiGHS solver).
+/// It is the table a solve's refusal of a setting the strategy does not read
+/// (`invalid_option`) comes from, so a form can show only the settings that
+/// change the chosen strategy's run. The exact (MILP) strategies are absent:
+/// this build has no MILP solver.
 #[wasm_bindgen]
 pub fn available_strategies() -> String {
-    serde_json::to_string(&serde_json::json!({
-        "2d": ["blf", "nfp", "ga", "brkga", "sa", "gdrr", "alns"],
-        "3d": ["blf", "ep", "ga", "brkga", "sa"]
-    }))
-    .expect("static JSON serialization should not fail")
+    serde_json::to_string(&StrategyCatalog::of_build()).expect("a catalog of names serializes")
 }
 
 // --- Internal implementations ---
-
-/// Strategies that are NOT available in WASM builds.
-const WASM_BLOCKED_STRATEGIES: &[&str] = &["milp", "milpexact", "hybrid", "hybridexact"];
 
 /// Assembles a success `SolveResponse` from a solved 2D result, deriving every
 /// accounting/metric field through the shared `From` impl (single source of
@@ -109,22 +106,6 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
         Ok(r) => r,
         Err(e) => return SolveResponse::refused(&e),
     };
-
-    // Check for WASM-blocked strategies
-    if let Some(ref config) = request.config {
-        if let Some(ref strategy) = config.strategy {
-            let s = strategy.to_lowercase();
-            if WASM_BLOCKED_STRATEGIES.iter().any(|blocked| s == *blocked) {
-                return SolveResponse::refused(&Error::invalid_option(
-                    "strategy",
-                    format!(
-                        "Strategy '{strategy}' is not available in WASM builds. \
-                     Use 'blf', 'nfp', 'ga', 'brkga', 'sa', 'gdrr', or 'alns'."
-                    ),
-                ));
-            }
-        }
-    }
 
     // Convert geometries
     let geometries = match Geometry2D::from_requests(request.geometries) {
@@ -181,22 +162,6 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
         Ok(r) => r,
         Err(e) => return Pack3DResponse::refused(&e),
     };
-
-    // Check for WASM-blocked strategies
-    if let Some(ref config) = request.config {
-        if let Some(ref strategy) = config.strategy {
-            let s = strategy.to_lowercase();
-            if WASM_BLOCKED_STRATEGIES.iter().any(|blocked| s == *blocked) {
-                return Pack3DResponse::refused(&Error::invalid_option(
-                    "strategy",
-                    format!(
-                        "Strategy '{strategy}' is not available in WASM builds. \
-                     Use 'blf', 'ep', 'ga', 'brkga', or 'sa'."
-                    ),
-                ));
-            }
-        }
-    }
 
     // Convert geometries
     let geometries = match Geometry3D::from_requests(request.geometries) {

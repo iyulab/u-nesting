@@ -36,6 +36,9 @@ serde = [
     "u-geometry/serde",
 ]
 parallel = ["dep:rayon"]
+# Set by `u-nesting-d2/milp`: the exact strategies are offered in 2D only
+# when the solver that runs them is built (`Strategy::is_offered`).
+milp = []
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { version = "0.4", features = ["wasm_js"] }
