@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A 2D layout checker**: `u_nesting_d2::check::check_layout(geometries,
+  boundary, &LayoutRules { spacing, margin, multi_sheet }, placements, unplaced)`
+  reports every way a layout breaks its problem — a piece outside the boundary or
+  its margin, two pieces on a sheet overlapping (decided by shared area, so
+  touching is not overlapping) or closer than the spacing (a piece in another's
+  hole is measured to that hole's edge), a rotation the geometry does not allow,
+  a flip without `allow_flip`, a sheet after the first without `multi_sheet`, an
+  unknown geometry, a copy index out of range or placed twice, and `unplaced`
+  disagreeing with what is left short. On the wire: WASM `check_2d`, C ABI
+  `unesting_check_2d` and .NET `Nester2D.Check(request, result)` (typed
+  `LayoutViolation` records) take `{problem, solve_result}` — the `solve_2d`
+  request unchanged and a successful response — and answer
+  `{success, feasible, violations: [{code, ...}]}`; `check_2d` is one pipeline
+  in `u_nesting_d2::check` that every binding calls.
+- `Nester2D::validate(geometries, boundary)`: the judgement every solve makes
+  before it runs, public so a checker refuses the same problems.
+  `Geometry2D::holes()` exposes a geometry's holes.
+
+### Changed
+
+- A strategy 2D nesting does not offer (`ep`, or an exact strategy without the
+  `milp` feature) is refused before anything runs, by the same validation.
+
 ## [0.20.0] - 2026-10-14
 
 ### Added

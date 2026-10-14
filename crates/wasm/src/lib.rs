@@ -10,6 +10,7 @@
 //! - [`solve_3d`] — Solve a 3D bin packing problem
 //! - [`optimize_cutting_path`] — Optimize cutting path for placed parts
 //! - [`version`] — Get API version
+//! - [`check_2d`] — Check a 2D layout against its problem
 //! - [`available_strategies`] — The strategies each dimension offers and the settings each reads
 
 use u_nesting_core::api_types::*;
@@ -82,6 +83,21 @@ pub fn version() -> String {
 #[wasm_bindgen]
 pub fn available_strategies() -> String {
     serde_json::to_string(&StrategyCatalog::of_build()).expect("a catalog of names serializes")
+}
+
+/// Checks a 2D layout against the problem it answers. The request is
+/// `{"problem": <the solve_2d request>, "solve_result": <a solve_2d response>}`;
+/// the answer is `{"success": true, "feasible": bool, "violations": [{"code": ..}]}`
+/// -- a layout that breaks its problem is a result, not a refusal. A request
+/// `solve_2d` refuses, or a `solve_result` that is itself a refusal, is
+/// `{"success": false, "error", "code", "details"}`.
+#[wasm_bindgen]
+pub fn check_2d(request_json: &str) -> String {
+    let response = match from_json::<Check2DRequest>(request_json) {
+        Ok(request) => u_nesting_d2::check::check_2d(request),
+        Err(e) => Check2DResponse::refused(&e),
+    };
+    serde_json::to_string(&response).expect("a check response serializes")
 }
 
 // --- Internal implementations ---

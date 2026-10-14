@@ -30,6 +30,7 @@ re-bundling services fail on the same import. Use a bundler or Node.
 | `solve_2d(json: string): string` | Solve a 2D nesting problem |
 | `solve_3d(json: string): string` | Solve a 3D bin packing problem |
 | `optimize_cutting_path(json: string): string` | Optimize cutting path for placed parts |
+| `check_2d(json: string): string` | Check a 2D layout against its problem |
 | `version(): string` | Get API version |
 | `available_strategies(): string` | The strategies each dimension offers and the settings each reads |
 
@@ -276,6 +277,52 @@ const res = JSON.parse(solve_2d(JSON.stringify({
 // res.sheets_used === 3, res.placements.length === 20, res.unplaced === []
 // group placements by sheet_index to draw each sheet
 ```
+
+### Checking a layout
+
+`check_2d` judges a 2D layout by the rules the nester places under: every piece
+within the boundary and its `margin`, no two pieces on a sheet overlapping or
+closer than `spacing`, each at a rotation its geometry allows and flipped only
+where `allow_flip` is set, each copy placed once, and the geometries left short
+listed in `unplaced`. It takes `{ problem, solve_result }` — the `solve_2d`
+request unchanged, and a successful `solve_2d` response (the engine's own, or a
+layout edited or produced elsewhere in the same shape). A layout that breaks
+its problem is a result, not a refusal:
+
+```javascript
+import { solve_2d, check_2d } from '@iyulab/u-nesting';
+
+const problem = {
+  geometries: [{ id: "sq", polygon: [[0,0],[10,0],[10,10],[0,10]], quantity: 2 }],
+  boundary: { width: 30, height: 20 },
+  config: { strategy: "blf", spacing: 1 },
+};
+const solved = JSON.parse(solve_2d(JSON.stringify(problem)));
+console.log(JSON.parse(check_2d(JSON.stringify({ problem, solve_result: solved }))).feasible); // true
+
+// Move the second piece onto the first:
+solved.placements[1].x = solved.placements[0].x;
+solved.placements[1].y = solved.placements[0].y;
+const check = JSON.parse(check_2d(JSON.stringify({ problem, solve_result: solved })));
+console.log(check.violations); // [ { code: "overlap", placement: 0, other: 1 } ]
+```
+
+| `code` | Fields | Meaning |
+|---|---|---|
+| `outside_boundary` | `placement`, `id` | The piece leaves the boundary, or comes closer to its edge than `margin` |
+| `overlap` | `placement`, `other` | Two pieces on one sheet share area (touching is not overlapping) |
+| `too_close` | `placement`, `other`, `distance`, `spacing` | Two pieces on one sheet are closer than `spacing` (a piece in another's hole is measured to that hole's edge) |
+| `rotation_not_allowed` | `placement`, `id`, `rotation` | A rotation (degrees) the geometry's `rotations` do not include |
+| `flip_not_allowed` | `placement`, `id` | Flipped without `allow_flip` |
+| `sheet_not_allowed` | `placement`, `sheet` | On a sheet after the first without `multi_sheet` |
+| `unknown_geometry` | `placement`, `id` | A placement of an id no geometry has |
+| `instance_out_of_range` | `placement`, `id`, `instance`, `quantity` | A copy index not below the geometry's `quantity` |
+| `instance_repeated` | `placement`, `id`, `instance` | The same copy placed twice |
+| `missing_from_unplaced` | `id` | Copies left unplaced, the geometry not in `unplaced` |
+| `wrongly_unplaced` | `id` | In `unplaced` but every copy is placed, listed twice, or unknown |
+
+A request `solve_2d` refuses is refused the same way (`success: false`, `code`),
+and so is a `solve_result` that is itself a refusal.
 
 ### Which settings a strategy reads
 

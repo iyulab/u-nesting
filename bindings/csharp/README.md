@@ -150,6 +150,24 @@ catch (OperationCanceledException)
 }
 ```
 
+## Checking a layout
+
+`Nester2D.Check(request, result)` judges a layout — a solve's result, or one built
+elsewhere in its shape — against the request: boundary and margin, overlap and spacing
+on each sheet, allowed rotations and flips, each copy placed once, and
+`NestingResult.Unplaced`. Each broken rule is a typed record:
+
+```csharp
+LayoutCheck check = nester.Check(request, result);
+foreach (var v in check.Violations)
+    Console.WriteLine(v switch
+    {
+        LayoutViolation.Overlap o => $"pieces {o.Placement} and {o.Other} overlap",
+        LayoutViolation.TooClose t => $"pieces {t.Placement} and {t.Other} are {t.Distance} apart",
+        _ => v.ToString(),
+    });
+```
+
 ## Strategies
 
 ### 2D Nesting (`Strategy2D`)

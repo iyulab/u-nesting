@@ -165,6 +165,11 @@ impl Geometry2D {
         &self.exterior
     }
 
+    /// Returns the interior holes, each a ring.
+    pub fn holes(&self) -> &[Vec<(f64, f64)>] {
+        &self.holes
+    }
+
     /// Returns the allowed rotation angles (for compatibility).
     pub fn rotations(&self) -> Vec<f64> {
         self.rotation_constraint.angles()

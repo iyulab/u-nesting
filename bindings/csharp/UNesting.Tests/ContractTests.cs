@@ -94,6 +94,39 @@ public class ContractTests
     }
 
     [Fact]
+    public void A_layout_is_checked_and_the_check_carries_exactly_what_the_engine_sent()
+    {
+        var request = new NestingRequest
+        {
+            Geometries = [Geometry2D.Rectangle("a", 10, 10, 2)],
+            Boundary = Boundary2D.Rectangle(40, 20),
+            Config = new Config2D { Spacing = 1 },
+        };
+        using var nester = new Nester2D();
+        var solved = nester.Solve(request);
+        var clean = nester.Check(request, solved);
+        Assert.True(clean.Feasible);
+        Assert.Empty(clean.Violations);
+
+        string? raw = null;
+        nester.Observers.Response = body => raw = body;
+        var stacked = solved with
+        {
+            Placements = [solved.Placements[0], solved.Placements[1] with { X = solved.Placements[0].X, Y = solved.Placements[0].Y }],
+        };
+        var check = nester.Check(request, stacked);
+        var engine = JsonNode.Parse(raw!)!.AsObject();
+        Assert.True(engine["success"]!.GetValue<bool>());
+        foreach (var key in Envelope)
+            engine.Remove(key);
+        var written = JsonSerializer.SerializeToNode(check, NestingJson.Default.LayoutCheck);
+        var difference = Difference(engine, written, "$");
+        Assert.True(difference is null, $"{difference}\nengine: {raw}\nrecord: {written?.ToJsonString()}");
+        Assert.False(check.Feasible);
+        Assert.Equal([new LayoutViolation.Overlap(0, 1)], check.Violations);
+    }
+
+    [Fact]
     public void The_strategy_catalog_carries_exactly_what_the_engine_sent()
     {
         var raw = UNestingInfo.StrategiesJson;

@@ -45,6 +45,14 @@ internal static class NativeLibrary
         out IntPtr resultPtr);
 
     /// <summary>
+    /// Checks a 2D layout against the problem it answers.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int unesting_check_2d(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string requestJson,
+        out IntPtr resultPtr);
+
+    /// <summary>
     /// Solves a 3D bin packing problem.
     /// </summary>
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]

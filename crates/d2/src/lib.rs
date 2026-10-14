@@ -63,6 +63,7 @@
 pub mod alns_nesting;
 pub mod boundary;
 pub mod brkga_nesting;
+pub mod check;
 pub mod ga_nesting;
 pub mod gdrr_nesting;
 pub mod geometry;

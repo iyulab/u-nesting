@@ -77,6 +77,34 @@ public class Nester2D : IDisposable
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// Checks a layout against the problem it answers — every piece within the boundary and its
+    /// margin, no two pieces on a sheet overlapping or closer than the spacing, each at a rotation
+    /// its geometry allows and flipped only where flipping is allowed, each copy placed once, and
+    /// the geometries left short reported in <see cref="NestingResult.Unplaced"/>. The request is
+    /// read as <see cref="Solve"/> reads it. A layout that breaks the problem is a result, not an
+    /// exception.
+    /// </summary>
+    /// <param name="request">The problem, as given to <see cref="Solve"/>.</param>
+    /// <param name="result">The layout: a solve's result, or one built elsewhere in its shape.</param>
+    /// <exception cref="NestingException">The engine refused the request.</exception>
+    public LayoutCheck Check(NestingRequest request, NestingResult result)
+    {
+        ThrowIfDisposed();
+        request.CheckFinite();
+        var solved = JsonSerializer.SerializeToNode(result, NestingJson.Default.NestingResult)!.AsObject();
+        solved["success"] = true;
+        solved["error"] = null;
+        solved["code"] = null;
+        solved["details"] = null;
+        var body = new System.Text.Json.Nodes.JsonObject
+        {
+            ["problem"] = JsonSerializer.SerializeToNode(request, NestingJson.Default.NestingRequest),
+            ["solve_result"] = solved,
+        };
+        return NativeCall.Run(NativeLibrary.unesting_check_2d, body.ToJsonString(), NestingJson.Default.LayoutCheck, Observers);
+    }
+
     private static string Write(NestingRequest request)
     {
         request.CheckFinite();

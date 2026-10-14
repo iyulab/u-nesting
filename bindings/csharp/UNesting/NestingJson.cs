@@ -20,4 +20,5 @@ namespace UNesting;
 [JsonSerializable(typeof(PackingResult))]
 [JsonSerializable(typeof(ProgressInfo))]
 [JsonSerializable(typeof(StrategyCatalog))]
+[JsonSerializable(typeof(LayoutCheck))]
 internal sealed partial class NestingJson : JsonSerializerContext;

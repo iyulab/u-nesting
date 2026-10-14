@@ -213,23 +213,10 @@ impl Nester2D {
             Strategy::MilpExact => self.milp_exact(geometries, boundary),
             #[cfg(feature = "milp")]
             Strategy::HybridExact => self.hybrid_exact(geometries, boundary),
-            Strategy::ExtremePoint => Err(Error::invalid_option(
-                "strategy",
-                format!(
-                    "strategy \"ep\" is 3D only; 2D nesting offers {}",
-                    offered_names(Dimension::TwoD)
-                ),
-            )),
+            // Refused by `validate` before any strategy runs.
+            Strategy::ExtremePoint => Err(self.unoffered_strategy()),
             #[cfg(not(feature = "milp"))]
-            Strategy::MilpExact | Strategy::HybridExact => Err(Error::invalid_option(
-                "strategy",
-                format!(
-                    "strategy \"{}\" needs the `milp` feature, which this build does not \
-                     have; it offers {}",
-                    self.config.strategy.name(),
-                    offered_names(Dimension::TwoD)
-                ),
-            )),
+            Strategy::MilpExact | Strategy::HybridExact => Err(self.unoffered_strategy()),
         }
     }
 
@@ -1178,10 +1165,41 @@ impl Nester2D {
         Ok(result)
     }
 
-    /// Solves nesting with automatic multi-strip support.
+    /// Judges a problem as every solve does before it runs: the boundary, the
+    /// configuration, the geometries (an empty list is `empty_input`, ids must
+    /// be unique) and whether 2D nesting offers the configured strategy in
+    /// this build. A layout checker reads its problem through this too, so a
+    /// problem the solver refuses is one the checker refuses.
     ///
-    /// When items don't fit in a single strip, automatically creates additional strips.
-    /// Each placement's `boundary_index` indicates which strip it belongs to.
+    /// # Errors
+    /// The first refusal.
+    pub fn validate(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<()> {
+        boundary.validate()?;
+        self.validate_geometries(geometries)?;
+        if !self.config.strategy.is_offered(Dimension::TwoD) {
+            return Err(self.unoffered_strategy());
+        }
+        Ok(())
+    }
+
+    /// The refusal of a strategy 2D nesting does not offer in this build.
+    fn unoffered_strategy(&self) -> Error {
+        let strategy = self.config.strategy;
+        let why = if strategy == Strategy::ExtremePoint {
+            "is 3D only".to_string()
+        } else {
+            "needs the `milp` feature, which this build does not have".to_string()
+        };
+        Error::invalid_option(
+            "strategy",
+            format!(
+                "strategy \"{}\" {why}; 2D nesting offers {}",
+                strategy.name(),
+                offered_names(Dimension::TwoD)
+            ),
+        )
+    }
+
     /// Validates every input geometry once, at the solve entry point.
     ///
     /// Hoisting validation here (rather than relying on per-strategy calls)
@@ -1203,14 +1221,17 @@ impl Nester2D {
         u_nesting_core::geometry::ensure_unique_ids(geometries)
     }
 
+    /// Solves nesting with automatic multi-strip support.
+    ///
+    /// When items don't fit in a single strip, automatically creates additional strips.
+    /// Each placement's `boundary_index` indicates which strip it belongs to.
     /// Positions are adjusted so that strip N items have x offset of N * strip_width.
     pub fn solve_multi_strip(
         &self,
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
-        boundary.validate()?;
-        self.validate_geometries(geometries)?;
+        self.validate(geometries, boundary)?;
         self.cancelled.store(false, Ordering::Relaxed);
 
         let (b_min, b_max) = boundary.aabb();
@@ -1376,8 +1397,7 @@ impl Nester2D {
         boundary: &Boundary2D,
         progress: Option<ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
-        boundary.validate()?;
-        self.validate_geometries(geometries)?;
+        self.validate(geometries, boundary)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);

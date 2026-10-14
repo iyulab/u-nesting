@@ -654,6 +654,120 @@ impl Pack3DResponse {
     }
 }
 
+// --- Layout Check Types ---
+
+/// A 2D layout to check: the `solve_2d` request it answers, unchanged, and a
+/// successful `solve_2d` response -- one the engine returned, or one written
+/// elsewhere in the same shape. Only its `placements` and `unplaced` are
+/// judged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Check2DRequest {
+    /// The problem, as `solve_2d` takes it.
+    pub problem: Request2D,
+    /// The layout, as `solve_2d` returns it.
+    pub solve_result: SolveResponse,
+}
+
+/// One way a layout breaks its problem. `placement` and `other` are indices
+/// into the layout's `placements`; `id` is a geometry id; a rotation is in
+/// degrees, as the response gives it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "code", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LayoutViolationResponse {
+    /// The placement names a geometry the problem does not have.
+    UnknownGeometry { placement: usize, id: String },
+    /// The copy index is not below the geometry's quantity.
+    InstanceOutOfRange {
+        placement: usize,
+        id: String,
+        instance: usize,
+        quantity: usize,
+    },
+    /// A copy is placed a second time.
+    InstanceRepeated {
+        placement: usize,
+        id: String,
+        instance: usize,
+    },
+    /// The rotation is not one the geometry allows.
+    RotationNotAllowed {
+        placement: usize,
+        id: String,
+        rotation: f64,
+    },
+    /// Flipped, but the geometry does not allow flipping.
+    FlipNotAllowed { placement: usize, id: String },
+    /// On a sheet after the first without `multi_sheet`.
+    SheetNotAllowed { placement: usize, sheet: usize },
+    /// The piece leaves the boundary or comes closer to its edge than `margin`.
+    OutsideBoundary { placement: usize, id: String },
+    /// Two pieces on one sheet overlap.
+    Overlap { placement: usize, other: usize },
+    /// Two pieces on one sheet are closer than `spacing`.
+    TooClose {
+        placement: usize,
+        other: usize,
+        distance: f64,
+        spacing: f64,
+    },
+    /// Copies are left unplaced but the geometry is not in `unplaced`.
+    MissingFromUnplaced { id: String },
+    /// In `unplaced` but every copy is placed, listed twice, or unknown.
+    WronglyUnplaced { id: String },
+}
+
+/// Whether a layout keeps every rule of its problem, and each rule it breaks;
+/// or, with `success: false`, why the request was refused.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Check2DResponse {
+    /// API version.
+    pub version: String,
+    /// Whether the check ran; `false` with `error` / `code` / `details` when the
+    /// request was refused.
+    pub success: bool,
+    /// The refusal's message, when `success` is `false`.
+    pub error: Option<String>,
+    /// The refusal's stable reason, when `success` is `false`.
+    pub code: Option<String>,
+    /// The values behind the refusal.
+    pub details: Option<RefusalDetails>,
+    /// No violations (and the check ran).
+    pub feasible: bool,
+    /// Every rule the layout breaks.
+    pub violations: Vec<LayoutViolationResponse>,
+}
+
+impl Check2DResponse {
+    /// The answer for a layout that was checked.
+    pub fn checked(violations: Vec<LayoutViolationResponse>) -> Self {
+        Self {
+            version: API_VERSION.to_string(),
+            success: true,
+            error: None,
+            code: None,
+            details: None,
+            feasible: violations.is_empty(),
+            violations,
+        }
+    }
+
+    /// The answer for a refused request.
+    pub fn refused(error: &Error) -> Self {
+        let error = &ConfigRequest::locate(error);
+        Self {
+            version: API_VERSION.to_string(),
+            success: false,
+            error: Some(error.to_string()),
+            code: Some(error.code().to_string()),
+            details: Some(RefusalDetails::of(error)),
+            feasible: false,
+            violations: Vec::new(),
+        }
+    }
+}
+
 // --- Cutting Path Types ---
 
 /// Request for cutting path optimization.

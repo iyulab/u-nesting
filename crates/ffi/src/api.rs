@@ -79,6 +79,55 @@ pub unsafe extern "C" fn unesting_solve_2d(
     }
 }
 
+/// Checks a 2D layout against the problem it answers: the request is
+/// `{"problem": <the unesting_solve_2d request>, "solve_result": <its response>}`,
+/// the result `{"success": true, "feasible": bool, "violations": [...]}`. A
+/// layout that breaks its problem is a result (`UNESTING_OK`); a refused
+/// request is `UNESTING_ERR_SOLVE_FAILED` with the error body, as for a solve.
+///
+/// # Safety
+/// - `request_json` must be a valid null-terminated UTF-8 string
+/// - `result_ptr` must be a valid pointer to a `*mut c_char`
+/// - The caller must free the result string using `unesting_free_string`
+#[no_mangle]
+pub unsafe extern "C" fn unesting_check_2d(
+    request_json: *const c_char,
+    result_ptr: *mut *mut c_char,
+) -> i32 {
+    if request_json.is_null() || result_ptr.is_null() {
+        return UNESTING_ERR_NULL_PTR;
+    }
+
+    let json_str = match CStr::from_ptr(request_json).to_str() {
+        Ok(s) => s,
+        Err(_) => return UNESTING_ERR_INVALID_JSON,
+    };
+
+    let response = guard_panic(
+        || match from_json::<Check2DRequest>(json_str) {
+            Ok(request) => u_nesting_d2::check::check_2d(request),
+            Err(e) => Check2DResponse::refused(&e),
+        },
+        Check2DResponse::refused,
+    );
+    let response_json = match serde_json::to_string(&response) {
+        Ok(s) => s,
+        Err(_) => return UNESTING_ERR_UNKNOWN,
+    };
+
+    match CString::new(response_json) {
+        Ok(cstr) => {
+            *result_ptr = cstr.into_raw();
+            if response.success {
+                UNESTING_OK
+            } else {
+                UNESTING_ERR_SOLVE_FAILED
+            }
+        }
+        Err(_) => UNESTING_ERR_UNKNOWN,
+    }
+}
+
 /// Solves a 3D bin packing problem from JSON input.
 ///
 /// # Safety
@@ -896,6 +945,57 @@ mod tests {
             response.error.as_deref(),
             Some("Internal error: ok-sentinel")
         );
+    }
+
+    /// A solved layout, handed back with its request, checks clean; a moved
+    /// piece is reported, as a result.
+    #[test]
+    fn a_layout_is_checked_against_the_problem_it_answers() {
+        let request = serde_json::json!({
+            "geometries": [{"id": "sq", "polygon": [[0,0],[10,0],[10,10],[0,10]], "quantity": 2}],
+            "boundary": {"width": 30, "height": 20},
+            "config": {"strategy": "blf", "spacing": 1.0}
+        });
+        let solve =
+            |json: &serde_json::Value,
+             entry: unsafe extern "C" fn(*const c_char, *mut *mut c_char) -> i32| {
+                let input = CString::new(json.to_string()).expect("no NUL");
+                let mut out: *mut c_char = std::ptr::null_mut();
+                let status = unsafe { entry(input.as_ptr(), &mut out) };
+                let body: serde_json::Value =
+                    serde_json::from_str(unsafe { CStr::from_ptr(out) }.to_str().expect("UTF-8"))
+                        .expect("JSON");
+                unsafe { unesting_free_string(out) };
+                (status, body)
+            };
+        let (status, solved) = solve(&request, unesting_solve_2d);
+        assert_eq!(status, UNESTING_OK, "{solved}");
+        let (status, checked) = solve(
+            &serde_json::json!({"problem": request, "solve_result": solved}),
+            unesting_check_2d,
+        );
+        assert_eq!(status, UNESTING_OK, "{checked}");
+        assert_eq!(checked["feasible"], true, "{checked}");
+
+        let mut moved = solved.clone();
+        moved["placements"][1]["x"] = moved["placements"][0]["x"].clone();
+        moved["placements"][1]["y"] = moved["placements"][0]["y"].clone();
+        let (status, checked) = solve(
+            &serde_json::json!({"problem": request, "solve_result": moved}),
+            unesting_check_2d,
+        );
+        assert_eq!(status, UNESTING_OK);
+        assert_eq!(
+            checked["violations"],
+            serde_json::json!([{"code": "overlap", "placement": 0, "other": 1}])
+        );
+        // A refused problem is refused as the solve refuses it.
+        let (status, refused) = solve(
+            &serde_json::json!({"problem": {"geometries": [], "boundary": {"width": 1, "height": 1}}, "solve_result": solved}),
+            unesting_check_2d,
+        );
+        assert_eq!(status, UNESTING_ERR_SOLVE_FAILED);
+        assert_eq!(refused["success"], false);
     }
 
     #[test]
