@@ -115,6 +115,7 @@ fn ruin_and_recreate_searches_draw_from_the_seed() {
             &config,
             &run,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid settings");
         (layout(&r), r.best_fitness.map(f64::to_bits))
@@ -130,6 +131,7 @@ fn ruin_and_recreate_searches_draw_from_the_seed() {
             &config,
             &run,
             Arc::new(AtomicBool::new(false)),
+            None,
         )
         .expect("valid settings");
         (layout(&r), r.best_fitness.map(f64::to_bits))

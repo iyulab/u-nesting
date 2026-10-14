@@ -31,7 +31,7 @@ use u_nesting_core::alns::{
     DestroyResult, RepairOperatorId, RepairResult,
 };
 use u_nesting_core::geometry::{Boundary, Geometry};
-use u_nesting_core::solver::Config;
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::timing::Timer;
 use u_nesting_core::{Placement, SolveResult};
 
@@ -577,6 +577,7 @@ pub fn run_alns_nesting(
     config: &Config,
     alns_config: &AlnsConfig,
     cancelled: Arc<AtomicBool>,
+    progress: Option<&ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let mut problem = AlnsNestingProblem::new(
         geometries.to_vec(),
@@ -587,9 +588,27 @@ pub fn run_alns_nesting(
     );
 
     let runner = AlnsRunner::with_cancellation(alns_config.clone(), cancelled)?;
-    let alns_result: AlnsResult<AlnsNestingSolution> = runner.run(&mut problem, |_progress| {
-        // Progress callback
+    let report = |iteration: usize, best_fitness: f64, elapsed_ms: u64, running: bool| {
+        if let Some(callback) = progress {
+            callback(ProgressInfo::search_step(
+                "ALNS",
+                iteration as u64,
+                alns_config.max_iterations as u64,
+                best_fitness,
+                elapsed_ms,
+                running,
+            ));
+        }
+    };
+    let alns_result: AlnsResult<AlnsNestingSolution> = runner.run(&mut problem, |p| {
+        report(p.iteration, p.best_fitness, p.elapsed_ms, true);
     });
+    report(
+        alns_result.iterations,
+        alns_result.best_fitness,
+        alns_result.elapsed_ms,
+        false,
+    );
 
     let mut result = SolveResult::new();
 
@@ -779,8 +798,15 @@ mod tests {
             .with_time_limit_ms(5000);
         let cancelled = Arc::new(AtomicBool::new(false));
 
-        let result = run_alns_nesting(&geometries, &boundary, &config, &alns_config, cancelled)
-            .expect("valid config");
+        let result = run_alns_nesting(
+            &geometries,
+            &boundary,
+            &config,
+            &alns_config,
+            cancelled,
+            None,
+        )
+        .expect("valid config");
 
         assert!(!result.placements.is_empty());
         assert!(result.utilization > 0.0);

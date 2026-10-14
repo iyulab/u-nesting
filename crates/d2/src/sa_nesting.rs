@@ -22,9 +22,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::sa::{
-    NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaRunner, SaSolution,
+    NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaProgress, SaRunner,
+    SaSolution,
 };
-use u_nesting_core::solver::Config;
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
@@ -377,7 +378,8 @@ impl SaProblem for SaNestingProblem {
     }
 }
 
-/// Runs SA-based nesting optimization.
+/// Runs SA-based nesting optimization, reporting each step to
+/// `progress` when one is given (it only observes the run).
 ///
 /// # Errors
 /// `ConfigError` when the algorithm configuration is out of range.
@@ -388,7 +390,9 @@ pub fn run_sa_nesting(
     sa_config: SaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[Placement<f64>]>,
+    progress: Option<&ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
+    let max_iterations = sa_config.max_iterations;
     let problem = SaNestingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -403,12 +407,24 @@ pub fn run_sa_nesting(
 
     // Seed the RNG for reproducibility when `config.seed` is set; otherwise use
     // system entropy (non-deterministic).
+    let report = progress.map(|callback| {
+        move |p: SaProgress| {
+            callback(ProgressInfo::search_step(
+                "Simulated Annealing",
+                p.iteration,
+                max_iterations.unwrap_or(0),
+                p.best_fitness,
+                p.elapsed.as_millis() as u64,
+                p.running,
+            ))
+        }
+    });
     let sa_result = match config.seed {
         Some(seed) => {
             use rand::SeedableRng;
-            runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed))
+            runner.run_with_rng_and_progress(&mut rand::rngs::StdRng::seed_from_u64(seed), report)
         }
-        None => runner.run(),
+        None => runner.run_with_rng_and_progress(&mut rand::rng(), report),
     };
 
     // Decode the best solution to get final placements
@@ -482,6 +498,7 @@ mod tests {
             sa_config,
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         )
         .expect("valid config");
 
@@ -507,6 +524,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -535,6 +553,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");

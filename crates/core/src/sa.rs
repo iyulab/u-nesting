@@ -324,7 +324,26 @@ impl<P: SaProblem> SaRunner<P> {
 
     /// Runs the Simulated Annealing algorithm with a specific RNG.
     pub fn run_with_rng<R: Rng>(&self, rng: &mut R) -> SaResult<P::Solution> {
+        self.run_with_rng_and_progress::<R, fn(SaProgress)>(rng, None)
+    }
+
+    /// Runs the Simulated Annealing algorithm with a specific RNG, reporting
+    /// each step to `progress_callback` when one is given. The
+    /// callback only observes: the run is the same with or without it.
+    pub fn run_with_rng_and_progress<R: Rng, F>(
+        &self,
+        rng: &mut R,
+        progress_callback: Option<F>,
+    ) -> SaResult<P::Solution>
+    where
+        F: Fn(SaProgress),
+    {
         let start = Timer::now();
+        let report = |progress: SaProgress| {
+            if let Some(ref callback) = progress_callback {
+                callback(progress);
+            }
+        };
         let mut history = Vec::new();
 
         // Initialize
@@ -421,6 +440,19 @@ impl<P: SaProblem> SaRunner<P> {
                     stagnation_count += 1;
                 }
 
+                // A report per step: one step of a large problem can take a
+                // while, and a caller that cancels from its callback has to
+                // be heard between them.
+                report(SaProgress {
+                    temperature,
+                    iteration,
+                    best_fitness,
+                    current_fitness: current.objective(),
+                    acceptance_rate: accepted_count as f64 / total_count.max(1) as f64,
+                    elapsed: start.elapsed(),
+                    running: true,
+                });
+
                 // Check max iterations inside inner loop
                 if let Some(max) = self.config.max_iterations {
                     if iteration >= max {
@@ -454,6 +486,15 @@ impl<P: SaProblem> SaRunner<P> {
 
         // Final history entry
         history.push(best_fitness);
+        report(SaProgress {
+            temperature,
+            iteration,
+            best_fitness,
+            current_fitness: current.objective(),
+            acceptance_rate: 0.0,
+            elapsed: start.elapsed(),
+            running: false,
+        });
 
         SaResult {
             best,

@@ -88,8 +88,8 @@ pub use geometry::{
 pub use placement::Placement;
 pub use result::{SolveResult, SolveSummary, StopReason};
 pub use sa::{
-    CoolingSchedule, NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaResult,
-    SaRunner, SaSolution,
+    CoolingSchedule, NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaProgress,
+    SaResult, SaRunner, SaSolution,
 };
 pub use solver::{Config, ProgressCallback, ProgressInfo, Solver, Strategy};
 pub use transform::{Transform2D, Transform3D, AABB2D, AABB3D};

@@ -131,6 +131,14 @@ int callback(const char* progress_json, void* user_data);
 // Return: non-zero to continue, 0 to cancel
 ```
 
+The callback is called on the solving thread as the run goes: once per piece a
+fill places, per batch a search evaluates and per search step. Returning 0 stops
+the run at its next check -- at most one layout's work later -- and the call
+returns `UNESTING_ERR_CANCELLED` with the result still written: the layout
+placed by then, its `stop_reason` `"cancelled"` (or, cancelled before the run
+began, a refusal with `code` `"cancelled"`). Every report says `"running": true`
+except the last one, after the solve.
+
 ### unesting_free_string
 
 Frees memory allocated by the library:
@@ -158,7 +166,7 @@ const char* unesting_version(void);
 | -1 | `UNESTING_ERR_NULL_PTR` | Null pointer passed |
 | -2 | `UNESTING_ERR_INVALID_JSON` | JSON parsing failed |
 | -3 | `UNESTING_ERR_SOLVE_FAILED` | Solver error |
-| -4 | `UNESTING_ERR_CANCELLED` | Cancelled by callback |
+| -4 | `UNESTING_ERR_CANCELLED` | Cancelled by callback; the result holds the layout placed by then |
 | -99 | `UNESTING_ERR_UNKNOWN` | Unknown error |
 
 ## Progress JSON Format

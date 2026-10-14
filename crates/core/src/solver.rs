@@ -483,6 +483,30 @@ impl ProgressInfo {
         self
     }
 
+    /// One step of a search: step `iteration` of `total` (0 when unknown),
+    /// the best fitness so far, the time since the search began and its
+    /// `phase` -- finished when the search is no longer `running`.
+    pub fn search_step(
+        phase: &str,
+        iteration: u64,
+        total: u64,
+        best_fitness: f64,
+        elapsed_ms: u64,
+        running: bool,
+    ) -> Self {
+        let narrow = |n: u64| u32::try_from(n).unwrap_or(u32::MAX);
+        let info = Self::new()
+            .with_iteration(narrow(iteration), narrow(total))
+            .with_fitness(best_fitness)
+            .with_elapsed(elapsed_ms)
+            .with_phase(phase);
+        if running {
+            info
+        } else {
+            info.finished()
+        }
+    }
+
     /// Marks the solver as finished.
     pub fn finished(mut self) -> Self {
         self.running = false;

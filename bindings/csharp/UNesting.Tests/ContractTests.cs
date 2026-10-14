@@ -57,6 +57,39 @@ public class ContractTests
         }),
     };
 
+    private static NestingRequest LongSearch() => new()
+    {
+        Geometries = [Geometry2D.Rectangle("a", 7, 3, 150)],
+        Boundary = Boundary2D.Rectangle(500, 5000),
+        Config = new Config2D { Strategy = Strategy2D.Gdrr, TimeLimitMs = 120_000, Seed = 1 },
+    };
+
+    /// A cancel reaches a running search: the engine hears it through its
+    /// progress callback, called as the search runs. It used to be called only
+    /// before and after the solve, so a cancel waited out the search.
+    [Fact]
+    public void A_cancel_reaches_a_running_search()
+    {
+        using var nester = new Nester2D();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        Assert.Throws<OperationCanceledException>(() => nester.SolveWithProgress(LongSearch(), cts.Token));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed} after a cancel at 0.5 s");
+    }
+
+    /// The same through <see cref="Nester2D.SolveAsync"/> without a progress
+    /// reporter, which used to run the solve without a callback at all.
+    [Fact]
+    public async Task A_cancel_reaches_an_async_solve_without_a_reporter()
+    {
+        using var nester = new Nester2D();
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => nester.SolveAsync(LongSearch(), cancellationToken: cts.Token));
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(5), $"{watch.Elapsed} after a cancel at 0.5 s");
+    }
+
     [Fact]
     public void A_solve_says_why_it_stopped()
     {

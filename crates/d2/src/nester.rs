@@ -185,38 +185,27 @@ fn stop_phase(stop: StopReason) -> &'static str {
 }
 
 impl Nester2D {
-    /// Runs the configured strategy. A strategy 2D nesting does not provide
-    /// (`ExtremePoint` is 3D only; the exact solvers need the `milp` feature)
-    /// is refused rather than replaced by another.
-    fn run_strategy(
-        &self,
-        geometries: &[Geometry2D],
-        boundary: &Boundary2D,
-    ) -> Result<SolveResult<f64>> {
-        self.run_strategy_reporting(geometries, boundary, None)
-    }
-
-    /// [`Self::run_strategy`], reporting to `progress` where the strategy
-    /// reports progress (bottom-left fill, NFP-guided, GA). The run is the
-    /// same with or without a callback; the other strategies run without one.
+    /// Runs the configured strategy, reporting to `progress`: a fill per piece
+    /// placed, a search per generation or iteration (and its greedy start per
+    /// piece). The run is the same with or without a callback. A strategy 2D
+    /// nesting does not provide (`ExtremePoint` is 3D only; the exact solvers
+    /// need the `milp` feature) is refused rather than replaced by another.
     fn run_strategy_reporting(
         &self,
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
-        progress: Option<ProgressCallback>,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         match self.config.strategy {
-            Strategy::BottomLeftFill => {
-                self.bottom_left_fill_impl(geometries, boundary, progress.as_ref())
-            }
-            Strategy::NfpGuided => {
-                self.nfp_guided_blf_impl(geometries, boundary, progress.as_ref())
-            }
+            Strategy::BottomLeftFill => self.bottom_left_fill_impl(geometries, boundary, progress),
+            Strategy::NfpGuided => self.nfp_guided_blf_impl(geometries, boundary, progress),
             Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary, progress),
-            Strategy::Brkga => self.brkga(geometries, boundary),
-            Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
-            Strategy::Gdrr => self.gdrr(geometries, boundary),
-            Strategy::Alns => self.alns(geometries, boundary),
+            Strategy::Brkga => self.brkga(geometries, boundary, progress),
+            Strategy::SimulatedAnnealing => {
+                self.simulated_annealing(geometries, boundary, progress)
+            }
+            Strategy::Gdrr => self.gdrr(geometries, boundary, progress),
+            Strategy::Alns => self.alns(geometries, boundary, progress),
             #[cfg(feature = "milp")]
             Strategy::MilpExact => self.milp_exact(geometries, boundary),
             #[cfg(feature = "milp")]
@@ -260,6 +249,12 @@ impl Nester2D {
             cancelled: self.cancelled.clone(),
             nfp_cache: NfpCache::new(),
         }
+    }
+
+    /// The flag [`Solver::cancel`] sets, for a caller that cancels from
+    /// where it cannot reach this solver (another thread, a progress callback).
+    pub fn cancel_handle(&self) -> Arc<AtomicBool> {
+        self.cancelled.clone()
     }
 
     /// Creates a nester with default configuration.
@@ -339,18 +334,6 @@ impl Nester2D {
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
         self.bottom_left_fill_impl(geometries, boundary, None)
-    }
-
-    /// NFP-guided Bottom-Left Fill algorithm.
-    ///
-    /// Uses No-Fit Polygons to find optimal placement positions that minimize
-    /// wasted space while ensuring no overlaps.
-    fn nfp_guided_blf(
-        &self,
-        geometries: &[Geometry2D],
-        boundary: &Boundary2D,
-    ) -> Result<SolveResult<f64>> {
-        self.nfp_guided_blf_impl(geometries, boundary, None)
     }
 
     /// The NFP-guided placement both entry points run; `callback` hears of
@@ -657,18 +640,13 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
         budget_ms: u64,
+        progress: Option<&ProgressCallback>,
     ) -> (Option<SolveResult<f64>>, u64) {
         let started = Timer::now();
-        let greedy = Nester2D {
-            config: Config {
-                time_limit_ms: budget_ms,
-                ..self.config.clone()
-            },
-            cancelled: self.cancelled.clone(),
-            nfp_cache: NfpCache::new(),
-        }
-        .nfp_guided_blf(geometries, boundary)
-        .ok();
+        let greedy = self
+            .with_time_limit(budget_ms)
+            .nfp_guided_blf_impl(geometries, boundary, progress)
+            .ok();
         (
             greedy,
             budget_ms.saturating_sub(started.elapsed_ms()).max(1),
@@ -685,11 +663,11 @@ impl Nester2D {
         &self,
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
-        progress: Option<ProgressCallback>,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let (time_limit_ms, greedy) = {
             let budget = self.search_budget_ms(15000);
-            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
 
@@ -713,10 +691,15 @@ impl Nester2D {
     /// BRKGA (Biased Random-Key Genetic Algorithm) based nesting optimization.
     ///
     /// Uses random-key encoding and biased crossover for robust optimization.
-    fn brkga(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
+    fn brkga(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        progress: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
         let (time_limit_ms, greedy) = {
             let budget = self.search_budget_ms(15000);
-            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
 
@@ -731,6 +714,7 @@ impl Nester2D {
             brkga_config,
             self.cancelled.clone(),
             greedy.as_ref().map(|g| g.placements.as_slice()),
+            progress,
         )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
@@ -744,10 +728,11 @@ impl Nester2D {
         &self,
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let (time_limit_ms, greedy) = {
             let budget = self.search_budget_ms(10000);
-            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
 
@@ -770,16 +755,22 @@ impl Nester2D {
             sa_config,
             self.cancelled.clone(),
             greedy.as_ref().map(|g| g.placements.as_slice()),
+            progress,
         )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
 
     /// Goal-Driven Ruin and Recreate (GDRR) optimization.
-    fn gdrr(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
+    fn gdrr(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        progress: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
         let (time_limit, greedy) = {
             let budget = self.search_budget_ms(10000);
-            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget);
+            let (greedy, remaining) = self.greedy_start(geometries, boundary, budget, progress);
             (remaining, greedy)
         };
         let result = run_gdrr_nesting(
@@ -788,14 +779,20 @@ impl Nester2D {
             &self.config,
             &self.gdrr_config(time_limit),
             self.cancelled.clone(),
+            progress,
         )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
     }
 
     /// Adaptive Large Neighborhood Search (ALNS) optimization.
-    fn alns(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> Result<SolveResult<f64>> {
-        self.alns_within(geometries, boundary, self.search_budget_ms(10000))
+    fn alns(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        progress: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
+        self.alns_within(geometries, boundary, self.search_budget_ms(10000), progress)
     }
 
     /// [`Self::alns`] in `budget_ms`, for a caller that has spent part of the
@@ -805,14 +802,16 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
         budget_ms: u64,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
-        let (greedy, time_limit) = self.greedy_start(geometries, boundary, budget_ms);
+        let (greedy, time_limit) = self.greedy_start(geometries, boundary, budget_ms, progress);
         let result = run_alns_nesting(
             geometries,
             boundary,
             &self.config,
             &self.alns_config(time_limit),
             self.cancelled.clone(),
+            progress,
         )?;
 
         Ok(self.not_worse_than_baselines(result, geometries, boundary, greedy))
@@ -899,7 +898,7 @@ impl Nester2D {
                 .search_budget_ms(10000)
                 .min(limit.saturating_sub(started.elapsed_ms()).max(1)),
         };
-        self.alns_within(geometries, boundary, budget)
+        self.alns_within(geometries, boundary, budget, None)
     }
 
     /// The bottom-left fill both entry points run.
@@ -1240,6 +1239,29 @@ impl Nester2D {
         geometries: &[Geometry2D],
         boundary: &Boundary2D,
     ) -> Result<SolveResult<f64>> {
+        self.solve_multi_strip_reporting(geometries, boundary, None)
+    }
+
+    /// [`Self::solve_multi_strip`], reporting each sheet's run to `callback`
+    /// as [`Solver::solve_with_progress`] does for one sheet.
+    ///
+    /// # Errors
+    /// As [`Self::solve_multi_strip`].
+    pub fn solve_multi_strip_with_progress(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        callback: ProgressCallback,
+    ) -> Result<SolveResult<f64>> {
+        self.solve_multi_strip_reporting(geometries, boundary, Some(&callback))
+    }
+
+    fn solve_multi_strip_reporting(
+        &self,
+        geometries: &[Geometry2D],
+        boundary: &Boundary2D,
+        progress: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
         self.validate(geometries, boundary)?;
         self.cancelled.store(false, Ordering::Relaxed);
         let start = Timer::now();
@@ -1293,7 +1315,7 @@ impl Nester2D {
             let strip_result = sheet_nester
                 .as_ref()
                 .unwrap_or(self)
-                .run_strategy(&remaining_geometries, boundary)?;
+                .run_strategy_reporting(&remaining_geometries, boundary, progress)?;
             stop_reason = strip_result.stop_reason;
 
             // Validate and filter out-of-bounds placements for this strip
@@ -1451,7 +1473,8 @@ impl Nester2D {
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
 
-        let initial_result = self.run_strategy_reporting(geometries, boundary, progress)?;
+        let initial_result =
+            self.run_strategy_reporting(geometries, boundary, progress.as_ref())?;
 
         // Validate all placements and remove any that are outside the boundary
         let mut result = validate_and_filter_placements(
@@ -1666,10 +1689,13 @@ mod tests {
             .solve_with_progress(
                 &[Geometry2D::rectangle("R", 10.0, 10.0).with_quantity(4)],
                 &Boundary2D::rectangle(50.0, 50.0),
+                // The search's own reports -- its greedy start reports too.
                 Box::new(move |info| {
-                    sink.lock()
-                        .expect("no report panicked")
-                        .push((info.iteration, info.total_iterations))
+                    if info.phase == "Genetic Algorithm" {
+                        sink.lock()
+                            .expect("no report panicked")
+                            .push((info.iteration, info.total_iterations))
+                    }
                 }),
             )
             .expect("solve");

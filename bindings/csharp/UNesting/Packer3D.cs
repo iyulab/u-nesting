@@ -61,8 +61,12 @@ public class Packer3D : IDisposable
     {
         return Task.Run(() =>
         {
+            // A token that can be cancelled needs the progress path: the
+            // engine hears a cancel only through its progress callback.
             if (progress == null)
-                return Solve(request);
+                return cancellationToken.CanBeCanceled
+                    ? SolveWithProgress(request, cancellationToken)
+                    : Solve(request);
 
             void Handler(object? sender, ProgressEventArgs e) => progress.Report(e.Progress);
             ProgressChanged += Handler;

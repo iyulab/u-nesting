@@ -7,7 +7,7 @@ use std::os::raw::{c_char, c_void};
 
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::{Config, Solver};
-use u_nesting_core::Error;
+use u_nesting_core::{Error, StopReason};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
 
@@ -383,13 +383,11 @@ pub unsafe extern "C" fn unesting_solve_2d_with_progress(
     match CString::new(response_json) {
         Ok(cstr) => {
             *result_ptr = cstr.into_raw();
-            if response.success {
-                UNESTING_OK
-            } else if callback_wrapper.is_cancelled() {
-                UNESTING_ERR_CANCELLED
-            } else {
-                UNESTING_ERR_SOLVE_FAILED
-            }
+            solve_status(
+                response.success,
+                response.code.as_deref(),
+                response.stop_reason,
+            )
         }
         Err(_) => UNESTING_ERR_UNKNOWN,
     }
@@ -442,13 +440,11 @@ pub unsafe extern "C" fn unesting_solve_3d_with_progress(
     match CString::new(response_json) {
         Ok(cstr) => {
             *result_ptr = cstr.into_raw();
-            if response.success {
-                UNESTING_OK
-            } else if callback_wrapper.is_cancelled() {
-                UNESTING_ERR_CANCELLED
-            } else {
-                UNESTING_ERR_SOLVE_FAILED
-            }
+            solve_status(
+                response.success,
+                response.code.as_deref(),
+                response.stop_reason,
+            )
         }
         Err(_) => UNESTING_ERR_UNKNOWN,
     }
@@ -503,24 +499,26 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
 
     // 2D and 3D use distinct wire-response types (SolveResponse / Pack3DResponse),
     // so serialize within each arm rather than over a unified value.
-    let (response_json, success) = match mode {
+    let (response_json, status) = match mode {
         Ok("3d") => {
             let r = guard_panic(
                 || solve_3d_with_callback(json_str, &callback_wrapper),
                 Pack3DResponse::refused,
             );
-            (serde_json::to_string(&r), r.success)
+            let status = solve_status(r.success, r.code.as_deref(), r.stop_reason);
+            (serde_json::to_string(&r), status)
         }
         Ok(_) => {
             let r = guard_panic(
                 || solve_2d_with_callback(json_str, &callback_wrapper),
                 SolveResponse::refused,
             );
-            (serde_json::to_string(&r), r.success)
+            let status = solve_status(r.success, r.code.as_deref(), r.stop_reason);
+            (serde_json::to_string(&r), status)
         }
         Err(refusal) => {
             let r = SolveResponse::refused(&refusal);
-            (serde_json::to_string(&r), false)
+            (serde_json::to_string(&r), UNESTING_ERR_SOLVE_FAILED)
         }
     };
 
@@ -532,19 +530,28 @@ pub unsafe extern "C" fn unesting_solve_with_progress(
     match CString::new(response_json) {
         Ok(cstr) => {
             *result_ptr = cstr.into_raw();
-            if success {
-                UNESTING_OK
-            } else if callback_wrapper.is_cancelled() {
-                UNESTING_ERR_CANCELLED
-            } else {
-                UNESTING_ERR_SOLVE_FAILED
-            }
+            status
         }
         Err(_) => UNESTING_ERR_UNKNOWN,
     }
 }
 
 // Internal implementation functions
+
+/// The status a solve's answer returns with: `UNESTING_ERR_CANCELLED` when
+/// the callback cancelled the run -- before it began (a refusal, `code`
+/// `"cancelled"`) or while it ran (the layout so far, `stop_reason`
+/// `"cancelled"`) -- otherwise `UNESTING_OK` or `UNESTING_ERR_SOLVE_FAILED`.
+/// Read from the answer itself, so the two cannot disagree.
+fn solve_status(success: bool, code: Option<&str>, stop_reason: Option<StopReason>) -> i32 {
+    if code == Some("cancelled") || stop_reason == Some(StopReason::Cancelled) {
+        UNESTING_ERR_CANCELLED
+    } else if success {
+        UNESTING_OK
+    } else {
+        UNESTING_ERR_SOLVE_FAILED
+    }
+}
 
 /// Assembles a success `SolveResponse` from a solved 2D result.
 ///
@@ -721,11 +728,14 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
     };
 
     // Solve — `multi_sheet` distributes overflow across additional sheets.
+    // The run reports to the callback as it goes; a callback that returns 0
+    // cancels it there.
     let nester = Nester2D::new(config);
+    let progress = callback.engine_progress(nester.cancel_handle());
     let solved = if multi_sheet {
-        nester.solve_multi_strip(&geometries, &boundary)
+        nester.solve_multi_strip_with_progress(&geometries, &boundary, progress)
     } else {
-        nester.solve(&geometries, &boundary)
+        nester.solve_with_progress(&geometries, &boundary, progress)
     };
     match solved {
         Ok(mut result) => {
@@ -811,9 +821,11 @@ fn solve_3d_with_callback(json_str: &str, callback: &CallbackWrapper) -> Pack3DR
         Err(e) => return Pack3DResponse::refused(&e),
     };
 
-    // Solve
+    // Solve, reporting to the callback as it goes; a callback that returns
+    // 0 cancels the run there.
     let packer = Packer3D::new(config);
-    match packer.solve(&geometries, &boundary) {
+    let progress = callback.engine_progress(packer.cancel_handle());
+    match packer.solve_with_progress(&geometries, &boundary, progress) {
         Ok(result) => {
             // Send completion progress
             let done_progress = ProgressJson {
@@ -1116,6 +1128,98 @@ mod tests {
             // Version should match Cargo.toml (env!("CARGO_PKG_VERSION"))
             assert_eq!(version, env!("CARGO_PKG_VERSION"));
         }
+    }
+
+    /// The C callback hears the run as it goes, and returning 0 from it
+    /// stops the run there: the answer is the layout so far, its
+    /// `stop_reason` `"cancelled"`. It used to be called only before the
+    /// solve and after it, so a cancel never reached a running search.
+    #[test]
+    fn a_callback_hears_the_run_and_can_stop_it() {
+        struct Heard {
+            reports: std::sync::Mutex<Vec<serde_json::Value>>,
+            cancel_after: usize,
+        }
+        unsafe extern "C" fn listen(progress: *const c_char, user: *mut c_void) -> i32 {
+            let heard = unsafe { &*(user as *const Heard) };
+            let report: serde_json::Value =
+                serde_json::from_str(unsafe { CStr::from_ptr(progress) }.to_str().unwrap())
+                    .unwrap();
+            let mut reports = heard.reports.lock().unwrap();
+            reports.push(report);
+            i32::from(reports.len() < heard.cancel_after)
+        }
+        let request = |time_limit_ms: u64| {
+            CString::new(format!(
+                r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[30,0],[30,10],[0,10]],
+                                    "quantity": 30, "rotations": [0, 90]}}],
+                    "boundary": {{"width": 500, "height": 5000}},
+                    "config": {{"strategy": "gdrr", "time_limit_ms": {time_limit_ms}, "seed": 1}}}}"#
+            ))
+            .unwrap()
+        };
+
+        // Run to the end: many reports, and only the last says it is over.
+        let heard = Heard {
+            reports: std::sync::Mutex::new(Vec::new()),
+            cancel_after: usize::MAX,
+        };
+        let mut out: *mut c_char = std::ptr::null_mut();
+        let code = unsafe {
+            unesting_solve_2d_with_progress(
+                request(3_000).as_ptr(),
+                Some(listen),
+                &heard as *const Heard as *mut c_void,
+                &mut out,
+            )
+        };
+        assert_eq!(code, UNESTING_OK);
+        unsafe { unesting_free_string(out) };
+        let reports = heard.reports.lock().unwrap();
+        assert!(reports.len() > 10, "{} reports", reports.len());
+        let over: Vec<usize> = reports
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r["running"] == false)
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            over,
+            vec![reports.len() - 1],
+            "only the last report ends the run"
+        );
+        assert!(
+            reports.iter().any(|r| r["phase"] == "GDRR"),
+            "the search itself reports"
+        );
+        drop(reports);
+
+        // Cancel from the callback mid-search.
+        let heard = Heard {
+            reports: std::sync::Mutex::new(Vec::new()),
+            cancel_after: 40,
+        };
+        // No time limit: the cancel is what ends the run.
+        let request = request(0);
+        let started = std::time::Instant::now();
+        let mut out: *mut c_char = std::ptr::null_mut();
+        let code = unsafe {
+            unesting_solve_2d_with_progress(
+                request.as_ptr(),
+                Some(listen),
+                &heard as *const Heard as *mut c_void,
+                &mut out,
+            )
+        };
+        let took = started.elapsed();
+        let r: serde_json::Value =
+            serde_json::from_str(unsafe { CStr::from_ptr(out) }.to_str().unwrap()).unwrap();
+        unsafe { unesting_free_string(out) };
+        // Cancelled, and the answer still holds the layout placed by then.
+        assert_eq!(code, UNESTING_ERR_CANCELLED, "{r}");
+        assert_eq!(r["success"], true, "{r}");
+        assert_eq!(r["stop_reason"], "cancelled", "{r}");
+        assert!(took < std::time::Duration::from_secs(20), "{took:?}");
     }
 
     /// Every C entry point's response says why the run stopped, as the

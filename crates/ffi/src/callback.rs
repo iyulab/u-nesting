@@ -8,6 +8,7 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_void};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// C ABI progress callback function type.
 ///
@@ -72,11 +73,12 @@ impl From<u_nesting_core::solver::ProgressInfo> for ProgressJson {
 /// This wrapper handles:
 /// - Panic safety at FFI boundary
 /// - JSON serialization of progress info
-/// - Cancellation tracking
+/// - Cancellation tracking, shared by its clones
+#[derive(Clone)]
 pub struct CallbackWrapper {
     callback: UnestingProgressCallback,
     user_data: *mut c_void,
-    cancelled: AtomicBool,
+    cancelled: Arc<AtomicBool>,
 }
 
 // SAFETY: CallbackWrapper is designed for use across threads.
@@ -94,7 +96,7 @@ impl CallbackWrapper {
         Self {
             callback,
             user_data,
-            cancelled: AtomicBool::new(false),
+            cancelled: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -148,12 +150,27 @@ impl CallbackWrapper {
         }
     }
 
-    /// Creates a Rust closure for use with the core solver's progress callback.
-    pub fn as_progress_fn(&self) -> impl Fn(u_nesting_core::solver::ProgressInfo) -> bool + '_ {
-        move |progress| {
-            let json: ProgressJson = progress.into();
-            self.invoke(&json)
-        }
+    /// The progress callback a solve reports to: every report reaches the C
+    /// callback, and a callback that returns 0 sets `engine_cancel` -- the
+    /// solver's own flag -- so the run stops at its next check and returns
+    /// what it has, its `stop_reason` `"cancelled"`.
+    ///
+    /// The engine's reports go out with `running: true`; the caller's last
+    /// report, after the solve, is the only one that says the run is over
+    /// (a strategy's inner phase -- the greedy start of a search -- ends
+    /// while the run goes on).
+    pub fn engine_progress(
+        &self,
+        engine_cancel: Arc<AtomicBool>,
+    ) -> u_nesting_core::solver::ProgressCallback {
+        let forward = self.clone();
+        Box::new(move |progress| {
+            let mut json: ProgressJson = progress.into();
+            json.running = true;
+            if !forward.invoke(&json) {
+                engine_cancel.store(true, Ordering::Relaxed);
+            }
+        })
     }
 }
 

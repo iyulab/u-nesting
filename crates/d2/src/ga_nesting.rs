@@ -563,7 +563,7 @@ pub fn run_ga_nesting(
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[Placement<f64>]>,
-    progress: Option<ProgressCallback>,
+    progress: Option<&ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let total_items = geometries.iter().map(|g| g.quantity()).sum::<usize>();
     let max_generations = ga_config.max_generations;

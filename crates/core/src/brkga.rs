@@ -457,9 +457,31 @@ impl<P: BrkgaProblem> BrkgaRunner<P> {
             population.push(RandomKeyChromosome::random(num_keys, rng));
         }
 
+        // A report after every evaluated batch, not only every generation: one
+        // generation of a large problem can take seconds, and a caller that
+        // cancels from its callback has to be heard within it. Returns the
+        // best fitness seen, counting the batch.
+        let heartbeat = |generation: u32, best: f64, batch: &[RandomKeyChromosome]| {
+            let best = batch.iter().map(|c| c.fitness()).fold(best, f64::max);
+            if let Some(ref callback) = progress_callback {
+                callback(BrkgaProgress {
+                    generation,
+                    max_generations: self.config.max_generations,
+                    best_fitness: best,
+                    avg_fitness: batch.iter().map(|c| c.fitness()).sum::<f64>()
+                        / batch.len().max(1) as f64,
+                    elapsed: start.elapsed(),
+                    running: true,
+                });
+            }
+            best
+        };
+
         // Evaluate the initial population — up to the time limit
+        let mut best_so_far = f64::NEG_INFINITY;
         evaluate_within(&mut population, &start, self.config.time_limit, |batch| {
-            self.problem.evaluate_parallel(batch)
+            self.problem.evaluate_parallel(batch);
+            best_so_far = heartbeat(0, best_so_far, batch);
         });
 
         // Sort by fitness (descending - higher is better)
@@ -531,13 +553,15 @@ impl<P: BrkgaProblem> BrkgaRunner<P> {
             // Evaluate the new individuals — up to the time limit; the loop ends on
             // the next check if it was reached
             evaluate_within(&mut mutants, &start, self.config.time_limit, |batch| {
-                self.problem.evaluate_parallel(batch)
+                self.problem.evaluate_parallel(batch);
+                heartbeat(generation, best_fitness, batch);
             });
             if expired(&start, self.config.time_limit) {
                 children.clear();
             }
             evaluate_within(&mut children, &start, self.config.time_limit, |batch| {
-                self.problem.evaluate_parallel(batch)
+                self.problem.evaluate_parallel(batch);
+                heartbeat(generation, best_fitness, batch);
             });
 
             // Add to new population

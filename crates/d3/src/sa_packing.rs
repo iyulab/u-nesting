@@ -20,9 +20,10 @@ use crate::packing_utils::{
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use u_nesting_core::sa::{
-    NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaRunner, SaSolution,
+    NeighborhoodOperator, PermutationSolution, SaConfig, SaProblem, SaProgress, SaRunner,
+    SaSolution,
 };
-use u_nesting_core::solver::Config;
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::SolveResult;
 
 /// SA problem definition for 3D bin packing.
@@ -209,7 +210,9 @@ pub fn run_sa_packing(
     sa_config: SaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[u_nesting_core::Placement<f64>]>,
+    progress: Option<&ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
+    let max_iterations = sa_config.max_iterations;
     let problem = SaPackingProblem::new(
         geometries.to_vec(),
         boundary.clone(),
@@ -220,12 +223,24 @@ pub fn run_sa_packing(
 
     let runner = SaRunner::with_cancellation(sa_config, problem, cancelled.clone())?;
 
+    let report = progress.map(|callback| {
+        move |p: SaProgress| {
+            callback(ProgressInfo::search_step(
+                "Simulated Annealing",
+                p.iteration,
+                max_iterations.unwrap_or(0),
+                p.best_fitness,
+                p.elapsed.as_millis() as u64,
+                p.running,
+            ))
+        }
+    });
     let sa_result = match config.seed {
         Some(seed) => {
             use rand::SeedableRng;
-            runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed))
+            runner.run_with_rng_and_progress(&mut rand::rngs::StdRng::seed_from_u64(seed), report)
         }
-        None => runner.run(),
+        None => runner.run_with_rng_and_progress(&mut rand::rng(), report),
     };
 
     // Decode the best solution
@@ -281,6 +296,7 @@ mod tests {
             sa_config,
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         )
         .expect("valid config");
 
@@ -306,6 +322,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -337,6 +354,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -389,6 +407,7 @@ mod tests {
             &config,
             sa_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");

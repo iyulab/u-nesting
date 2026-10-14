@@ -24,8 +24,10 @@ use crate::packing_utils::{
 use rand::Rng;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use u_nesting_core::brkga::{BrkgaConfig, BrkgaProblem, BrkgaRunner, RandomKeyChromosome};
-use u_nesting_core::solver::Config;
+use u_nesting_core::brkga::{
+    BrkgaConfig, BrkgaProblem, BrkgaProgress, BrkgaRunner, RandomKeyChromosome,
+};
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::SolveResult;
 
 /// BRKGA problem definition for 3D bin packing.
@@ -196,6 +198,7 @@ pub fn run_brkga_packing(
     brkga_config: BrkgaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[u_nesting_core::Placement<f64>]>,
+    progress: Option<&ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = BrkgaPackingProblem::new(
         geometries.to_vec(),
@@ -207,12 +210,24 @@ pub fn run_brkga_packing(
 
     let runner = BrkgaRunner::with_cancellation(brkga_config, problem, cancelled.clone())?;
 
+    let report = progress.map(|callback| {
+        move |p: BrkgaProgress| {
+            callback(ProgressInfo::search_step(
+                "BRKGA",
+                p.generation.into(),
+                p.max_generations.into(),
+                p.best_fitness,
+                p.elapsed.as_millis() as u64,
+                p.running,
+            ))
+        }
+    });
     let brkga_result = match config.seed {
         Some(seed) => {
             use rand::SeedableRng;
-            runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed))
+            runner.run_with_rng_and_progress(&mut rand::rngs::StdRng::seed_from_u64(seed), report)
         }
-        None => runner.run(),
+        None => runner.run_with_rng_and_progress(&mut rand::rng(), report),
     };
 
     // Decode the best chromosome
@@ -265,6 +280,7 @@ mod tests {
             brkga_config,
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         )
         .expect("valid config");
 
@@ -289,6 +305,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -319,6 +336,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -380,6 +398,7 @@ mod tests {
             &config,
             brkga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");

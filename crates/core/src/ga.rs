@@ -303,14 +303,45 @@ where
         let start = Timer::now();
         let mut history = Vec::new();
 
+        // A report after every evaluated batch, not only every generation: one
+        // generation of a large problem can take seconds, and a caller that
+        // cancels from its callback has to be heard within it. Returns the
+        // best fitness seen, counting the batch.
+        let heartbeat = |generation: u32,
+                         best: Option<<P::Individual as Individual>::Fitness>,
+                         batch: &[P::Individual]| {
+            let best = batch
+                .iter()
+                .map(Individual::fitness)
+                .fold(best, |b, f| match b {
+                    Some(b) if b >= f => Some(b),
+                    _ => Some(f),
+                });
+            if let (Some(callback), Some(best_fitness)) = (&progress_callback, best) {
+                let avg_fitness = batch.iter().map(|i| i.fitness().into()).sum::<f64>()
+                    / batch.len().max(1) as f64;
+                callback(GaProgress {
+                    generation,
+                    max_generations: self.config.max_generations,
+                    best_fitness,
+                    avg_fitness,
+                    elapsed: start.elapsed(),
+                    running: true,
+                });
+            }
+            best
+        };
+
         // Initialize population
         let mut population = self
             .problem
             .initialize_population(self.config.population_size, rng);
 
         // Evaluate the initial population — up to the time limit
+        let mut best_so_far = None;
         evaluate_within(&mut population, &start, self.config.time_limit, |batch| {
-            self.problem.evaluate_parallel(batch)
+            self.problem.evaluate_parallel(batch);
+            best_so_far = heartbeat(0, best_so_far, batch);
         });
 
         // Sort by fitness (descending - higher is better in u-nesting convention)
@@ -383,8 +414,10 @@ where
 
             // Evaluate the children — up to the time limit; the loop ends on the
             // next check if it was reached
+            let best_now = best.fitness();
             evaluate_within(&mut children, &start, self.config.time_limit, |batch| {
-                self.problem.evaluate_parallel(batch)
+                self.problem.evaluate_parallel(batch);
+                heartbeat(generation, Some(best_now), batch);
             });
 
             // Add evaluated children to new population

@@ -12,8 +12,8 @@ use crate::packing_utils::{
 use rand::prelude::*;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use u_nesting_core::ga::{GaConfig, GaProblem, GaRunner, Individual};
-use u_nesting_core::solver::Config;
+use u_nesting_core::ga::{GaConfig, GaProblem, GaProgress, GaRunner, Individual};
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::SolveResult;
 
 /// Packing chromosome representing placement order and orientations.
@@ -354,6 +354,7 @@ pub fn run_ga_packing(
     ga_config: GaConfig,
     cancelled: Arc<AtomicBool>,
     seed_layout: Option<&[u_nesting_core::Placement<f64>]>,
+    progress: Option<&ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let problem = PackingProblem::new(
         geometries.to_vec(),
@@ -365,9 +366,23 @@ pub fn run_ga_packing(
 
     let runner = GaRunner::with_cancellation(ga_config, problem, cancelled.clone())?;
 
+    let report = progress.map(|callback| {
+        move |p: GaProgress<f64>| {
+            callback(ProgressInfo::search_step(
+                "Genetic Algorithm",
+                p.generation.into(),
+                p.max_generations.into(),
+                p.best_fitness,
+                p.elapsed.as_millis() as u64,
+                p.running,
+            ))
+        }
+    });
     let ga_result = match config.seed {
-        Some(seed) => runner.run_with_rng(&mut rand::rngs::StdRng::seed_from_u64(seed)),
-        None => runner.run(),
+        Some(seed) => {
+            runner.run_with_rng_and_progress(&mut rand::rngs::StdRng::seed_from_u64(seed), report)
+        }
+        None => runner.run_with_rng_and_progress(&mut rand::rng(), report),
     };
 
     // Decode the best chromosome
@@ -456,6 +471,7 @@ mod tests {
             ga_config,
             Arc::new(AtomicBool::new(false)),
             None,
+            None,
         )
         .expect("valid config");
 
@@ -479,6 +495,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -508,6 +525,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");
@@ -555,6 +573,7 @@ mod tests {
             &config,
             ga_config,
             Arc::new(AtomicBool::new(false)),
+            None,
             None,
         )
         .expect("valid config");

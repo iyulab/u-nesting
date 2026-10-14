@@ -107,6 +107,7 @@ fn different_seeds_search_differently() {
                     .with_max_generations(1),
                 flag,
                 None,
+                None,
             ),
             Strategy::Brkga => brkga_packing::run_brkga_packing(
                 &pieces,
@@ -117,6 +118,7 @@ fn different_seeds_search_differently() {
                     .with_max_generations(1),
                 flag,
                 None,
+                None,
             ),
             _ => sa_packing::run_sa_packing(
                 &pieces,
@@ -124,6 +126,7 @@ fn different_seeds_search_differently() {
                 &config,
                 SaConfig::default().with_max_iterations(5),
                 flag,
+                None,
                 None,
             ),
         };

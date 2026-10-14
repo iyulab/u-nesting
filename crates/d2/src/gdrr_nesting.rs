@@ -29,7 +29,7 @@ use u_nesting_core::gdrr::{
     RuinResult, RuinType, RuinedItem,
 };
 use u_nesting_core::geometry::{Boundary, Geometry};
-use u_nesting_core::solver::Config;
+use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::timing::Timer;
 use u_nesting_core::{Placement, SolveResult};
 
@@ -704,6 +704,7 @@ pub fn run_gdrr_nesting(
     config: &Config,
     gdrr_config: &GdrrConfig,
     cancelled: Arc<AtomicBool>,
+    progress: Option<&ProgressCallback>,
 ) -> u_nesting_core::Result<SolveResult<f64>> {
     let mut problem = GdrrNestingProblem::new(
         geometries.to_vec(),
@@ -714,9 +715,27 @@ pub fn run_gdrr_nesting(
     );
 
     let runner = GdrrRunner::with_cancellation(gdrr_config.clone(), cancelled)?;
-    let gdrr_result: GdrrResult<GdrrNestingSolution> = runner.run(&mut problem, |_progress| {
-        // Progress callback - can be used for logging
+    let report = |iteration: usize, best_fitness: f64, elapsed_ms: u64, running: bool| {
+        if let Some(callback) = progress {
+            callback(ProgressInfo::search_step(
+                "GDRR",
+                iteration as u64,
+                gdrr_config.max_iterations as u64,
+                best_fitness,
+                elapsed_ms,
+                running,
+            ));
+        }
+    };
+    let gdrr_result: GdrrResult<GdrrNestingSolution> = runner.run(&mut problem, |p| {
+        report(p.iteration, p.best_fitness, p.elapsed_ms, true);
     });
+    report(
+        gdrr_result.iterations,
+        gdrr_result.best_fitness,
+        gdrr_result.elapsed_ms,
+        false,
+    );
 
     // Convert GDRR solution to SolveResult
     let mut result = SolveResult::new();
@@ -925,8 +944,15 @@ mod tests {
             .with_time_limit_ms(5000);
         let cancelled = Arc::new(AtomicBool::new(false));
 
-        let result = run_gdrr_nesting(&geometries, &boundary, &config, &gdrr_config, cancelled)
-            .expect("valid config");
+        let result = run_gdrr_nesting(
+            &geometries,
+            &boundary,
+            &config,
+            &gdrr_config,
+            cancelled,
+            None,
+        )
+        .expect("valid config");
 
         assert!(!result.placements.is_empty());
         assert!(result.utilization > 0.0);

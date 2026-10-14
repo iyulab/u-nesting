@@ -47,19 +47,25 @@ pub struct Packer3D {
 }
 
 impl Packer3D {
-    /// Runs the configured strategy. A strategy 3D packing does not provide is
-    /// refused rather than replaced by layer packing.
+    /// Runs the configured strategy, reporting to `progress`: a fill per box,
+    /// a search per generation or temperature step (and its layer fill per
+    /// box). The run is the same with or without a callback. A strategy 3D
+    /// packing does not provide is refused rather than replaced by layer
+    /// packing.
     fn run_strategy(
         &self,
         geometries: &[Geometry3D],
         boundary: &Boundary3D,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         match self.config.strategy {
-            Strategy::BottomLeftFill => self.layer_packing(geometries, boundary),
-            Strategy::ExtremePoint => self.extreme_point(geometries, boundary),
-            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary),
-            Strategy::Brkga => self.brkga(geometries, boundary),
-            Strategy::SimulatedAnnealing => self.simulated_annealing(geometries, boundary),
+            Strategy::BottomLeftFill => Ok(self.layer_fill(geometries, boundary, progress)),
+            Strategy::ExtremePoint => self.extreme_point(geometries, boundary, progress),
+            Strategy::GeneticAlgorithm => self.genetic_algorithm(geometries, boundary, progress),
+            Strategy::Brkga => self.brkga(geometries, boundary, progress),
+            Strategy::SimulatedAnnealing => {
+                self.simulated_annealing(geometries, boundary, progress)
+            }
             other => Err(Error::invalid_option(
                 "strategy",
                 format!(
@@ -69,6 +75,12 @@ impl Packer3D {
                 ),
             )),
         }
+    }
+
+    /// The flag [`Solver::cancel`] sets, for a caller that cancels from
+    /// where it cannot reach this solver (another thread, a progress callback).
+    pub fn cancel_handle(&self) -> Arc<AtomicBool> {
+        self.cancelled.clone()
     }
 
     /// Creates a new packer with the given configuration.
@@ -291,16 +303,6 @@ impl Packer3D {
             .collect()
     }
 
-    /// Layer packing: every box in request order, each in its best orientation
-    /// (see [`layer_fill_in_order`]), within the time limit.
-    fn layer_packing(
-        &self,
-        geometries: &[Geometry3D],
-        boundary: &Boundary3D,
-    ) -> Result<SolveResult<f64>> {
-        Ok(self.layer_fill(geometries, boundary, None))
-    }
-
     /// The layer fill, reporting progress to `callback` when there is one:
     /// once before, once per box placed and once at the end.
     fn layer_fill(
@@ -368,6 +370,34 @@ impl Packer3D {
         result
     }
 
+    /// The solve both [`Solver`] entry points run: the same checks, strategy
+    /// run and support pass, with `progress` told of the run.
+    fn solve_reporting(
+        &self,
+        geometries: &[Geometry3D],
+        boundary: &Boundary3D,
+        progress: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
+        self.validate(geometries, boundary)?;
+
+        // Reset cancellation flag
+        self.cancelled.store(false, Ordering::Relaxed);
+
+        let mut result = self.run_strategy(geometries, boundary, progress)?;
+
+        // What the packing leaves short follows from the packing.
+        result.record_unplaced(geometries);
+        // Authoritative instance-level request total (Σ quantity), recorded once
+        // at the top-level entry point where `geometries` is the full request.
+        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
+
+        // Honor gravity/stability constraints, if requested, on the finished packing.
+        if boundary.has_gravity() || boundary.has_stability() {
+            self.enforce_support(&mut result, geometries, boundary);
+        }
+        Ok(result)
+    }
+
     /// Whether a constructive fill must stop before its next box, and why:
     /// the caller cancelled, or `time_limit_ms` (0 = unlimited) ran out.
     fn stop_requested(&self, start: &Timer) -> Option<StopReason> {
@@ -417,7 +447,7 @@ impl Packer3D {
         };
         let fills = [
             Some(layer_fill),
-            self.extreme_point(geometries, boundary).ok(),
+            self.extreme_point(geometries, boundary, None).ok(),
         ]
         .into_iter()
         .flatten()
@@ -436,9 +466,10 @@ impl Packer3D {
         &self,
         geometries: &[Geometry3D],
         boundary: &Boundary3D,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let started = Timer::now();
-        let fill = self.layer_fill(geometries, boundary, None);
+        let fill = self.layer_fill(geometries, boundary, progress);
         let mut ga_config = self.ga_config();
         ga_config.time_limit = self.search_time_limit(&started);
         let result = run_ga_packing(
@@ -448,6 +479,7 @@ impl Packer3D {
             ga_config,
             self.cancelled.clone(),
             Some(&fill.placements),
+            progress,
         )?;
         Ok(self.not_worse_than_fills(result, geometries, boundary, fill))
     }
@@ -456,9 +488,14 @@ impl Packer3D {
     ///
     /// Random-key encoding and biased crossover, starting from the layer fill
     /// and floored at the simple fills.
-    fn brkga(&self, geometries: &[Geometry3D], boundary: &Boundary3D) -> Result<SolveResult<f64>> {
+    fn brkga(
+        &self,
+        geometries: &[Geometry3D],
+        boundary: &Boundary3D,
+        progress: Option<&ProgressCallback>,
+    ) -> Result<SolveResult<f64>> {
         let started = Timer::now();
-        let fill = self.layer_fill(geometries, boundary, None);
+        let fill = self.layer_fill(geometries, boundary, progress);
         let mut brkga_config = self.brkga_config();
         brkga_config.time_limit = self.search_time_limit(&started);
         let result = run_brkga_packing(
@@ -468,6 +505,7 @@ impl Packer3D {
             brkga_config,
             self.cancelled.clone(),
             Some(&fill.placements),
+            progress,
         )?;
         Ok(self.not_worse_than_fills(result, geometries, boundary, fill))
     }
@@ -480,9 +518,10 @@ impl Packer3D {
         &self,
         geometries: &[Geometry3D],
         boundary: &Boundary3D,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let started = Timer::now();
-        let fill = self.layer_fill(geometries, boundary, None);
+        let fill = self.layer_fill(geometries, boundary, progress);
         let mut sa_config = SaConfig::default()
             .with_initial_temp(100.0)
             .with_final_temp(0.1)
@@ -499,6 +538,7 @@ impl Packer3D {
             sa_config,
             self.cancelled.clone(),
             Some(&fill.placements),
+            progress,
         )?;
         Ok(self.not_worse_than_fills(result, geometries, boundary, fill))
     }
@@ -511,8 +551,15 @@ impl Packer3D {
         &self,
         geometries: &[Geometry3D],
         boundary: &Boundary3D,
+        progress: Option<&ProgressCallback>,
     ) -> Result<SolveResult<f64>> {
         let start = Timer::now();
+        let total: usize = geometries.iter().map(|g| g.quantity()).sum();
+        let report = |info: ProgressInfo| {
+            if let Some(callback) = progress {
+                callback(info.with_phase("Extreme Point"));
+            }
+        };
 
         let mut stop = None;
         let (ep_placements, utilization) = run_ep_packing(
@@ -522,6 +569,12 @@ impl Packer3D {
             self.config.spacing,
             boundary.max_mass(),
             || {
+                // Asked before each box: where the run hears of a cancel.
+                report(
+                    ProgressInfo::new()
+                        .with_items(0, total)
+                        .with_elapsed(start.elapsed_ms()),
+                );
                 stop = self.stop_requested(&start);
                 stop.is_some()
             },
@@ -554,6 +607,13 @@ impl Packer3D {
         result.unplaced = unplaced;
         result.computation_time_ms = start.elapsed_ms();
         result.strategy = Some("ExtremePoint".to_string());
+        report(
+            ProgressInfo::new()
+                .with_items(result.placements.len(), total)
+                .with_utilization(result.utilization)
+                .with_elapsed(result.computation_time_ms)
+                .finished(),
+        );
 
         Ok(result)
     }
@@ -569,24 +629,7 @@ impl Solver for Packer3D {
         geometries: &[Self::Geometry],
         boundary: &Self::Boundary,
     ) -> Result<SolveResult<f64>> {
-        self.validate(geometries, boundary)?;
-
-        // Reset cancellation flag
-        self.cancelled.store(false, Ordering::Relaxed);
-
-        let mut result = self.run_strategy(geometries, boundary)?;
-
-        // Remove duplicate entries from unplaced list
-        result.deduplicate_unplaced();
-        // Authoritative instance-level request total (Σ quantity), recorded once
-        // at the top-level entry point where `geometries` is the full request.
-        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
-
-        // Honor gravity/stability constraints, if requested, on the finished packing.
-        if boundary.has_gravity() || boundary.has_stability() {
-            self.enforce_support(&mut result, geometries, boundary);
-        }
-        Ok(result)
+        self.solve_reporting(geometries, boundary, None)
     }
 
     fn solve_with_progress(
@@ -595,33 +638,7 @@ impl Solver for Packer3D {
         boundary: &Self::Boundary,
         callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
-        self.validate(geometries, boundary)?;
-
-        // Reset cancellation flag
-        self.cancelled.store(false, Ordering::Relaxed);
-
-        let mut result = match self.config.strategy {
-            Strategy::BottomLeftFill => self.layer_fill(geometries, boundary, Some(&callback)),
-            // EP is a fast single pass; run the real heuristic (not layer packing) and
-            // skip incremental progress rather than silently substituting BLF.
-            Strategy::ExtremePoint => self.extreme_point(geometries, boundary)?,
-            // The other strategies have no progress reporting yet: run the
-            // strategy that was asked for, without progress, rather than a
-            // different one that reports it.
-            _ => self.run_strategy(geometries, boundary)?,
-        };
-
-        // Remove duplicate entries from unplaced list
-        result.deduplicate_unplaced();
-        // Authoritative instance-level request total (Σ quantity), recorded once
-        // at the top-level entry point where `geometries` is the full request.
-        result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
-
-        // Honor gravity/stability constraints, if requested, on the finished packing.
-        if boundary.has_gravity() || boundary.has_stability() {
-            self.enforce_support(&mut result, geometries, boundary);
-        }
-        Ok(result)
+        self.solve_reporting(geometries, boundary, Some(&callback))
     }
 
     fn cancel(&self) {

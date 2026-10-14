@@ -130,6 +130,10 @@ nester.ProgressChanged += (sender, e) =>
 var result = nester.SolveWithProgress(request);
 ```
 
+A cancel -- `e.Cancel` or a `CancellationToken` -- reaches a running search: the
+engine reports as it goes, and stops at its next report. `SolveWithProgress` and
+`SolveAsync` then throw `OperationCanceledException`.
+
 ### Async with IProgress
 
 ```csharp

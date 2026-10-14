@@ -22,6 +22,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `BrkgaResult`, `SaResult`, `GdrrResult` and `AlnsResult`.
 - `GdrrRunner::with_cancellation` and `AlnsRunner::with_cancellation`, as
   `GaRunner` has.
+- **Every strategy reports its progress while it runs** — every 2D and 3D search
+  per evaluated batch or search step (and its greedy or layer start per piece),
+  the extreme-point fill per box. `Nester2D::solve_multi_strip_with_progress`;
+  `Nester2D::cancel_handle` and `Packer3D::cancel_handle` (the flag `cancel`
+  sets, for a caller that cancels from a progress callback);
+  `SaRunner::run_with_rng_and_progress`; `ProgressInfo::search_step`.
 
 - **A 2D layout checker**: `u_nesting_d2::check::check_layout(geometries,
   boundary, &LayoutRules { spacing, margin, multi_sheet }, placements, unplaced)`
@@ -56,6 +62,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking:** the 2D search entry points (`run_ga_nesting`,
+  `run_brkga_nesting`, `run_sa_nesting`, `run_gdrr_nesting`, `run_alns_nesting`)
+  and the 3D ones (`run_ga_packing`, `run_brkga_packing`, `run_sa_packing`) take
+  `progress: Option<&ProgressCallback>` last.
+- The C ABI's progress calls return `UNESTING_ERR_CANCELLED` whenever the
+  callback cancelled the run, with the layout placed by then in the result; a
+  cancel during the run used to return `UNESTING_OK`.
 - **Breaking:** `SolveResult::cancelled` and `SolveResult::target_reached` are
   replaced by `stop_reason` (`== StopReason::Cancelled`,
   `== StopReason::TargetReached`), and `target_reached` on `GaResult`,
@@ -84,6 +97,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A target met in the last generation of `ga` or `brkga` was reported as not met.
 - The exact strategies' proof of optimality, or the time limit that stopped them
   short of one, was only logged; it is now the stop reason.
+- A cancel from the C ABI's progress callback — and so from .NET's
+  `CancellationToken` and `ProgressChanged` — never reached a running solve: the
+  callback was called only before the solve and after it, and only the fills and
+  the 2D GA reported progress at all. The run now reports as it goes, and a 0 from
+  the callback stops it at its next report.
+- .NET `SolveAsync` without a progress reporter ran the solve without a callback,
+  so its `CancellationToken` could not stop it.
 - The npm README's response schema left out `unplaced_count`, `all_placed`,
   `used_bounding_box` and `used_utilization`.
 
