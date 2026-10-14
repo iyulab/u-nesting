@@ -117,14 +117,14 @@ pub enum LayoutViolation {
 #[cfg(feature = "serde")]
 pub fn check_2d(
     request: u_nesting_core::api_types::Check2DRequest,
-) -> u_nesting_core::api_types::Check2DResponse {
-    use u_nesting_core::api_types::{Check2DResponse, ConfigRequest, LayoutViolationResponse as R};
+) -> u_nesting_core::api_types::CheckResponse {
+    use u_nesting_core::api_types::{CheckResponse, ConfigRequest, LayoutViolationResponse as R};
     use u_nesting_core::solver::Config;
     use u_nesting_core::Error;
 
     let solved = request.solve_result;
     if !solved.success {
-        return Check2DResponse::refused(&Error::invalid_option(
+        return CheckResponse::refused(&Error::invalid_option(
             "solve_result",
             "the solve result is a refusal (success: false); give a successful one to check"
                 .to_string(),
@@ -156,7 +156,7 @@ pub fn check_2d(
     };
     let (geometries, boundary, rules) = match read() {
         Ok(read) => read,
-        Err(e) => return Check2DResponse::refused(&e),
+        Err(e) => return CheckResponse::refused(&e),
     };
     let placements: Vec<Placement<f64>> = solved
         .placements
@@ -231,7 +231,7 @@ pub fn check_2d(
         LayoutViolation::WronglyUnplaced { id } => R::WronglyUnplaced { id },
     })
     .collect();
-    Check2DResponse::checked(violations)
+    CheckResponse::checked(violations)
 }
 
 /// The spacing and margin a layout keeps, and whether it may use more than

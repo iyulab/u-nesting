@@ -77,6 +77,34 @@ public class Packer3D : IDisposable
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// Checks a packing against the problem it answers — every box inside the container and its
+    /// margin, no two boxes overlapping or closer than the spacing, each in an orientation its
+    /// constraint allows, one container, each copy packed once, the mass limit, support under
+    /// gravity or stability, and <see cref="PackingResult.Unplaced"/>. The request is read as
+    /// <see cref="Solve"/> reads it. A packing that breaks the problem is a result, not an
+    /// exception.
+    /// </summary>
+    /// <param name="request">The problem, as given to <see cref="Solve"/>.</param>
+    /// <param name="result">The packing: a solve's result, or one built elsewhere in its shape.</param>
+    /// <exception cref="NestingException">The engine refused the request.</exception>
+    public LayoutCheck Check(PackingRequest request, PackingResult result)
+    {
+        ThrowIfDisposed();
+        request.CheckFinite();
+        var solved = JsonSerializer.SerializeToNode(result, NestingJson.Default.PackingResult)!.AsObject();
+        solved["success"] = true;
+        solved["error"] = null;
+        solved["code"] = null;
+        solved["details"] = null;
+        var body = new System.Text.Json.Nodes.JsonObject
+        {
+            ["problem"] = JsonSerializer.SerializeToNode(request, NestingJson.Default.PackingRequest),
+            ["solve_result"] = solved,
+        };
+        return NativeCall.Run(NativeLibrary.unesting_check_3d, body.ToJsonString(), NestingJson.Default.LayoutCheck, Observers);
+    }
+
     private static string Write(PackingRequest request)
     {
         request.CheckFinite();

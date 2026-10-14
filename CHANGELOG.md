@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   request unchanged and a successful response — and answer
   `{success, feasible, violations: [{code, ...}]}`; `check_2d` is one pipeline
   in `u_nesting_d2::check` that every binding calls.
+- **A 3D packing checker**: `u_nesting_d3::check::check_packing(geometries,
+  boundary, &PackingRules { spacing, margin }, placements, unplaced)` — a box
+  outside the container or its margin, two boxes overlapping or closer than the
+  spacing (Euclidean distance), an orientation the box's constraint does not
+  allow, a bin after the first, a copy out of range or packed twice, the mass
+  over `max_mass`, a box unsupported under `gravity` / `stability` (the
+  packer's own support analysis), and `unplaced` disagreeing with what is left
+  short. WASM `check_3d`, C ABI `unesting_check_3d` and .NET
+  `Packer3D.Check(request, result)` take `{problem, solve_result}` and answer as
+  the 2D check does; both checks share one response type (`CheckResponse`) and
+  one violation vocabulary.
+- `Packer3D::validate(geometries, boundary)` (public, as for 2D), refusing a
+  strategy 3D does not offer before anything runs.
 - `Nester2D::validate(geometries, boundary)`: the judgement every solve makes
   before it runs, public so a checker refuses the same problems.
   `Geometry2D::holes()` exposes a geometry's holes.

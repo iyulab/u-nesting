@@ -31,6 +31,7 @@ re-bundling services fail on the same import. Use a bundler or Node.
 | `solve_3d(json: string): string` | Solve a 3D bin packing problem |
 | `optimize_cutting_path(json: string): string` | Optimize cutting path for placed parts |
 | `check_2d(json: string): string` | Check a 2D layout against its problem |
+| `check_3d(json: string): string` | Check a 3D packing against its problem |
 | `version(): string` | Get API version |
 | `available_strategies(): string` | The strategies each dimension offers and the settings each reads |
 
@@ -323,6 +324,18 @@ console.log(check.violations); // [ { code: "overlap", placement: 0, other: 1 } 
 
 A request `solve_2d` refuses is refused the same way (`success: false`, `code`),
 and so is a `solve_result` that is itself a refusal.
+
+`check_3d` does the same for a packing — `{ problem, solve_result }` with the
+`solve_3d` request and response — and answers with the same shape. Besides
+`outside_boundary` (a wall or the `margin`), `overlap`, `too_close` (Euclidean
+distance between the boxes), the copy and `unplaced` codes above, it reports:
+
+| `code` | Fields | Meaning |
+|---|---|---|
+| `orientation_not_allowed` | `placement`, `id`, `orientation` | An orientation label the box's `orientation` constraint does not allow |
+| `bin_not_allowed` | `placement`, `bin` | A `bin_index` after the first — 3D packs one container |
+| `mass_exceeded` | `mass`, `max_mass` | The packed boxes weigh more than `max_mass` |
+| `unsupported` | `placement`, `id` | A box not resting on the floor (at `margin`) or on boxes below, as `gravity` (any contact) or `stability` (70 % of its base) requires |
 
 ### Which settings a strategy reads
 

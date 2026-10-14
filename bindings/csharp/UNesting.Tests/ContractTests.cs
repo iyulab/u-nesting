@@ -127,6 +127,31 @@ public class ContractTests
     }
 
     [Fact]
+    public void A_packing_is_checked_and_a_floating_box_is_unsupported()
+    {
+        var request = new PackingRequest
+        {
+            Geometries = [Geometry3D.Box("box", 10, 10, 10, 2)],
+            Boundary = new Boundary3D { Width = 30, Depth = 20, Height = 20, Gravity = true },
+        };
+        using var packer = new Packer3D();
+        var packed = packer.Solve(request);
+        Assert.True(packer.Check(request, packed).Feasible);
+
+        string? raw = null;
+        packer.Observers.Response = body => raw = body;
+        var lifted = packed with { Placements = [packed.Placements[0] with { Z = 5 }, .. packed.Placements.Skip(1)] };
+        var check = packer.Check(request, lifted);
+        var engine = JsonNode.Parse(raw!)!.AsObject();
+        foreach (var key in Envelope)
+            engine.Remove(key);
+        var written = JsonSerializer.SerializeToNode(check, NestingJson.Default.LayoutCheck);
+        var difference = Difference(engine, written, "$");
+        Assert.True(difference is null, $"{difference}\nengine: {raw}\nrecord: {written?.ToJsonString()}");
+        Assert.Contains(new LayoutViolation.Unsupported(0, "box"), check.Violations);
+    }
+
+    [Fact]
     public void The_strategy_catalog_carries_exactly_what_the_engine_sent()
     {
         var raw = UNestingInfo.StrategiesJson;

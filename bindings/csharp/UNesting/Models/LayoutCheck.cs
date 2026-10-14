@@ -2,7 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace UNesting.Models;
 
-/// <summary>Whether a 2D layout keeps every rule of its problem, and each rule it breaks.</summary>
+/// <summary>Whether a 2D layout or 3D packing keeps every rule of its problem, and each rule it breaks.</summary>
 /// <param name="Version">The engine version that checked it.</param>
 /// <param name="Feasible">No violations.</param>
 /// <param name="Violations">Every rule the layout breaks; empty when <paramref name="Feasible"/>.</param>
@@ -19,6 +19,10 @@ public sealed record LayoutCheck(string Version, bool Feasible, IReadOnlyList<La
 [JsonDerivedType(typeof(InstanceRepeated), "instance_repeated")]
 [JsonDerivedType(typeof(RotationNotAllowed), "rotation_not_allowed")]
 [JsonDerivedType(typeof(FlipNotAllowed), "flip_not_allowed")]
+[JsonDerivedType(typeof(OrientationNotAllowed), "orientation_not_allowed")]
+[JsonDerivedType(typeof(BinNotAllowed), "bin_not_allowed")]
+[JsonDerivedType(typeof(MassExceeded), "mass_exceeded")]
+[JsonDerivedType(typeof(Unsupported), "unsupported")]
 [JsonDerivedType(typeof(SheetNotAllowed), "sheet_not_allowed")]
 [JsonDerivedType(typeof(OutsideBoundary), "outside_boundary")]
 [JsonDerivedType(typeof(Overlap), "overlap")]
@@ -39,6 +43,14 @@ public abstract record LayoutViolation
     public sealed record RotationNotAllowed(int Placement, string Id, double Rotation) : LayoutViolation;
     /// <summary>Flipped, but the geometry does not allow flipping.</summary>
     public sealed record FlipNotAllowed(int Placement, string Id) : LayoutViolation;
+    /// <summary>An orientation (its label, <c>"xzy"</c>) the box's constraint does not allow (3D).</summary>
+    public sealed record OrientationNotAllowed(int Placement, string Id, string Orientation) : LayoutViolation;
+    /// <summary>In a bin after the first: 3D packs one container.</summary>
+    public sealed record BinNotAllowed(int Placement, int Bin) : LayoutViolation;
+    /// <summary>The packed boxes weigh more than <see cref="Boundary3D.MaxMass"/>.</summary>
+    public sealed record MassExceeded(double Mass, double MaxMass) : LayoutViolation;
+    /// <summary>A box not supported as gravity or stability requires (3D).</summary>
+    public sealed record Unsupported(int Placement, string Id) : LayoutViolation;
     /// <summary>On a sheet after the first without <see cref="Config2D.MultiSheet"/>.</summary>
     public sealed record SheetNotAllowed(int Placement, int Sheet) : LayoutViolation;
     /// <summary>The piece leaves the boundary or comes closer to its edge than the margin.</summary>

@@ -11,6 +11,7 @@
 //! - [`optimize_cutting_path`] — Optimize cutting path for placed parts
 //! - [`version`] — Get API version
 //! - [`check_2d`] — Check a 2D layout against its problem
+//! - [`check_3d`] — Check a 3D packing against its problem
 //! - [`available_strategies`] — The strategies each dimension offers and the settings each reads
 
 use u_nesting_core::api_types::*;
@@ -95,7 +96,21 @@ pub fn available_strategies() -> String {
 pub fn check_2d(request_json: &str) -> String {
     let response = match from_json::<Check2DRequest>(request_json) {
         Ok(request) => u_nesting_d2::check::check_2d(request),
-        Err(e) => Check2DResponse::refused(&e),
+        Err(e) => CheckResponse::refused(&e),
+    };
+    serde_json::to_string(&response).expect("a check response serializes")
+}
+
+/// Checks a 3D packing against the problem it answers: `{"problem": <the
+/// solve_3d request>, "solve_result": <a solve_3d response>}`, answered as
+/// [`check_2d`] answers -- every box inside the container and its margin, no
+/// overlap or spacing breach, allowed orientations, one container, copies,
+/// `max_mass`, support under `gravity` / `stability`, and `unplaced`.
+#[wasm_bindgen]
+pub fn check_3d(request_json: &str) -> String {
+    let response = match from_json::<Check3DRequest>(request_json) {
+        Ok(request) => u_nesting_d3::check::check_3d(request),
+        Err(e) => CheckResponse::refused(&e),
     };
     serde_json::to_string(&response).expect("a check response serializes")
 }

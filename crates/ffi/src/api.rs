@@ -106,9 +106,58 @@ pub unsafe extern "C" fn unesting_check_2d(
     let response = guard_panic(
         || match from_json::<Check2DRequest>(json_str) {
             Ok(request) => u_nesting_d2::check::check_2d(request),
-            Err(e) => Check2DResponse::refused(&e),
+            Err(e) => CheckResponse::refused(&e),
         },
-        Check2DResponse::refused,
+        CheckResponse::refused,
+    );
+    let response_json = match serde_json::to_string(&response) {
+        Ok(s) => s,
+        Err(_) => return UNESTING_ERR_UNKNOWN,
+    };
+
+    match CString::new(response_json) {
+        Ok(cstr) => {
+            *result_ptr = cstr.into_raw();
+            if response.success {
+                UNESTING_OK
+            } else {
+                UNESTING_ERR_SOLVE_FAILED
+            }
+        }
+        Err(_) => UNESTING_ERR_UNKNOWN,
+    }
+}
+
+/// Checks a 3D packing against the problem it answers: the request is
+/// `{"problem": <the unesting_solve_3d request>, "solve_result": <its response>}`,
+/// the result `{"success": true, "feasible": bool, "violations": [...]}`. A
+/// packing that breaks its problem is a result (`UNESTING_OK`); a refused
+/// request is `UNESTING_ERR_SOLVE_FAILED` with the error body, as for a solve.
+///
+/// # Safety
+/// - `request_json` must be a valid null-terminated UTF-8 string
+/// - `result_ptr` must be a valid pointer to a `*mut c_char`
+/// - The caller must free the result string using `unesting_free_string`
+#[no_mangle]
+pub unsafe extern "C" fn unesting_check_3d(
+    request_json: *const c_char,
+    result_ptr: *mut *mut c_char,
+) -> i32 {
+    if request_json.is_null() || result_ptr.is_null() {
+        return UNESTING_ERR_NULL_PTR;
+    }
+
+    let json_str = match CStr::from_ptr(request_json).to_str() {
+        Ok(s) => s,
+        Err(_) => return UNESTING_ERR_INVALID_JSON,
+    };
+
+    let response = guard_panic(
+        || match from_json::<Check3DRequest>(json_str) {
+            Ok(request) => u_nesting_d3::check::check_3d(request),
+            Err(e) => CheckResponse::refused(&e),
+        },
+        CheckResponse::refused,
     );
     let response_json = match serde_json::to_string(&response) {
         Ok(s) => s,
@@ -996,6 +1045,56 @@ mod tests {
         );
         assert_eq!(status, UNESTING_ERR_SOLVE_FAILED);
         assert_eq!(refused["success"], false);
+    }
+
+    /// A packed result, handed back with its request, checks clean; a box
+    /// lifted off the floor under gravity is reported unsupported.
+    #[test]
+    fn a_packing_is_checked_against_the_problem_it_answers() {
+        let request = serde_json::json!({
+            "geometries": [{"id": "box", "dimensions": [10, 10, 10], "quantity": 2}],
+            "boundary": {"dimensions": [30, 20, 20], "gravity": true},
+            "config": {"strategy": "blf"}
+        });
+        let call =
+            |json: &serde_json::Value,
+             entry: unsafe extern "C" fn(*const c_char, *mut *mut c_char) -> i32| {
+                let input = CString::new(json.to_string()).expect("no NUL");
+                let mut out: *mut c_char = std::ptr::null_mut();
+                let status = unsafe { entry(input.as_ptr(), &mut out) };
+                let body: serde_json::Value =
+                    serde_json::from_str(unsafe { CStr::from_ptr(out) }.to_str().expect("UTF-8"))
+                        .expect("JSON");
+                unsafe { unesting_free_string(out) };
+                (status, body)
+            };
+        let (status, packed) = call(&request, unesting_solve_3d);
+        assert_eq!(status, UNESTING_OK, "{packed}");
+        let (status, checked) = call(
+            &serde_json::json!({"problem": request, "solve_result": packed}),
+            unesting_check_3d,
+        );
+        assert_eq!(
+            (status, &checked["feasible"]),
+            (UNESTING_OK, &serde_json::json!(true)),
+            "{checked}"
+        );
+
+        let mut lifted = packed.clone();
+        lifted["placements"][0]["z"] = serde_json::json!(5.0);
+        let (_, checked) = call(
+            &serde_json::json!({"problem": request, "solve_result": lifted}),
+            unesting_check_3d,
+        );
+        assert_eq!(checked["feasible"], false);
+        assert!(
+            checked["violations"]
+                .as_array()
+                .expect("violations")
+                .iter()
+                .any(|v| v["code"] == "unsupported" && v["placement"] == 0),
+            "{checked}"
+        );
     }
 
     #[test]

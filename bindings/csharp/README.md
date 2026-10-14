@@ -152,7 +152,8 @@ catch (OperationCanceledException)
 
 ## Checking a layout
 
-`Nester2D.Check(request, result)` judges a layout — a solve's result, or one built
+`Nester2D.Check(request, result)` (and `Packer3D.Check` for a packing — container
+walls, overlap and spacing, orientations, one container, mass, support) judges a layout — a solve's result, or one built
 elsewhere in its shape — against the request: boundary and margin, overlap and spacing
 on each sheet, allowed rotations and flips, each copy placed once, and
 `NestingResult.Unplaced`. Each broken rule is a typed record:

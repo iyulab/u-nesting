@@ -669,9 +669,22 @@ pub struct Check2DRequest {
     pub solve_result: SolveResponse,
 }
 
-/// One way a layout breaks its problem. `placement` and `other` are indices
-/// into the layout's `placements`; `id` is a geometry id; a rotation is in
-/// degrees, as the response gives it.
+/// A 3D packing to check: the `solve_3d` request it answers, unchanged, and a
+/// successful `solve_3d` response. Only its `placements` and `unplaced` are
+/// judged.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Check3DRequest {
+    /// The problem, as `solve_3d` takes it.
+    pub problem: Request3D,
+    /// The packing, as `solve_3d` returns it.
+    pub solve_result: Pack3DResponse,
+}
+
+/// One way a layout (2D) or packing (3D) breaks its problem. `placement` and
+/// `other` are indices into the response's `placements`; `id` is a geometry
+/// id; a rotation is in degrees and an orientation is its label (`"xzy"`), as
+/// the response gives them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "code", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LayoutViolationResponse {
@@ -696,8 +709,21 @@ pub enum LayoutViolationResponse {
         id: String,
         rotation: f64,
     },
-    /// Flipped, but the geometry does not allow flipping.
+    /// Flipped, but the geometry does not allow flipping (2D).
     FlipNotAllowed { placement: usize, id: String },
+    /// An orientation the geometry's `orientation` constraint does not allow
+    /// (3D).
+    OrientationNotAllowed {
+        placement: usize,
+        id: String,
+        orientation: String,
+    },
+    /// In a bin after the first: 3D packs one container.
+    BinNotAllowed { placement: usize, bin: usize },
+    /// The packed boxes weigh more than the container's `max_mass` (3D).
+    MassExceeded { mass: f64, max_mass: f64 },
+    /// A box is not supported as `gravity` or `stability` requires (3D).
+    Unsupported { placement: usize, id: String },
     /// On a sheet after the first without `multi_sheet`.
     SheetNotAllowed { placement: usize, sheet: usize },
     /// The piece leaves the boundary or comes closer to its edge than `margin`.
@@ -717,11 +743,11 @@ pub enum LayoutViolationResponse {
     WronglyUnplaced { id: String },
 }
 
-/// Whether a layout keeps every rule of its problem, and each rule it breaks;
-/// or, with `success: false`, why the request was refused.
+/// Whether a layout or packing keeps every rule of its problem, and each rule
+/// it breaks; or, with `success: false`, why the request was refused.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Check2DResponse {
+pub struct CheckResponse {
     /// API version.
     pub version: String,
     /// Whether the check ran; `false` with `error` / `code` / `details` when the
@@ -739,7 +765,7 @@ pub struct Check2DResponse {
     pub violations: Vec<LayoutViolationResponse>,
 }
 
-impl Check2DResponse {
+impl CheckResponse {
     /// The answer for a layout that was checked.
     pub fn checked(violations: Vec<LayoutViolationResponse>) -> Self {
         Self {

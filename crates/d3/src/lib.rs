@@ -73,6 +73,7 @@
 
 pub mod boundary;
 pub mod brkga_packing;
+pub mod check;
 pub mod extreme_point;
 pub mod ga_packing;
 pub mod geometry;

@@ -124,10 +124,16 @@ impl Packer3D {
         }
     }
 
-    /// Judges the request once, at the solve entry point, whichever strategy
+    /// Judges a problem as every solve does before it runs, whichever strategy
     /// runs: the configuration, the boundary, the geometries -- an empty list
-    /// is `empty_input`, there is nothing to pack -- and their ids.
-    fn validate_inputs(&self, geometries: &[Geometry3D], boundary: &Boundary3D) -> Result<()> {
+    /// is `empty_input`, there is nothing to pack -- their ids, and whether 3D
+    /// packing offers the configured strategy. A packing checker reads its
+    /// problem through this too, so a problem the packer refuses is one the
+    /// checker refuses.
+    ///
+    /// # Errors
+    /// The first refusal.
+    pub fn validate(&self, geometries: &[Geometry3D], boundary: &Boundary3D) -> Result<()> {
         boundary.validate()?;
         if geometries.is_empty() {
             return Err(Error::empty_input("geometries"));
@@ -136,7 +142,18 @@ impl Packer3D {
         for geom in geometries {
             geom.validate()?;
         }
-        u_nesting_core::geometry::ensure_unique_ids(geometries)
+        u_nesting_core::geometry::ensure_unique_ids(geometries)?;
+        if !self.config.strategy.is_offered(Dimension::ThreeD) {
+            return Err(Error::invalid_option(
+                "strategy",
+                format!(
+                    "strategy \"{}\" is not available for 3D packing; it offers {}",
+                    self.config.strategy.name(),
+                    offered_names(Dimension::ThreeD)
+                ),
+            ));
+        }
+        Ok(())
     }
 
     /// Validates the stability of a packing result.
@@ -543,7 +560,7 @@ impl Solver for Packer3D {
         geometries: &[Self::Geometry],
         boundary: &Self::Boundary,
     ) -> Result<SolveResult<f64>> {
-        self.validate_inputs(geometries, boundary)?;
+        self.validate(geometries, boundary)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
@@ -569,7 +586,7 @@ impl Solver for Packer3D {
         boundary: &Self::Boundary,
         callback: ProgressCallback,
     ) -> Result<SolveResult<f64>> {
-        self.validate_inputs(geometries, boundary)?;
+        self.validate(geometries, boundary)?;
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
