@@ -49,6 +49,8 @@ temp_*.json
 *.json
 !benches/**/*.json
 !docs/json-schema/*.json
+!engine-card.json
+!scripts/engine-card/*.json
 !benchmark/scenarios/*.json
 !demo/*.html
 

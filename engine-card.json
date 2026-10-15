@@ -1,0 +1,58 @@
+{
+  "$schema": "scripts/engine-card/engine-card.schema.json",
+  "card_version": 1,
+  "engine": {
+    "id": "u-nesting",
+    "summary": "2D nesting of polygons on sheets and 3D packing of boxes in a container, by constructive fills and metaheuristic searches, with checkers that say whether a layout keeps its problem's rules.",
+    "version": "0.21.1",
+    "license": "MIT",
+    "repository": "https://github.com/iyulab/U-Nesting"
+  },
+  "surfaces": [
+    { "kind": "crate", "name": "u-nesting", "package_version": "0.21.1", "engine_version": "0.21.1" },
+    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.21.1", "engine_version": "0.21.1", "wasm": true, "note": "JSON string in, JSON string out. Bundler and Node targets; no bundler-less browser build." },
+    { "kind": "pypi", "name": "u-nesting", "package_version": "0.21.1", "engine_version": "0.21.1" },
+    { "kind": "nuget", "name": "UNesting", "package_version": "0.21.1", "engine_version": "0.21.1", "note": "C ABI wrapper; versioned with the crate." }
+  ],
+  "errors": {
+    "shape": "A refused request answers with success false, a stable 'code' and a 'details' object holding the fields listed for that code (JSON over WebAssembly and the C ABI, a dict in Python, nothing raised); the .NET binding raises NestingException carrying the same code and details.",
+    "codes": [
+      { "code": "parameter_out_of_range", "fields": ["exclusive_max", "exclusive_min", "got", "id", "max", "min", "parameter"], "meaning": "A setting outside its range; min/max are closed bounds, exclusive_min/exclusive_max open ones." },
+      { "code": "empty_input", "fields": ["parameter"], "meaning": "A list with nothing in it: no geometries." },
+      { "code": "invalid_option", "fields": ["parameter"], "meaning": "A setting that cannot be used here: a strategy this build or dimension does not offer, or a setting the chosen strategy does not read." },
+      { "code": "unknown_option", "fields": ["expected", "got", "parameter"], "meaning": "A name the engine does not know: a strategy, an orientation, a cut direction." },
+      { "code": "malformed_input", "fields": ["parameter"], "meaning": "Not JSON, a missing or unknown key, or a value of the wrong type." },
+      { "code": "value_not_finite", "fields": ["id", "index", "parameter"], "meaning": "A NaN or infinity where a number belongs; only a binding whose values can carry one sends it." },
+      { "code": "cancelled", "fields": [], "meaning": "The caller stopped the run." },
+      { "code": "invalid_geometry", "fields": ["id"], "meaning": "A polygon with fewer than 3 vertices, self-intersecting or degenerate." },
+      { "code": "duplicate_id", "fields": ["first", "id", "index", "parameter"], "meaning": "Two geometries share an id." },
+      { "code": "invalid_boundary", "fields": ["parameter"], "meaning": "A boundary the engine cannot place into." },
+      { "code": "internal", "fields": [], "meaning": "A failure inside the engine, not caused by the request." }
+    ]
+  },
+  "operations": [
+    {
+      "id": "solve_2d",
+      "summary": "Places polygon parts on a rectangular or polygonal sheet (or on as many sheets as they need), by the chosen strategy, and reports the placements, the parts left unplaced, the utilization and why the run stopped.",
+      "input": { "schema": "docs/json-schema/request-2d.schema.json" },
+      "output": { "schema": "docs/json-schema/response.schema.json" },
+      "contract_test": "crates/ffi/src/request_schema.rs::the_2d_request_schema_has_the_keys_the_request_takes",
+      "errors": ["parameter_out_of_range", "empty_input", "invalid_option", "unknown_option", "malformed_input", "value_not_finite", "cancelled", "invalid_geometry", "duplicate_id", "invalid_boundary", "internal"],
+      "hints": { "read_only": true, "destructive": false, "idempotent": false, "open_world": false },
+      "effects": { "filesystem": "none", "network": "none", "clock": "deadline", "randomness": "unseeded", "note": "The searches (ga, brkga, sa, gdrr, alns) draw from config.seed when it is given and from fresh entropy when it is not; blf and nfp use no randomness." },
+      "determinism": {
+        "kind": "nondeterministic",
+        "note": "Depends on the request. blf and nfp are deterministic. A search given config.seed and time_limit_ms 0 ends on its own generation or iteration budget and repeats exactly; with a time limit it is time-bounded (how far it gets depends on machine speed); without a seed it is nondeterministic. stop_reason says which limit ended the run."
+      },
+      "output_provenance": { "fields": ["stop_reason", "generations", "iterations"], "note": "Whether the layout is a finished construction, the best a search found before a budget or the deadline, or a cancelled run's." },
+      "validation": {
+        "status": "none",
+        "limits": [
+          "Layout quality has not been compared against best-known solutions of standard instances.",
+          "Feasibility of every returned layout is checkable with check_2d, which tests keep at zero violations for each strategy."
+        ]
+      },
+      "performance": { "status": "none", "complexity": "Constructive fills: about O(n^2) no-fit-polygon queries in the part count n; searches: that per evaluated layout, until their budget or the deadline." }
+    }
+  ]
+}
