@@ -45,6 +45,12 @@ jobs:
           wasm-pack build crates/wasm --target bundler --scope iyulab --out-dir pkg
           wasm-pack build crates/wasm --target nodejs --scope iyulab --out-dir pkg-node
 
+      # Here, not in ci.yml: the publish fires on the same push and waits for
+      # nothing, so a check that lives only in CI cannot stop a release.
+      - name: Every exported function declares its parameter and return types
+        run: |
+          bash scripts/check-typed-dts.sh crates/wasm/pkg/*.d.ts crates/wasm/pkg-node/*.d.ts
+
       - name: Prepare npm package
         run: |
           cd crates/wasm/pkg

@@ -15,6 +15,8 @@ pub const API_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// One strategy as [`StrategyCatalog`] describes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct StrategyInfo {
     /// The strategy's short name, as a request's `config.strategy` takes it.
@@ -30,6 +32,8 @@ pub struct StrategyInfo {
 /// ([`Strategy::reads_setting`]), so the two cannot disagree. On the wire:
 /// `{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct StrategyCatalog {
     /// The 2D nesting strategies.
@@ -62,6 +66,8 @@ impl StrategyCatalog {
 /// A refusal reason: the `code` a refused response carries and the `details`
 /// fields that can come with it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct RefusalCode {
     /// The stable reason.
@@ -73,6 +79,8 @@ pub struct RefusalCode {
 /// A violation the checkers report: its `code`, the fields beside it, and the
 /// functions that report it (`check_2d`, `check_3d`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct ViolationCode {
     /// The stable name of the violation.
@@ -89,6 +97,8 @@ pub struct ViolationCode {
 /// It is read off one value of each [`Error`] and [`LayoutViolationResponse`],
 /// so it lists what the engine answers with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CodeCatalog {
     /// Every refusal reason.
@@ -137,16 +147,20 @@ impl CodeCatalog {
 
 /// Request for 2D nesting.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Request2D {
     /// API version.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub version: Option<String>,
 
     /// Mode discriminator used by the auto-detect `solve` entry point.
     /// Accepted (and validated) here so a dispatched request round-trips
     /// under the strict unknown-field policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "\"2d\" | \"3d\" | null"))]
     pub mode: Option<Dimension>,
 
     /// Geometries to place.
@@ -157,21 +171,26 @@ pub struct Request2D {
 
     /// Configuration.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub config: Option<ConfigRequest>,
 }
 
 /// Request for 3D bin packing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Request3D {
     /// API version.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub version: Option<String>,
 
     /// Mode discriminator used by the auto-detect `solve` entry point.
     /// Accepted (and validated) here so a dispatched request round-trips
     /// under the strict unknown-field policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "\"2d\" | \"3d\" | null"))]
     pub mode: Option<Dimension>,
 
     /// Geometries to place.
@@ -182,11 +201,14 @@ pub struct Request3D {
 
     /// Configuration.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub config: Option<ConfigRequest>,
 }
 
 /// 2D geometry request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Geometry2DRequest {
     /// Unique identifier.
@@ -197,37 +219,48 @@ pub struct Geometry2DRequest {
 
     /// Interior holes (optional).
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub holes: Option<Vec<Vec<[f64; 2]>>>,
 
     /// Quantity to place: a whole number, at least 1.
     #[serde(default = "default_quantity", deserialize_with = "whole::required")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number"))]
     pub quantity: i128,
 
     /// Allowed rotation angles in degrees.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub rotations: Option<Vec<f64>>,
 
     /// Allow flipping.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub allow_flip: bool,
 }
 
 /// 2D boundary request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Boundary2DRequest {
     /// Width for rectangular boundary.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub width: Option<f64>,
 
     /// Height for rectangular boundary.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub height: Option<f64>,
 
     /// Polygon vertices for arbitrary boundary.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub polygon: Option<Vec<[f64; 2]>>,
 }
 
 /// 3D geometry request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Geometry3DRequest {
     /// Unique identifier.
@@ -238,76 +271,105 @@ pub struct Geometry3DRequest {
 
     /// Quantity to place: a whole number, at least 1.
     #[serde(default = "default_quantity", deserialize_with = "whole::required")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number"))]
     pub quantity: i128,
 
     /// Mass (optional).
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub mass: Option<f64>,
 
     /// Orientation constraint.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "tsify",
+        tsify(optional, type = "\"any\" | \"upright\" | \"fixed\" | null")
+    )]
     pub orientation: Option<String>,
 }
 
 /// 3D boundary request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Boundary3DRequest {
     /// Dimensions [width, depth, height].
     pub dimensions: [f64; 3],
 
     /// Maximum mass (optional).
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub max_mass: Option<f64>,
 
     /// Enable gravity constraints.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub gravity: bool,
 
     /// Enable stability constraints.
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub stability: bool,
 }
 
 /// Configuration request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct ConfigRequest {
     /// Spacing between geometries.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub spacing: Option<f64>,
 
     /// Margin from boundary edges.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub margin: Option<f64>,
 
     /// Optimization strategy.
+    #[cfg_attr(
+        feature = "tsify",
+        tsify(
+            optional,
+            type = "\"blf\" | \"nfp\" | \"ga\" | \"brkga\" | \"sa\" | \"ep\" | \"gdrr\" | \"alns\" | \"milpexact\" | \"hybridexact\" | null"
+        )
+    )]
     pub strategy: Option<String>,
 
     /// Time limit in milliseconds: a whole number, at least 0.
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub time_limit_ms: Option<i128>,
 
     /// Target utilization (0.0 - 1.0).
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub target_utilization: Option<f64>,
 
     /// GA/BRKGA population size: a whole number, at least 2. Omitted, each
     /// strategy uses the size it is tuned for (see `Config::population_size`).
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub population_size: Option<i128>,
 
     /// GA/BRKGA generation budget: a whole number from 0 to 4294967295.
     /// Omitted, each strategy uses the budget it is tuned for (see
     /// `Config::max_generations`).
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub max_generations: Option<i128>,
 
     /// SA/GDRR/ALNS iteration budget: a whole number, at least 1. Omitted,
     /// each strategy uses the budget it is tuned for (see
     /// `Config::max_iterations`).
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub max_iterations: Option<i128>,
 
     /// GA crossover rate.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub crossover_rate: Option<f64>,
 
     /// GA mutation rate.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub mutation_rate: Option<f64>,
 
     /// Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA,
@@ -315,6 +377,7 @@ pub struct ConfigRequest {
     /// run that ends on its own budget, not on the time limit, is reproduced
     /// exactly (see `Config::seed`).
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub seed: Option<i128>,
 
     /// Distribute overflow across multiple sheets (2D only).
@@ -324,11 +387,14 @@ pub struct ConfigRequest {
     /// count and each placement's `sheet_index` selects its sheet; placement
     /// coordinates are sheet-local (relative to each sheet's origin). Defaults to
     /// `false` (single-sheet solve).
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub multi_sheet: Option<bool>,
 }
 
 /// Response for solve operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct SolveResponse {
     /// API version.
@@ -427,6 +493,12 @@ pub struct SolveResponse {
     /// `time_limit` (`time_limit_ms` ran out -- the layout is the best found
     /// by then) or `cancelled`. `null` on a refusal.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "tsify",
+        tsify(
+            type = "\"completed\" | \"optimal\" | \"target_reached\" | \"iteration_limit\" | \"no_improvement\" | \"time_limit\" | \"cancelled\" | null"
+        )
+    )]
     pub stop_reason: Option<StopReason>,
 
     /// Computation time in milliseconds.
@@ -435,6 +507,8 @@ pub struct SolveResponse {
 
 /// Placement response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct PlacementResponse {
     /// Geometry ID.
@@ -552,10 +626,39 @@ mod whole {
 ///
 /// [`Error::MalformedInput`] as above.
 pub fn from_json<T: serde::de::DeserializeOwned>(json: &str) -> crate::Result<T> {
-    use serde_json::error::Category;
+    let mut de = serde_json::Deserializer::from_str(json);
+    let value = serde_path_to_error::deserialize(&mut de).map_err(refused_at)?;
+    de.end().map_err(|e| refused(None, &e))?;
+    Ok(value)
+}
 
-    // Text that is not JSON names no field: where it broke off is no path.
-    let refused = |path: Option<String>, e: serde_json::Error| match e.classify() {
+/// The request `value` describes, read as [`from_json`] reads text -- for a
+/// binding whose request arrives as a value (JavaScript, Python), not as text.
+/// A refusal names the field's path; it carries no line and column, which
+/// would point into a text the caller never wrote.
+///
+/// # Errors
+///
+/// [`Error::MalformedInput`] as [`from_json`].
+pub fn from_value<T: serde::de::DeserializeOwned>(value: serde_json::Value) -> crate::Result<T> {
+    serde_path_to_error::deserialize(value).map_err(refused_at)
+}
+
+/// A reading refusal, at the path where it stopped.
+fn refused_at(e: serde_path_to_error::Error<serde_json::Error>) -> Error {
+    let path = e.path();
+    let named = path
+        .iter()
+        .any(|s| !matches!(s, serde_path_to_error::Segment::Unknown));
+    let path = named.then(|| path.to_string());
+    refused(path, e.inner())
+}
+
+/// `e` as `malformed_input`. Text that is not JSON names no field: where it
+/// broke off is no path.
+fn refused(path: Option<String>, e: &serde_json::Error) -> Error {
+    use serde_json::error::Category;
+    match e.classify() {
         Category::Syntax | Category::Eof => Error::malformed(None, format!("Invalid JSON: {e}")),
         _ => Error::MalformedInput {
             message: path
@@ -563,18 +666,7 @@ pub fn from_json<T: serde::de::DeserializeOwned>(json: &str) -> crate::Result<T>
                 .map_or_else(|| e.to_string(), |path| format!("{path}: {e}")),
             parameter: path,
         },
-    };
-    let mut de = serde_json::Deserializer::from_str(json);
-    let value = serde_path_to_error::deserialize(&mut de).map_err(|e| {
-        let path = e.path();
-        let named = path
-            .iter()
-            .any(|s| !matches!(s, serde_path_to_error::Segment::Unknown));
-        let path = named.then(|| path.to_string());
-        refused(path, e.into_inner())
-    })?;
-    de.end().map_err(|e| refused(None, e))?;
-    Ok(value)
+    }
 }
 
 impl From<crate::Placement<f64>> for PlacementResponse {
@@ -633,6 +725,8 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
 /// `orientation` label. Mirrors the C# `PackingResult` binding
 /// (bindings/csharp/UNesting/Models/Geometry3D.cs).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Pack3DResponse {
     /// API version.
@@ -696,6 +790,12 @@ pub struct Pack3DResponse {
     /// `time_limit` (`time_limit_ms` ran out -- the layout is the best found
     /// by then) or `cancelled`. `null` on a refusal.
     #[serde(default)]
+    #[cfg_attr(
+        feature = "tsify",
+        tsify(
+            type = "\"completed\" | \"optimal\" | \"target_reached\" | \"iteration_limit\" | \"no_improvement\" | \"time_limit\" | \"cancelled\" | null"
+        )
+    )]
     pub stop_reason: Option<StopReason>,
 
     /// Computation time in milliseconds.
@@ -707,6 +807,8 @@ pub struct Pack3DResponse {
 /// Mirrors the C# `Placement3D` binding: carries `z` and a string
 /// `orientation` label (e.g. `"xyz"`), and uses `bin_index` (not `sheet_index`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Placement3DResponse {
     /// Geometry ID.
@@ -764,6 +866,8 @@ impl Pack3DResponse {
 /// elsewhere in the same shape. Only its `placements` and `unplaced` are
 /// judged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Check2DRequest {
     /// The problem, as `solve_2d` takes it.
@@ -776,6 +880,8 @@ pub struct Check2DRequest {
 /// successful `solve_3d` response. Only its `placements` and `unplaced` are
 /// judged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Check3DRequest {
     /// The problem, as `solve_3d` takes it.
@@ -789,6 +895,7 @@ pub struct Check3DRequest {
 /// id; a rotation is in degrees and an orientation is its label (`"xzy"`), as
 /// the response gives them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 #[serde(tag = "code", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LayoutViolationResponse {
     /// The placement names a geometry the problem does not have.
@@ -942,6 +1049,8 @@ impl LayoutViolationResponse {
 /// Whether a layout or packing keeps every rule of its problem, and each rule
 /// it breaks; or, with `success: false`, why the request was refused.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CheckResponse {
     /// API version.
@@ -994,6 +1103,8 @@ impl CheckResponse {
 
 /// Request for cutting path optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CuttingRequest {
     /// Original geometry definitions (same format as nesting request).
@@ -1004,51 +1115,71 @@ pub struct CuttingRequest {
 
     /// Cutting path configuration (optional; defaults will be used if absent).
     #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub cutting_config: Option<CuttingConfigRequest>,
 }
 
 /// Cutting path configuration request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CuttingConfigRequest {
     /// Kerf width (cutting tool width). Set to 0.0 to disable kerf compensation.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub kerf_width: Option<f64>,
 
     /// Weight factor for pierce count in cost function.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub pierce_weight: Option<f64>,
 
     /// Maximum number of 2-opt improvement iterations: a whole number, at
     /// least 0.
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub max_2opt_iterations: Option<i128>,
 
     /// Wall-clock budget (ms) for the 2-opt improvement phase. `0` = unlimited.
     /// Prevents the sequencing pass from blocking the caller (e.g. the browser
     /// main thread) on large inputs. Defaults to 5000 when omitted.
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub time_limit_ms: Option<i128>,
 
     /// Machine rapid traverse speed (units/s). For time estimation only.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub rapid_speed: Option<f64>,
 
     /// Machine cutting speed (units/s). For time estimation only.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub cut_speed: Option<f64>,
 
     /// Default cut direction for exterior contours: "ccw", "cw", or "auto".
+    #[cfg_attr(
+        feature = "tsify",
+        tsify(optional, type = "\"ccw\" | \"cw\" | \"auto\" | null")
+    )]
     pub exterior_direction: Option<String>,
 
     /// Default cut direction for interior contours: "ccw", "cw", or "auto".
+    #[cfg_attr(
+        feature = "tsify",
+        tsify(optional, type = "\"ccw\" | \"cw\" | \"auto\" | null")
+    )]
     pub interior_direction: Option<String>,
 
     /// Home position [x, y] for the cutting head.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub home_position: Option<[f64; 2]>,
 
     /// Number of candidate pierce points per contour: a whole number, at
     /// least 1.
     #[serde(default, deserialize_with = "whole::optional")]
+    #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub pierce_candidates: Option<i128>,
 
     /// Tolerance for geometric comparisons.
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub tolerance: Option<f64>,
 }
 
@@ -1080,6 +1211,8 @@ impl CuttingConfigRequest {
 
 /// Response for cutting path optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CuttingResponse {
     /// API version.
@@ -1135,6 +1268,8 @@ pub struct CuttingResponse {
 
 /// A contour left out of the cutting sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct SkippedContourResponse {
     /// Contour ID.
@@ -1159,6 +1294,8 @@ pub struct SkippedContourResponse {
 
 /// A single step in the cutting sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CutStepResponse {
     /// Contour ID.
@@ -1243,46 +1380,59 @@ impl CuttingResponse {
 /// The values behind a refusal's `code`. Only the ones the reason has are
 /// present.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct RefusalDetails {
     /// The setting or request part at fault (`spacing`, `strategy`,
     /// `geometries`, `max_mass`, ...).
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub parameter: Option<String>,
     /// The geometry the refusal is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub id: Option<String>,
     /// For `duplicate_id`, the position where the id appeared first; `index`
     /// is where it appeared again.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub first: Option<usize>,
     /// The position of the offending entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub index: Option<usize>,
     /// Closed lower bound of the accepted range: the value may equal it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub min: Option<f64>,
     /// Closed upper bound of the accepted range: the value may equal it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub max: Option<f64>,
     /// Open lower bound of the accepted range: the value must be above it.
     /// Never present together with `min`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub exclusive_min: Option<f64>,
     /// Open upper bound of the accepted range: the value must be below it.
     /// Never present together with `max`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub exclusive_max: Option<f64>,
     /// The value given: a number for a range, a name for an unknown option.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub got: Option<RefusalValue>,
     /// The names an unknown option could have been.
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
     pub expected: Option<Vec<String>>,
 }
 
 /// A refused value as it was given.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 #[serde(untagged)]
 pub enum RefusalValue {
     /// A number outside its range.

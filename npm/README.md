@@ -27,16 +27,26 @@ re-bundling services fail on the same import. Use a bundler or Node.
 
 | Function | Description |
 |----------|-------------|
-| `solve_2d(json: string): string` | Solve a 2D nesting problem |
-| `solve_3d(json: string): string` | Solve a 3D bin packing problem |
-| `optimize_cutting_path(json: string): string` | Optimize cutting path for placed parts |
-| `check_2d(json: string): string` | Check a 2D layout against its problem |
-| `check_3d(json: string): string` | Check a 3D packing against its problem |
+| `solve_2d(request: Request2D): SolveResponse` | Solve a 2D nesting problem |
+| `solve_3d(request: Request3D): Pack3DResponse` | Solve a 3D bin packing problem |
+| `optimize_cutting_path(request: CuttingRequest): CuttingResponse` | Optimize cutting path for placed parts |
+| `check_2d(request: Check2DRequest): CheckResponse` | Check a 2D layout against its problem |
+| `check_3d(request: Check3DRequest): CheckResponse` | Check a 3D packing against its problem |
 | `version(): string` | Get API version |
-| `available_strategies(): string` | The strategies each dimension offers and the settings each reads |
-| `codes(): string` | Every refusal `code` (with its `details` fields) and every `check_2d` / `check_3d` violation `code`: `{"refusals": [{code, fields}], "violations": [{code, fields, checkers}]}` — read off the engine's own types, the same codes the tables below explain (C: `unesting_codes()` · .NET: `UNestingInfo.Codes` · Python: `codes()`) |
+| `available_strategies(): StrategyCatalog` | The strategies each dimension offers and the settings each reads |
+| `codes(): CodeCatalog` | Every refusal `code` (with its fields) and every `check_2d` / `check_3d` violation `code`: `{ refusals: [{ code, fields }], violations: [{ code, fields, checkers }] }` — read off the engine's own types, the same codes the tables below explain (C: `unesting_codes()` · .NET: `UNestingInfo.Codes` · Python: `codes()`) |
 
-All functions use **JSON string I/O**.
+Every function takes and returns plain objects, and every request and answer
+type is declared in the package's `.d.ts` (`Request2D`, `SolveResponse`,
+`CheckResponse`, ...), so the compiler checks a program against them. A request
+the engine refuses is **thrown** as an `Error` carrying `code` (see
+[Refusals](#refusals)).
+
+The answer types are also what `check_2d` / `check_3d` and
+`optimize_cutting_path` accept as `solve_result` — a layout built or edited
+elsewhere, not only the engine's own — so the fields such a layout may leave
+out (`placements`, `unplaced_count`, `stop_reason`, ...) are declared optional.
+An answer the engine returns always carries all of them.
 
 ## Usage
 
@@ -45,7 +55,7 @@ All functions use **JSON string I/O**.
 ```javascript
 import { solve_2d } from '@iyulab/u-nesting';
 
-const result = JSON.parse(solve_2d(JSON.stringify({
+const result = solve_2d({
   geometries: [
     {
       id: "part-A",
@@ -68,10 +78,10 @@ const result = JSON.parse(solve_2d(JSON.stringify({
     max_generations: 100,
     time_limit_ms: 5000
   }
-})));
+});
 
-console.log(result);
-// { success: true, placements: [...], utilization: 0.85, boundaries_used: 1, ... }
+console.log(result.placements.length, result.utilization);
+// { success: true, placements: [...], utilization: 0.85, sheets_used: 1, ... }
 ```
 
 ### 3D Bin Packing
@@ -79,7 +89,7 @@ console.log(result);
 ```javascript
 import { solve_3d } from '@iyulab/u-nesting';
 
-const result = JSON.parse(solve_3d(JSON.stringify({
+const result = solve_3d({
   geometries: [
     { id: "box-1", dimensions: [10, 20, 15], quantity: 5 },
     { id: "box-2", dimensions: [8, 12, 10], quantity: 3, mass: 2.5 }
@@ -94,7 +104,7 @@ const result = JSON.parse(solve_3d(JSON.stringify({
     strategy: "ga",
     time_limit_ms: 3000
   }
-})));
+});
 ```
 
 ### Cutting Path Optimization
@@ -102,12 +112,18 @@ const result = JSON.parse(solve_3d(JSON.stringify({
 ```javascript
 import { solve_2d, optimize_cutting_path } from '@iyulab/u-nesting';
 
+const geometries = [{ id: "plate", polygon: [[0,0],[40,0],[40,20],[0,20]], quantity: 2 }];
+
 // First solve the nesting problem
-const solveResult = JSON.parse(solve_2d(JSON.stringify({ /* ... */ })));
+const solveResult = solve_2d({
+  geometries,
+  boundary: { width: 100, height: 100 },
+  config: { strategy: "blf", spacing: 1 }
+});
 
 // Then optimize cutting path
-const cutting = JSON.parse(optimize_cutting_path(JSON.stringify({
-  geometries: [/* same geometries */],
+const cutting = optimize_cutting_path({
+  geometries,
   solve_result: solveResult,
   cutting_config: {
     kerf_width: 0.5,
@@ -117,7 +133,8 @@ const cutting = JSON.parse(optimize_cutting_path(JSON.stringify({
     interior_direction: "ccw",
     time_limit_ms: 2000            // Bound the sequencing pass (see below)
   }
-})));
+});
+console.log(cutting.sequence.length, cutting.estimated_time_seconds);
 ```
 
 ### `optimize_cutting_path` Request
@@ -125,7 +142,7 @@ const cutting = JSON.parse(optimize_cutting_path(JSON.stringify({
 ```typescript
 interface CuttingRequest {
   geometries: Geometry[];          // Same shape as solve_2d geometries
-  solve_result: SolveResult;       // The parsed result returned by solve_2d
+  solve_result: SolveResponse;     // The result solve_2d returned
   cutting_config?: {
     kerf_width?: number;           // Kerf compensation width (default: 0 = off)
     pierce_weight?: number;        // Pierce-count weight in cost, >= 0 (default: 10)
@@ -273,11 +290,11 @@ sheets**. Then:
   so you can render one panel per sheet without subtracting any offset.
 
 ```javascript
-const res = JSON.parse(solve_2d(JSON.stringify({
+const res = solve_2d({
   geometries: [{ id: "part", polygon: [[0,0],[100,0],[100,100],[0,100]], quantity: 20 }],
   boundary: { width: 300, height: 300 },
   config: { strategy: "blf", multi_sheet: true }
-})));
+});
 // res.sheets_used === 3, res.placements.length === 20, res.unplaced === []
 // group placements by sheet_index to draw each sheet
 ```
@@ -301,13 +318,13 @@ const problem = {
   boundary: { width: 30, height: 20 },
   config: { strategy: "blf", spacing: 1 },
 };
-const solved = JSON.parse(solve_2d(JSON.stringify(problem)));
-console.log(JSON.parse(check_2d(JSON.stringify({ problem, solve_result: solved }))).feasible); // true
+const solved = solve_2d(problem);
+console.log(check_2d({ problem, solve_result: solved }).feasible); // true
 
 // Move the second piece onto the first:
 solved.placements[1].x = solved.placements[0].x;
 solved.placements[1].y = solved.placements[0].y;
-const check = JSON.parse(check_2d(JSON.stringify({ problem, solve_result: solved })));
+const check = check_2d({ problem, solve_result: solved });
 console.log(check.violations); // [ { code: "overlap", placement: 0, other: 1 } ]
 ```
 
@@ -325,8 +342,8 @@ console.log(check.violations); // [ { code: "overlap", placement: 0, other: 1 } 
 | `missing_from_unplaced` | `id` | Copies left unplaced, the geometry not in `unplaced` |
 | `wrongly_unplaced` | `id` | In `unplaced` but every copy is placed, listed twice, or unknown |
 
-A request `solve_2d` refuses is refused the same way (`success: false`, `code`),
-and so is a `solve_result` that is itself a refusal.
+A request `solve_2d` refuses is refused the same way (thrown, with `code`), and
+so is a `solve_result` that is itself a refusal (`success: false`).
 
 `check_3d` does the same for a packing — `{ problem, solve_result }` with the
 `solve_3d` request and response — and answers with the same shape. Besides
@@ -349,7 +366,7 @@ from the same table the refusal is made from:
 ```javascript
 import { available_strategies } from '@iyulab/u-nesting';
 
-const catalog = JSON.parse(available_strategies());
+const catalog = available_strategies();
 // { "2d": [{ "name": "blf", "reads": ["spacing", "margin", "time_limit_ms", "multi_sheet"] },
 //          { "name": "ga", "reads": ["spacing", "margin", "time_limit_ms", "target_utilization", ...] }, ...],
 //   "3d": [{ "name": "blf", "reads": [...] }, ...] }
@@ -359,10 +376,8 @@ console.log(reads('2d', 'nfp', 'target_utilization')); // false -- leave the fie
 console.log(reads('2d', 'ga', 'target_utilization'));  // true
 ```
 
-```typescript
-type StrategyInfo = { name: string; reads: string[] };
-type StrategyCatalog = { "2d": StrategyInfo[]; "3d": StrategyInfo[] };
-```
+Declared as `StrategyCatalog` — `{ "2d": StrategyInfo[]; "3d": StrategyInfo[] }`,
+`StrategyInfo` being `{ name: string; reads: string[] }`.
 
 ### Available 2D Strategies
 
@@ -472,16 +487,34 @@ type StopReason =
 
 ### Refusals
 
-The functions never throw: a request the engine cannot honour comes back with
-`success: false`, a readable `error`, a stable `code` and the values behind it in
-`details`, so a program can point at the input to change without parsing the text.
+A request the engine cannot honour is thrown as an `Error` whose `message` is
+the readable text (its wording may change) and which carries a stable `code` and
+the values behind it as further properties (`parameter`, `id`, `index`, `min`,
+`got`, ... — the fields below), so a program can point at the input to change
+without parsing the text:
+
+```javascript
+import { solve_2d } from '@iyulab/u-nesting';
+
+try {
+  solve_2d({
+    geometries: [{ id: "plate", polygon: [[0,0],[10,0],[10,5],[0,5]], quantity: 0 }],
+    boundary: { width: 50, height: 50 }
+  });
+} catch (e) {
+  console.log(e.code, e.parameter, e.min, e.got); // parameter_out_of_range geometries[0].quantity 1 0
+}
+```
+
+The C ABI, .NET and Python answer the same refusal with `success: false`,
+`error`, `code` and the fields in `details`.
 
 `parameter` is the path of the value in the request, whichever step refused it:
 `config.spacing`, `cutting_config.kerf_width`, `boundary.width`,
 `geometries[2].quantity`.
 
 ```typescript
-interface RefusalDetails {
+interface RefusalDetails {   // the properties a thrown Error carries besides `code`
   parameter?: string;   // the path in the request: "config.spacing", "config.strategy", "geometries[2].orientation", ...
   id?: string;          // the geometry the refusal is about
   first?: number;       // duplicate_id: where the id appeared first ...
@@ -499,11 +532,11 @@ interface RefusalDetails {
 | `empty_input` | `parameter` | A list with nothing in it: `geometries` (nothing to place or pack) |
 | `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `config.strategy`, a geometry's `orientation`, a cut direction (`cutting_config.exterior_direction`, ...), the C ABI's `mode` |
 | `invalid_option` | `parameter` | A setting that cannot be used here: a `config.strategy` this build or this dimension does not offer, `config.multi_sheet` in a 3D request (3D has no sheets), a failed `solve_result` given to cut |
-| `value_not_finite` | `parameter`, `id`, `index` | A NaN or ±Infinity where a number belongs — only a binding whose values can carry one (Python) sends it; a JSON request has none |
+| `value_not_finite` | `parameter`, `id`, `index` | A NaN or ±Infinity where a number belongs (`parameter` the path of the value or of its list, `index` its position) — JavaScript and Python values can carry one; a JSON request has none |
 | `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a placement naming no geometry |
 | `duplicate_id` | `parameter`, `id`, `first`, `index` | Two geometries share an id |
 | `invalid_boundary` | `parameter` (when one field is at fault) | A boundary of a shape the engine cannot place into: both or neither of size and polygon, a polygon with fewer than 3 vertices, of no area or crossing itself |
-| `malformed_input` | `parameter` (the path of the field, e.g. `geometries[2].quantity`, when there is one) | Not JSON, or a missing, unknown or mistyped key -- a count given as a fraction (`2.5`) included |
+| `malformed_input` | `parameter` (the path of the field, e.g. `geometries[2].quantity`, when there is one) | Not JSON — or, in JavaScript, a request passed as a string (`parameter: "request"`; pass the object) — or a missing, unknown or mistyped key, a count given as a fraction (`2.5`) included |
 | `cancelled` | — | The caller stopped the run (C ABI progress callback) |
 | `internal` | — | A failure inside the engine, not caused by the request |
 

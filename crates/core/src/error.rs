@@ -233,6 +233,7 @@ impl Error {
     /// One of each reason, every optional value present -- the published
     /// vocabulary ([`crate::api_types::CodeCatalog`]) reads each code and the
     /// fields that can come with it off these.
+    #[cfg(feature = "serde")]
     pub(crate) fn examples() -> Vec<Self> {
         let s = String::new;
         vec![

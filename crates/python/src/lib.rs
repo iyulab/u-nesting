@@ -38,7 +38,7 @@ use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use u_nesting_core::api_types::{
-    from_json, CodeCatalog, ConfigRequest, RefusalDetails, Request2D, Request3D, StrategyCatalog,
+    from_value, CodeCatalog, ConfigRequest, RefusalDetails, Request2D, Request3D, StrategyCatalog,
 };
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
@@ -209,7 +209,7 @@ fn solve_2d<'py>(
     config: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let output = match request_json(geometries, boundary, config) {
-        Ok(request) => solve_2d_request(&request),
+        Ok(request) => solve_2d_request(request),
         Err(e) => SolveOutput::refused(&e),
     };
     output.into_py(py)
@@ -243,7 +243,7 @@ fn solve_3d<'py>(
     config: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let output = match request_json(geometries, boundary, config) {
-        Ok(request) => solve_3d_request(&request),
+        Ok(request) => solve_3d_request(request),
         Err(e) => SolveOutput::refused(&e),
     };
     output.into_py(py)
@@ -286,16 +286,16 @@ impl Slot<'_> {
     }
 }
 
-/// The request a solve's arguments make, as JSON text the engine's request
-/// reader takes -- the same reader, and so the same refusals, as the C ABI
-/// and WebAssembly requests. A value JSON cannot hold is refused here, named
+/// The request a solve's arguments make, as the JSON value the engine's
+/// request reader takes -- the same reader, and so the same refusals, as the C
+/// ABI and WebAssembly requests. A value JSON cannot hold is refused here, named
 /// by its path: a number that is not finite (`value_not_finite`), or an
 /// object that is not a JSON value (`malformed_input`).
 fn request_json(
     geometries: &Bound<'_, PyAny>,
     boundary: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
-) -> Result<String, Error> {
+) -> Result<serde_json::Value, Error> {
     let mut request = serde_json::Map::new();
     let parts = [
         ("geometries", Some(geometries)),
@@ -308,7 +308,7 @@ fn request_json(
             request.insert(key.to_string(), value);
         }
     }
-    Ok(serde_json::Value::Object(request).to_string())
+    Ok(serde_json::Value::Object(request))
 }
 
 /// `value` as a JSON value, refusing what JSON cannot hold. `id` is the id of
@@ -444,9 +444,9 @@ fn solved_output(result: u_nesting_core::SolveResult<f64>) -> SolveOutput {
 }
 
 /// A 2D request, read and solved; every refusal is the output's.
-fn solve_2d_request(json: &str) -> SolveOutput {
+fn solve_2d_request(json: serde_json::Value) -> SolveOutput {
     let solve = || -> u_nesting_core::Result<u_nesting_core::SolveResult<f64>> {
-        let request: Request2D = from_json(json)?;
+        let request: Request2D = from_value(json)?;
         let geometries = Geometry2D::from_requests(request.geometries)?;
         // Exactly one shape: width and height together, or a polygon.
         let boundary = Boundary2D::from_request(request.boundary)?;
@@ -475,9 +475,9 @@ fn solve_2d_request(json: &str) -> SolveOutput {
 }
 
 /// A 3D request, read and solved; every refusal is the output's.
-fn solve_3d_request(json: &str) -> SolveOutput {
+fn solve_3d_request(json: serde_json::Value) -> SolveOutput {
     let solve = || -> u_nesting_core::Result<u_nesting_core::SolveResult<f64>> {
-        let request: Request3D = from_json(json)?;
+        let request: Request3D = from_value(json)?;
         let geometries = Geometry3D::from_requests(request.geometries)?;
         let boundary = Boundary3D::from_request(request.boundary);
         let config = request
@@ -545,6 +545,12 @@ fn u_nesting(m: &Bound<'_, PyModule>) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use u_nesting_core::api_types::from_json;
+
+    /// A request written as JSON text, as the value the bindings read.
+    fn text(json: &str) -> serde_json::Value {
+        serde_json::from_str(json).expect("a test request is JSON")
+    }
     use u_nesting_core::api_types::{
         Boundary2DRequest, Boundary3DRequest, Geometry2DRequest, Geometry3DRequest,
     };
@@ -991,7 +997,7 @@ mod tests {
             let request = format!(
                 r#"{{"geometries": {geometries}, "boundary": {boundary}, "config": {config}}}"#
             );
-            serde_json::to_value(solve_2d_request(&request)).expect("serialize")
+            serde_json::to_value(solve_2d_request(text(&request))).expect("serialize")
         };
         let cases = [
             (
@@ -1040,7 +1046,7 @@ mod tests {
         let request = r#"{"geometries": [{"id": "b", "dimensions": [1, 1, 1]}],
                           "boundary": {"dimensions": [5, 5, 5]},
                           "config": {"multi_sheet": false}}"#;
-        let out = serde_json::to_value(solve_3d_request(request)).expect("serialize");
+        let out = serde_json::to_value(solve_3d_request(text(request))).expect("serialize");
         assert_eq!(out["code"], "invalid_option");
         assert_eq!(out["details"]["parameter"], "config.multi_sheet");
     }
@@ -1048,17 +1054,17 @@ mod tests {
     /// A request read whole solves as the C ABI's does.
     #[test]
     fn a_request_solves() {
-        let out = solve_2d_request(
+        let out = solve_2d_request(text(
             r#"{"geometries": [{"id": "p", "polygon": [[0, 0], [4, 0], [4, 2], [0, 2]], "quantity": 3}],
                 "boundary": {"width": 10, "height": 10}}"#,
-        );
+        ));
         assert!(out.success, "{:?}", out.error);
         assert_eq!(out.placements.len(), 3);
         assert_eq!(out.total_requested, 3);
-        let out = solve_3d_request(
+        let out = solve_3d_request(text(
             r#"{"geometries": [{"id": "b", "dimensions": [1, 2, 3], "quantity": 2}],
                 "boundary": {"dimensions": [5, 5, 5]}, "config": {"strategy": "ep"}}"#,
-        );
+        ));
         assert!(out.success, "{:?}", out.error);
         assert_eq!(out.placements.len(), 2);
     }

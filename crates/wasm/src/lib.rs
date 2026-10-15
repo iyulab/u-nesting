@@ -2,7 +2,13 @@
 //!
 //! WebAssembly bindings for the U-Nesting spatial optimization engine.
 //!
-//! All functions use JSON string I/O matching the same schema as the C FFI layer.
+//! Every function takes and returns plain JavaScript objects of the shapes the
+//! C ABI reads and writes as JSON (the types of `u_nesting_core::api_types`,
+//! declared in the package's `.d.ts`). A request the engine refuses is thrown
+//! as an `Error` whose `message` is the readable text and which carries `code`
+//! -- a stable reason -- and the values behind it (`parameter`, `index`, `id`,
+//! `min`, `got`, ...). A layout `check_2d` / `check_3d` finds infeasible is a
+//! result, not a refusal.
 //!
 //! ## Functions
 //!
@@ -15,6 +21,7 @@
 //! - [`available_strategies`] — The strategies each dimension offers and the settings each reads
 //! - [`codes`] — Every refusal and checker violation `code`
 
+use serde::Serialize;
 use u_nesting_core::api_types::*;
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
@@ -23,50 +30,40 @@ use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
 use wasm_bindgen::prelude::*;
 
-/// Solves a 2D nesting problem from a JSON request string.
+/// Solves a 2D nesting problem.
 ///
-/// Returns a JSON string with the solve result.
-/// On error, returns `{ "success": false, "error": "..." }`.
-#[wasm_bindgen]
-pub fn solve_2d(request_json: &str) -> String {
-    let response = solve_2d_internal(request_json);
-    serde_json::to_string(&response).unwrap_or_else(|e| {
-        format!(
-            r#"{{"success":false,"error":"Serialization error: {}","code":"internal"}}"#,
-            e
-        )
-    })
+/// # Errors
+/// Throws an `Error` carrying `code` and the values behind it for a request
+/// the engine refuses (`malformed_input`, `value_not_finite`,
+/// `parameter_out_of_range`, `invalid_geometry`, ... -- see [`codes`]).
+#[wasm_bindgen(unchecked_return_type = "SolveResponse")]
+pub fn solve_2d(
+    #[wasm_bindgen(unchecked_param_type = "Request2D")] request: JsValue,
+) -> Result<JsValue, JsValue> {
+    answer::<Request2D, _>(request, solve_2d_internal)
 }
 
-/// Solves a 3D bin packing problem from a JSON request string.
+/// Solves a 3D bin packing problem.
 ///
-/// Returns a JSON string with the solve result.
-/// On error, returns `{ "success": false, "error": "..." }`.
-#[wasm_bindgen]
-pub fn solve_3d(request_json: &str) -> String {
-    let response = solve_3d_internal(request_json);
-    serde_json::to_string(&response).unwrap_or_else(|e| {
-        format!(
-            r#"{{"success":false,"error":"Serialization error: {}","code":"internal"}}"#,
-            e
-        )
-    })
+/// # Errors
+/// Throws a structured `Error` for a refused request, as [`solve_2d`] does.
+#[wasm_bindgen(unchecked_return_type = "Pack3DResponse")]
+pub fn solve_3d(
+    #[wasm_bindgen(unchecked_param_type = "Request3D")] request: JsValue,
+) -> Result<JsValue, JsValue> {
+    answer::<Request3D, _>(request, solve_3d_internal)
 }
 
-/// Optimizes cutting path for placed 2D parts.
+/// Optimizes the cutting path for the parts a successful `solve_2d` placed:
+/// `{ geometries, solve_result, cutting_config? }`.
 ///
-/// Input must include geometries, a previous solve result, and optional cutting config.
-/// Returns a JSON string with the cutting path result.
-/// On error, returns `{ "success": false, "error": "..." }`.
-#[wasm_bindgen]
-pub fn optimize_cutting_path(request_json: &str) -> String {
-    let response = optimize_cutting_path_internal(request_json);
-    serde_json::to_string(&response).unwrap_or_else(|e| {
-        format!(
-            r#"{{"success":false,"error":"Serialization error: {}","code":"internal"}}"#,
-            e
-        )
-    })
+/// # Errors
+/// Throws a structured `Error` for a refused request, as [`solve_2d`] does.
+#[wasm_bindgen(unchecked_return_type = "CuttingResponse")]
+pub fn optimize_cutting_path(
+    #[wasm_bindgen(unchecked_param_type = "CuttingRequest")] request: JsValue,
+) -> Result<JsValue, JsValue> {
+    answer::<CuttingRequest, _>(request, optimize_cutting_path_internal)
 }
 
 /// Returns the API version string.
@@ -75,57 +72,209 @@ pub fn version() -> String {
     API_VERSION.to_string()
 }
 
-/// Every refusal `code` a function of this package answers with, with the
-/// `details` fields that can come with it, and every violation `code`
-/// `check_2d` / `check_3d` report:
-/// `{"refusals": [{"code", "fields"}], "violations": [{"code", "fields", "checkers"}]}`.
+/// Every refusal `code` a function of this package throws, with the fields
+/// that can come with it, and every violation `code` `check_2d` / `check_3d`
+/// report: `{ refusals: [{ code, fields }], violations: [{ code, fields, checkers }] }`.
 ///
 /// It is read off the engine's own refusal and violation types, so a caller
 /// that translates codes can check its list against the package's.
-#[wasm_bindgen]
-pub fn codes() -> String {
-    serde_json::to_string(&CodeCatalog::of_engine()).expect("a catalog of names serializes")
+#[wasm_bindgen(unchecked_return_type = "CodeCatalog")]
+pub fn codes() -> Result<JsValue, JsValue> {
+    to_js(&CodeCatalog::of_engine())
 }
 
 /// The strategies each dimension offers in this build and the settings each
-/// reads: `{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`.
+/// reads: `{ "2d": [{ name: "blf", reads: ["spacing", ...] }, ...], "3d": [...] }`.
 ///
 /// It is the table a solve's refusal of a setting the strategy does not read
 /// (`invalid_option`) comes from, so a form can show only the settings that
 /// change the chosen strategy's run. The exact (MILP) strategies are absent:
 /// this build has no MILP solver.
-#[wasm_bindgen]
-pub fn available_strategies() -> String {
-    serde_json::to_string(&StrategyCatalog::of_build()).expect("a catalog of names serializes")
+#[wasm_bindgen(unchecked_return_type = "StrategyCatalog")]
+pub fn available_strategies() -> Result<JsValue, JsValue> {
+    to_js(&StrategyCatalog::of_build())
 }
 
-/// Checks a 2D layout against the problem it answers. The request is
-/// `{"problem": <the solve_2d request>, "solve_result": <a solve_2d response>}`;
-/// the answer is `{"success": true, "feasible": bool, "violations": [{"code": ..}]}`
-/// -- a layout that breaks its problem is a result, not a refusal. A request
-/// `solve_2d` refuses, or a `solve_result` that is itself a refusal, is
-/// `{"success": false, "error", "code", "details"}`.
-#[wasm_bindgen]
-pub fn check_2d(request_json: &str) -> String {
-    let response = match from_json::<Check2DRequest>(request_json) {
-        Ok(request) => u_nesting_d2::check::check_2d(request),
-        Err(e) => CheckResponse::refused(&e),
-    };
-    serde_json::to_string(&response).expect("a check response serializes")
+/// Checks a 2D layout against the problem it answers: `{ problem, solve_result }`
+/// -- the `solve_2d` request and a successful `solve_2d` response. The answer
+/// is `{ feasible, violations: [{ code, ... }] }`: a layout that breaks its
+/// problem is a result, not a refusal.
+///
+/// # Errors
+/// Throws a structured `Error` for a problem `solve_2d` refuses, or a
+/// `solve_result` that is itself a refusal.
+#[wasm_bindgen(unchecked_return_type = "CheckResponse")]
+pub fn check_2d(
+    #[wasm_bindgen(unchecked_param_type = "Check2DRequest")] request: JsValue,
+) -> Result<JsValue, JsValue> {
+    answer::<Check2DRequest, _>(request, check_2d_internal)
 }
 
-/// Checks a 3D packing against the problem it answers: `{"problem": <the
-/// solve_3d request>, "solve_result": <a solve_3d response>}`, answered as
-/// [`check_2d`] answers -- every box inside the container and its margin, no
-/// overlap or spacing breach, allowed orientations, one container, copies,
-/// `max_mass`, support under `gravity` / `stability`, and `unplaced`.
-#[wasm_bindgen]
-pub fn check_3d(request_json: &str) -> String {
-    let response = match from_json::<Check3DRequest>(request_json) {
-        Ok(request) => u_nesting_d3::check::check_3d(request),
-        Err(e) => CheckResponse::refused(&e),
+/// Checks a 3D packing against the problem it answers: `{ problem, solve_result }`,
+/// answered as [`check_2d`] answers -- every box inside the container and its
+/// margin, no overlap or spacing breach, allowed orientations, one container,
+/// copies, `max_mass`, support under `gravity` / `stability`, and `unplaced`.
+///
+/// # Errors
+/// Throws a structured `Error`, as [`check_2d`] does.
+#[wasm_bindgen(unchecked_return_type = "CheckResponse")]
+pub fn check_3d(
+    #[wasm_bindgen(unchecked_param_type = "Check3DRequest")] request: JsValue,
+) -> Result<JsValue, JsValue> {
+    answer::<Check3DRequest, _>(request, check_3d_internal)
+}
+
+// --- The boundary: reading a request, answering or throwing ---
+
+/// A response that is either the engine's answer or its refusal of the
+/// request -- the shape the C ABI writes. In JavaScript the refusal is thrown.
+trait Answer: Serialize {
+    fn refused(error: &Error) -> Self;
+    /// The refusal's message, `code` and fields, when this is one.
+    fn refusal(&self) -> Option<(&str, &str, Option<&RefusalDetails>)>;
+}
+
+macro_rules! answer_impl {
+    ($($t:ty),*) => {$(
+        impl Answer for $t {
+            fn refused(error: &Error) -> Self {
+                <$t>::refused(error)
+            }
+            fn refusal(&self) -> Option<(&str, &str, Option<&RefusalDetails>)> {
+                if self.success {
+                    return None;
+                }
+                Some((
+                    self.error.as_deref().unwrap_or("refused"),
+                    self.code.as_deref().unwrap_or("internal"),
+                    self.details.as_ref(),
+                ))
+            }
+        }
+    )*};
+}
+answer_impl!(
+    SolveResponse,
+    Pack3DResponse,
+    CuttingResponse,
+    CheckResponse
+);
+
+/// Reads `request` as a `Q`, runs `run` on it and hands back its answer, or
+/// throws the refusal -- of the request as read, or the engine's.
+fn answer<Q: serde::de::DeserializeOwned, R: Answer>(
+    request: JsValue,
+    run: impl FnOnce(Q) -> R,
+) -> Result<JsValue, JsValue> {
+    let response = match read(&request).and_then(from_value::<Q>) {
+        Ok(request) => run(request),
+        Err(e) => R::refused(&e),
     };
-    serde_json::to_string(&response).expect("a check response serializes")
+    match response.refusal() {
+        Some((message, code, details)) => Err(throw(message, code, details)),
+        None => to_js(&response),
+    }
+}
+
+/// `value` as `serde_json`, which the engine's request reading (and its path
+/// in a refusal) starts from -- refusing first what that conversion would
+/// hide: a string (a request passed as `JSON.stringify(...)`) and a number
+/// that is not finite (JSON has none; it would arrive as `null` and be refused
+/// as a value of the wrong type).
+fn read(value: &JsValue) -> Result<serde_json::Value, Error> {
+    if value.as_string().is_some() {
+        return Err(Error::malformed(
+            Some("request"),
+            "request: expected an object, got a string -- pass the object itself, \
+             not JSON.stringify(...)"
+                .to_string(),
+        ));
+    }
+    if let Some(found) = find_non_finite(value, "") {
+        return Err(found);
+    }
+    serde_wasm_bindgen::from_value(value.clone())
+        .map_err(|e| Error::malformed(None, format!("request: {e}")))
+}
+
+/// The first NaN or ±Infinity in `value`, as the refusal naming it: the path
+/// of the value -- or of the list it is in, with `index` its position there.
+fn find_non_finite(value: &JsValue, path: &str) -> Option<Error> {
+    let refused = |parameter: &str, index: Option<usize>, got: f64| Error::NotFinite {
+        parameter: if parameter.is_empty() {
+            "request"
+        } else {
+            parameter
+        }
+        .to_string(),
+        id: None,
+        index,
+        got,
+    };
+    if let Some(n) = value.as_f64() {
+        return (!n.is_finite()).then(|| refused(path, None, n));
+    }
+    if !value.is_object() {
+        return None;
+    }
+    if js_sys::Array::is_array(value) {
+        let items: &js_sys::Array = value.unchecked_ref();
+        for (i, item) in items.iter().enumerate() {
+            match item.as_f64() {
+                Some(n) if !n.is_finite() => return Some(refused(path, Some(i), n)),
+                Some(_) => {}
+                None => {
+                    if let Some(found) = find_non_finite(&item, &format!("{path}[{i}]")) {
+                        return Some(found);
+                    }
+                }
+            }
+        }
+        return None;
+    }
+    let object: &js_sys::Object = value.unchecked_ref();
+    for entry in js_sys::Object::entries(object).iter() {
+        let pair: js_sys::Array = entry.unchecked_into();
+        let key = pair.get(0).as_string().unwrap_or_default();
+        let inner = if path.is_empty() {
+            key
+        } else {
+            format!("{path}.{key}")
+        };
+        if let Some(found) = find_non_finite(&pair.get(1), &inner) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// The refusal as a JavaScript `Error`: `message`, `code`, and the fields of
+/// its reason as further properties.
+fn throw(message: &str, code: &str, details: Option<&RefusalDetails>) -> JsValue {
+    let error = js_sys::Error::new(message);
+    let set = |key: &str, value: &JsValue| {
+        // Setting a property on a fresh `Error` cannot fail.
+        let _ = js_sys::Reflect::set(&error, &JsValue::from_str(key), value);
+    };
+    set("code", &JsValue::from_str(code));
+    if let Some(fields) = details.and_then(|d| to_js(d).ok()) {
+        js_sys::Object::assign(&error, &fields.into());
+    }
+    error.into()
+}
+
+/// `value` as a plain JavaScript object, `None` as `null` -- what `JSON.parse`
+/// of the C ABI's answer gives.
+fn to_js<T: Serialize + ?Sized>(value: &T) -> Result<JsValue, JsValue> {
+    value
+        .serialize(&serde_wasm_bindgen::Serializer::json_compatible())
+        .map_err(|e| {
+            throw(
+                &format!("the answer could not be handed back: {e}"),
+                "internal",
+                None,
+            )
+        })
 }
 
 // --- Internal implementations ---
@@ -145,12 +294,7 @@ fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveRespon
     resp
 }
 
-fn solve_2d_internal(json_str: &str) -> SolveResponse {
-    let request: Request2D = match from_json(json_str) {
-        Ok(r) => r,
-        Err(e) => return SolveResponse::refused(&e),
-    };
-
+fn solve_2d_internal(request: Request2D) -> SolveResponse {
     // Convert geometries
     let geometries = match Geometry2D::from_requests(request.geometries) {
         Ok(g) => g,
@@ -201,12 +345,7 @@ fn solve_2d_internal(json_str: &str) -> SolveResponse {
     }
 }
 
-fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
-    let request: Request3D = match from_json(json_str) {
-        Ok(r) => r,
-        Err(e) => return Pack3DResponse::refused(&e),
-    };
-
+fn solve_3d_internal(request: Request3D) -> Pack3DResponse {
     // Convert geometries
     let geometries = match Geometry3D::from_requests(request.geometries) {
         Ok(g) => g,
@@ -233,12 +372,7 @@ fn solve_3d_internal(json_str: &str) -> Pack3DResponse {
     }
 }
 
-fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
-    let request: CuttingRequest = match from_json(json_str) {
-        Ok(r) => r,
-        Err(e) => return CuttingResponse::refused(&e),
-    };
-
+fn optimize_cutting_path_internal(request: CuttingRequest) -> CuttingResponse {
     // Validate the solve result
     if !request.solve_result.success {
         return CuttingResponse::refused(&Error::invalid_option(
@@ -288,13 +422,44 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
     result.to_response()
 }
 
+fn check_2d_internal(request: Check2DRequest) -> CheckResponse {
+    u_nesting_d2::check::check_2d(request)
+}
+
+fn check_3d_internal(request: Check3DRequest) -> CheckResponse {
+    u_nesting_d3::check::check_3d(request)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::{json, Value};
 
-    fn answer(response: String) -> Value {
-        serde_json::from_str(&response).expect("every answer is JSON")
+    fn answer(response: impl serde::Serialize) -> Value {
+        serde_json::to_value(response).expect("every answer is JSON")
+    }
+
+    /// `request` read as the binding reads a JavaScript object, then run.
+    fn run<Q: serde::de::DeserializeOwned, R: Answer>(request: &str, f: fn(Q) -> R) -> R {
+        let value: Value = serde_json::from_str(request).expect("a test request is JSON");
+        from_value(value).map_or_else(|e| R::refused(&e), f)
+    }
+
+    fn solve_2d(request: &str) -> SolveResponse {
+        run(request, solve_2d_internal)
+    }
+
+    fn solve_3d(request: &str) -> Pack3DResponse {
+        run(request, solve_3d_internal)
+    }
+
+    fn optimize_cutting_path(request: &str) -> CuttingResponse {
+        run(request, optimize_cutting_path_internal)
+    }
+
+    /// A solve answer as the JSON a request embeds.
+    fn json(response: SolveResponse) -> String {
+        serde_json::to_string(&response).expect("a solve answer serializes")
     }
 
     /// Every solve response says why the run stopped -- the reason the engine
@@ -379,7 +544,7 @@ mod tests {
             json!({ "parameter": "config.population_size", "min": 2.0, "got": -1.0 })
         );
 
-        let solved = solve_2d(&rectangle("1"));
+        let solved = json(solve_2d(&rectangle("1")));
         let r = answer(optimize_cutting_path(&format!(
             r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}}],
                 "solve_result": {solved}, "cutting_config": {{"pierce_candidates": -1}}}}"#
@@ -434,10 +599,10 @@ mod tests {
             json!({ "parameter": "boundary.max_mass", "exclusive_min": 0.0, "got": -1.0 })
         );
 
-        let solved = solve_2d(
+        let solved = json(solve_2d(
             r#"{"geometries": [{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}],
                 "boundary": {"width": 50, "height": 50}}"#,
-        );
+        ));
         let cut = |config: &str| {
             answer(optimize_cutting_path(&format!(
                 r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]}}],

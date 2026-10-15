@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking (npm):** the WebAssembly functions take and return objects, and
+  their types are declared in the package's `.d.ts` — `solve_2d(request:
+  Request2D): SolveResponse`, `solve_3d(Request3D): Pack3DResponse`,
+  `optimize_cutting_path(CuttingRequest): CuttingResponse`,
+  `check_2d(Check2DRequest)` / `check_3d(Check3DRequest): CheckResponse`,
+  `available_strategies(): StrategyCatalog`, `codes(): CodeCatalog`. They took
+  and returned JSON strings, so the shapes lived only in the README and a
+  program kept its own copy of them. A refused request is **thrown** as an
+  `Error` with `code` and the fields (`parameter`, `index`, `id`, `min`, `got`,
+  ...) as properties, instead of returned with `success: false`. Migration:
+  `JSON.parse(solve_2d(JSON.stringify(req)))` becomes `solve_2d(req)` inside a
+  `try`, reading `e.code` where `result.code` was read. A request passed as a
+  string is refused (`malformed_input`, `parameter: "request"`), and a NaN or
+  ±Infinity in it is refused as `value_not_finite` naming its path. The C ABI,
+  .NET and Python are unchanged.
+- A request read from a JavaScript or Python value names the field at fault
+  without a line and column — those pointed into JSON text the caller never
+  wrote (Rust: `api_types::from_value`).
+
 ## [0.22.0] - 2026-10-16
 
 ### Added
