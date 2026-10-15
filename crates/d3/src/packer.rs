@@ -382,6 +382,7 @@ impl Packer3D {
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
+        let start = Timer::now();
 
         let mut result = self.run_strategy(geometries, boundary, progress)?;
 
@@ -395,6 +396,9 @@ impl Packer3D {
         if boundary.has_gravity() || boundary.has_stability() {
             self.enforce_support(&mut result, geometries, boundary);
         }
+        // The solve's time, not its search's: a search starts after its
+        // greedy start, and the limit covers all of it.
+        result.computation_time_ms = start.elapsed_ms();
         Ok(result)
     }
 

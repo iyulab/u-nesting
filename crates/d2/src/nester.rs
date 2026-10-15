@@ -251,6 +251,21 @@ impl Nester2D {
         }
     }
 
+    /// The nester a multi-sheet solve fills its remaining sheets with once its
+    /// time limit is spent: bottom-left fill, unbounded (it ends when every
+    /// piece has been tried), observing the same cancellation flag.
+    fn constructive_fill(&self) -> Self {
+        Self {
+            config: Config {
+                strategy: Strategy::BottomLeftFill,
+                time_limit_ms: 0,
+                ..self.config.clone()
+            },
+            cancelled: self.cancelled.clone(),
+            nfp_cache: NfpCache::new(),
+        }
+    }
+
     /// The flag [`Solver::cancel`] sets, for a caller that cancels from
     /// where it cannot reach this solver (another thread, a progress callback).
     pub fn cancel_handle(&self) -> Arc<AtomicBool> {
@@ -1292,6 +1307,11 @@ impl Nester2D {
         let mut placed_total: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
 
+        // Once the time limit is spent, the sheets the remaining pieces still
+        // need are filled constructively: the limit bounds how hard each sheet
+        // is optimised, never whether a needed sheet is opened.
+        let mut budget_spent = false;
+
         while !remaining_geometries.is_empty() && strip_index < max_strips {
             if self.cancelled.load(Ordering::Relaxed) {
                 stop_reason = StopReason::Cancelled;
@@ -1302,22 +1322,25 @@ impl Nester2D {
             // left of it is shared among the sheets the remaining pieces need
             // at least (their area over the sheet's), so one sheet's search
             // does not spend the budget the others need.
-            let sheet_nester = match self.config.time_limit_ms {
+            let left = match self.config.time_limit_ms {
                 0 => None,
-                limit => match limit.saturating_sub(start.elapsed_ms()) {
-                    0 => {
-                        stop_reason = StopReason::TimeLimit;
-                        break;
-                    }
-                    left => {
-                        let remaining_area: f64 = remaining_geometries
-                            .iter()
-                            .map(|g| g.measure() * g.quantity() as f64)
-                            .sum();
-                        let sheets_ahead = (remaining_area / sheet_area).ceil().max(1.0);
-                        Some(self.with_time_limit((left as f64 / sheets_ahead).ceil() as u64))
-                    }
-                },
+                limit => Some(limit.saturating_sub(start.elapsed_ms())),
+            };
+            if left == Some(0) {
+                budget_spent = true;
+            }
+            let (sheet_nester, whole_budget) = match left {
+                _ if budget_spent => (Some(self.constructive_fill()), false),
+                None => (None, false),
+                Some(left) => {
+                    let remaining_area: f64 = remaining_geometries
+                        .iter()
+                        .map(|g| g.measure() * g.quantity() as f64)
+                        .sum();
+                    let sheets_ahead = (remaining_area / sheet_area).ceil().max(1.0);
+                    let share = (left as f64 / sheets_ahead).ceil() as u64;
+                    (Some(self.with_time_limit(share)), share >= left)
+                }
             };
 
             // Solve on current strip
@@ -1325,7 +1348,16 @@ impl Nester2D {
                 .as_ref()
                 .unwrap_or(self)
                 .run_strategy_reporting(&remaining_geometries, boundary, progress)?;
-            stop_reason = strip_result.stop_reason;
+            // A sheet that ran out of the whole of what was left spent the
+            // limit; the run then says so whatever the fill after it reports.
+            if whole_budget && strip_result.stop_reason == StopReason::TimeLimit {
+                budget_spent = true;
+            }
+            stop_reason = if budget_spent && strip_result.stop_reason != StopReason::Cancelled {
+                StopReason::TimeLimit
+            } else {
+                strip_result.stop_reason
+            };
 
             // Validate and filter out-of-bounds placements for this strip
             let strip_result = validate_and_filter_placements(
@@ -1385,7 +1417,8 @@ impl Nester2D {
             strip_index += 1;
 
             // A cancelled sheet ends the run; one that spent its share of the
-            // time limit leaves the rest to the sheets after it.
+            // time limit leaves the rest to the sheets after it, and one that
+            // spent all of it leaves the sheets after it to the constructive fill.
             if stop_reason == StopReason::Cancelled {
                 break;
             }
@@ -1481,6 +1514,7 @@ impl Nester2D {
 
         // Reset cancellation flag
         self.cancelled.store(false, Ordering::Relaxed);
+        let start = Timer::now();
 
         let initial_result =
             self.run_strategy_reporting(geometries, boundary, progress.as_ref())?;
@@ -1500,6 +1534,9 @@ impl Nester2D {
         // Authoritative instance-level request total (Σ quantity), recorded once
         // at the top-level entry point where `geometries` is the full request.
         result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
+        // The solve's time, not its search's: a search starts after its greedy
+        // start and ends before the floor, and the limit covers all of it.
+        result.computation_time_ms = start.elapsed_ms();
         Ok(result)
     }
 }

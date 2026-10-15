@@ -201,6 +201,81 @@ fn a_multi_sheet_solve_is_bounded_by_one_time_limit() {
     );
 }
 
+/// The time limit bounds how hard each sheet is optimised, not whether a
+/// needed sheet is opened. Pieces whose area fits one sheet can still need a
+/// second: the first sheet's search was given all of the limit, and with
+/// nothing left the run used to stop and report the overflow as unplaced
+/// instead of filling the second sheet.
+#[test]
+fn a_spent_time_limit_still_opens_the_sheets_the_pieces_need() {
+    let pieces = vec![
+        Geometry2D::rectangle("A", 300.0, 200.0).with_quantity(4),
+        Geometry2D::rectangle("B", 150.0, 100.0).with_quantity(6),
+        Geometry2D::rectangle("C", 400.0, 120.0).with_quantity(3),
+        Geometry2D::rectangle("D", 80.0, 80.0).with_quantity(10),
+    ]
+    .into_iter()
+    .map(|g| g.with_rotations_deg(vec![0.0, 90.0]))
+    .collect::<Vec<_>>();
+    let boundary = Boundary2D::rectangle(1000.0, 600.0);
+    let limit = 500;
+    for strategy in [
+        Strategy::GeneticAlgorithm,
+        Strategy::Brkga,
+        Strategy::SimulatedAnnealing,
+        Strategy::Gdrr,
+        Strategy::Alns,
+    ] {
+        let result = Nester2D::new(
+            Config::default()
+                .with_strategy(strategy)
+                .with_spacing(5.0)
+                .with_time_limit(limit)
+                .with_seed(1),
+        )
+        .solve_multi_strip(&pieces, &boundary)
+        .expect("solved");
+        assert!(
+            result.all_placed(),
+            "{strategy:?}: {} of 23 placed on {} sheet(s), unplaced {:?}",
+            result.placements.len(),
+            result.boundaries_used,
+            result.unplaced
+        );
+        assert!(result.boundaries_used >= 2, "{strategy:?}");
+        // The search was cut short, whatever the fill after it reports.
+        assert_eq!(result.stop_reason, StopReason::TimeLimit, "{strategy:?}");
+    }
+}
+
+/// A solve's `computation_time_ms` is the whole solve. A search's greedy start
+/// runs before it on the same limit, and the search used to report only its
+/// own part: a run cut short by a 1 s limit could say it took 150 ms.
+#[test]
+fn a_solve_reports_its_whole_time() {
+    let pieces = l_pieces(6);
+    let boundary = Boundary2D::rectangle(150.0, 150.0);
+    let limit = 600;
+    for strategy in [Strategy::Brkga, Strategy::Alns, Strategy::GeneticAlgorithm] {
+        let started = Instant::now();
+        let result = Nester2D::new(
+            Config::default()
+                .with_strategy(strategy)
+                .with_time_limit(limit)
+                .with_seed(1),
+        )
+        .solve(&pieces, &boundary)
+        .expect("solved");
+        let took = started.elapsed().as_millis() as u64;
+        assert_eq!(result.stop_reason, StopReason::TimeLimit, "{strategy:?}");
+        assert!(
+            result.computation_time_ms >= limit && result.computation_time_ms <= took,
+            "{strategy:?}: reported {} ms, limit {limit} ms, took {took} ms",
+            result.computation_time_ms
+        );
+    }
+}
+
 /// `max_iterations` is the budget of SA, GDRR and ALNS: a seeded run that ends
 /// on it, not on the clock, is the same run every time.
 #[test]

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.1] - 2026-10-15
+
+### Fixed
+
+- A multi-sheet solve whose time limit runs out still opens the sheets the
+  remaining pieces need. Since 0.21.0 the limit is shared among the sheets, and
+  when one sheet's search was given all that was left -- its pieces' area fits
+  one sheet, but their shapes need two -- the run stopped there and reported
+  the overflow as unplaced. Once the limit is spent, the remaining sheets are
+  filled by bottom-left fill (which ends when every piece has been tried), and
+  `stop_reason` is still `time_limit`: the limit bounds how hard each sheet is
+  optimised, not whether a needed sheet is opened.
+- `elapsed_ms` (`computation_time_ms`) is the whole solve. A search reported
+  only its own part, which starts after its greedy start on the same limit, so
+  a solve cut short by a 2 s limit could report `time_limit` after 150 ms.
+
 ## [0.21.0] - 2026-10-15
 
 ### Added
