@@ -236,7 +236,9 @@ catch (NestingException ex) when (ex.ErrorCode == "duplicate_id")
 ```
 
 The codes and their fields are listed in the npm package README's *Refusals* section;
-the .NET package reports the same ones. `parameter` is always the path of the value in
+the .NET package reports the same ones, and `UNestingInfo.Codes` returns them as data —
+`Codes(Refusals, Violations)`, every refusal code with its fields and every
+`LayoutViolation` code — read off the engine's own types. `parameter` is always the path of the value in
 the request -- `config.spacing`, `boundary.width`, `geometries[0].quantity`. A NaN or infinite number in a request cannot be
 written as JSON, so the client refuses it before calling the engine, with the reason
 `value_not_finite`: `Details` has `parameter`, the path to the value (or to the array

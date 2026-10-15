@@ -15,7 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "checkers"}]}` -- read off the engine's refusal and violation types, so a
   caller that translates codes can check its list against the package's rather
   than parse the README. Rust: `api_types::CodeCatalog::of_engine` and
-  `LayoutViolationResponse::checkers`.
+  `LayoutViolationResponse::checkers`. The same catalog over the C ABI
+  (`unesting_codes()`, allocated once — not freed), in .NET
+  (`UNestingInfo.Codes` → `Codes(Refusals, Violations)`) and in Python
+  (`codes()`).
 
 ### Fixed
 

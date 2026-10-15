@@ -336,6 +336,28 @@ pub extern "C" fn unesting_strategies() -> *const c_char {
         .as_ptr()
 }
 
+/// Returns every refusal `code` the library answers with (with the `details`
+/// fields beside it) and every violation `code` `unesting_check_2d` /
+/// `unesting_check_3d` report, as JSON:
+/// `{"refusals": [{"code", "fields"}], "violations": [{"code", "fields", "checkers"}]}`.
+///
+/// It is read off the engine's own refusal and violation types, so a caller
+/// that translates codes can check its list against the library's.
+///
+/// # Safety
+/// - The returned string is allocated once per process and must not be freed
+#[no_mangle]
+pub extern "C" fn unesting_codes() -> *const c_char {
+    static CATALOG: std::sync::OnceLock<CString> = std::sync::OnceLock::new();
+    CATALOG
+        .get_or_init(|| {
+            let json = serde_json::to_string(&CodeCatalog::of_engine())
+                .expect("a catalog of names serializes");
+            CString::new(json).expect("JSON has no interior NUL")
+        })
+        .as_ptr()
+}
+
 /// Solves a 2D nesting problem with progress callback.
 ///
 /// # Parameters
@@ -1118,6 +1140,18 @@ mod tests {
         assert_eq!(catalog, StrategyCatalog::of_build());
         // The same pointer every call: allocated once, never freed.
         assert_eq!(unesting_strategies(), unesting_strategies());
+    }
+
+    #[test]
+    fn codes_are_the_engine_catalog() {
+        let json = unsafe { CStr::from_ptr(unesting_codes()) }
+            .to_str()
+            .expect("UTF-8");
+        let catalog: CodeCatalog = serde_json::from_str(json).expect("a catalog");
+        assert_eq!(catalog, CodeCatalog::of_engine());
+        assert!(catalog.violations.iter().any(|v| v.code == "overlap"));
+        // The same pointer every call: allocated once, never freed.
+        assert_eq!(unesting_codes(), unesting_codes());
     }
 
     #[test]

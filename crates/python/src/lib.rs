@@ -38,7 +38,7 @@ use pyo3::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use u_nesting_core::api_types::{
-    from_json, ConfigRequest, RefusalDetails, Request2D, Request3D, StrategyCatalog,
+    from_json, CodeCatalog, ConfigRequest, RefusalDetails, Request2D, Request3D, StrategyCatalog,
 };
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
@@ -510,6 +510,19 @@ fn available_strategies(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
     py.import("json")?.call_method1("loads", (catalog,))
 }
 
+/// Every refusal ``code`` the functions answer with (with the ``details``
+/// fields beside it) and every violation ``code`` the checkers report:
+/// ``{"refusals": [{"code", "fields"}], "violations": [{"code", "fields",
+/// "checkers"}]}``. It is read off the engine's own refusal and violation
+/// types, so a caller that translates codes can check its list against the
+/// package's.
+#[pyfunction]
+fn codes(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
+    let catalog = serde_json::to_string(&CodeCatalog::of_engine())
+        .map_err(|e| PyValueError::new_err(format!("Serialization error: {e}")))?;
+    py.import("json")?.call_method1("loads", (catalog,))
+}
+
 /// U-Nesting Python module.
 #[pymodule]
 fn u_nesting(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -517,6 +530,7 @@ fn u_nesting(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_3d, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(available_strategies, m)?)?;
+    m.add_function(wrap_pyfunction!(codes, m)?)?;
     Ok(())
 }
 

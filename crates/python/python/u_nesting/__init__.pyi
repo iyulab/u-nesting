@@ -144,3 +144,28 @@ def available_strategies() -> StrategyCatalog:
     that change the chosen strategy's run.
     """
     ...
+
+class RefusalCode(TypedDict):
+    """A refusal ``code`` and the ``details`` fields that can come with it."""
+    code: str
+    fields: List[str]
+
+class ViolationCode(TypedDict):
+    """A checker violation ``code``, its fields, and the checkers reporting it."""
+    code: str
+    fields: List[str]
+    checkers: List[str]
+
+class Codes(TypedDict):
+    """One shape for every engine package's vocabulary."""
+    refusals: List[RefusalCode]
+    violations: List[ViolationCode]
+
+def codes() -> Codes:
+    """Every refusal ``code`` (with its ``details`` fields) and every checker violation ``code``.
+
+    ``{"refusals": [{"code", "fields"}], "violations": [{"code", "fields", "checkers"}]}``
+    -- read off the engine's own refusal and violation types, so a caller that
+    translates codes can check its list against the package's.
+    """
+    ...

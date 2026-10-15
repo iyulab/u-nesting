@@ -34,7 +34,7 @@ re-bundling services fail on the same import. Use a bundler or Node.
 | `check_3d(json: string): string` | Check a 3D packing against its problem |
 | `version(): string` | Get API version |
 | `available_strategies(): string` | The strategies each dimension offers and the settings each reads |
-| `codes(): string` | Every refusal `code` (with its `details` fields) and every `check_2d` / `check_3d` violation `code`: `{"refusals": [{code, fields}], "violations": [{code, fields, checkers}]}` — read off the engine's own types, the same codes the tables below explain |
+| `codes(): string` | Every refusal `code` (with its `details` fields) and every `check_2d` / `check_3d` violation `code`: `{"refusals": [{code, fields}], "violations": [{code, fields, checkers}]}` — read off the engine's own types, the same codes the tables below explain (C: `unesting_codes()` · .NET: `UNestingInfo.Codes` · Python: `codes()`) |
 
 All functions use **JSON string I/O**.
 

@@ -132,6 +132,12 @@ internal static class NativeLibrary
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr unesting_strategies();
 
+    /// <summary>
+    /// Returns the code catalog as JSON. Allocated once by the library; not freed.
+    /// </summary>
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern IntPtr unesting_codes();
+
     #endregion
 
     #region Helper Methods

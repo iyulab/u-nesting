@@ -242,6 +242,21 @@ assert "target_utilization" in reads["ga"]
 assert "target_utilization" not in reads["nfp"]
 ```
 
+### `codes() -> dict`
+
+Every refusal `code` the functions answer with (with the `details` fields that can come
+with it) and every violation `code` the checkers report:
+`{"refusals": [{"code", "fields"}], "violations": [{"code", "fields", "checkers"}]}`. It is
+read off the engine's own refusal and violation types, so a caller that translates codes
+can check its list against the package's:
+
+```python
+import u_nesting
+
+known = {r["code"] for r in u_nesting.codes()["refusals"]}
+assert "parameter_out_of_range" in known
+```
+
 ## Strategy Selection Guide
 
 | Strategy | Speed | Quality | Best For |

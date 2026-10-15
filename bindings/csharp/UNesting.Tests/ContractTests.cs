@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using UNesting.Models;
 using Xunit;
@@ -229,6 +230,23 @@ public class ContractTests
         Assert.True(catalog.Reads(Strategy2D.GeneticAlgorithm, NestingSetting.TargetUtilization));
         Assert.False(catalog.Reads(Strategy2D.NfpGuided, NestingSetting.TargetUtilization));
         Assert.False(catalog.Reads(Strategy3D.BottomLeftFill, NestingSetting.MultiSheet));
+    }
+
+    [Fact]
+    public void The_code_catalog_carries_exactly_what_the_engine_sent()
+    {
+        var raw = UNestingInfo.CodesJson;
+        var written = JsonSerializer.SerializeToNode(UNestingInfo.Codes, NestingJson.Default.Codes);
+        var difference = Difference(JsonNode.Parse(raw), written, "$");
+        Assert.True(difference is null, $"{difference}\nengine: {raw}\nrecord: {written?.ToJsonString()}");
+
+        // Every violation the engine names has a LayoutViolation type, and no type is missing one.
+        var typed = typeof(LayoutViolation)
+            .GetCustomAttributes(typeof(JsonDerivedTypeAttribute), false)
+            .Cast<JsonDerivedTypeAttribute>()
+            .Select(a => (string)a.TypeDiscriminator!)
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(UNestingInfo.Codes.Violations.Select(v => v.Code).Order(StringComparer.Ordinal), typed);
     }
 
     [Fact]
