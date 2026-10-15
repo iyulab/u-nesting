@@ -87,8 +87,8 @@ Optimization results using different algorithms on the same dataset (50 pieces, 
 
 ```toml
 [dependencies]
-u-nesting = "0.21"                                   # 2D + 3D (default features)
-u-nesting = { version = "0.21", default-features = false, features = ["d2"] }  # 2D only
+u-nesting = "0.22"                                   # 2D + 3D (default features)
+u-nesting = { version = "0.22", default-features = false, features = ["d2"] }  # 2D only
 ```
 
 Features: `d2` and `d3` (default) select the dimensions, `cutting` adds cutting
