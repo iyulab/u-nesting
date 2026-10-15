@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `codes()`: every refusal `code` (with the `details` fields that can come with
+  it) and every `check_2d` / `check_3d` violation `code`, as data --
+  `{"refusals": [{"code", "fields"}], "violations": [{"code", "fields",
+  "checkers"}]}` -- read off the engine's refusal and violation types, so a
+  caller that translates codes can check its list against the package's rather
+  than parse the README. Rust: `api_types::CodeCatalog::of_engine` and
+  `LayoutViolationResponse::checkers`.
+
+### Fixed
+
+- The npm README's refusal table lists `value_not_finite` (sent by the Python
+  binding); a test keeps the tables and `codes()` equal.
+
 ## [0.21.1] - 2026-10-15
 
 ### Fixed

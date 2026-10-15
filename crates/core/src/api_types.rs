@@ -59,6 +59,82 @@ impl StrategyCatalog {
     }
 }
 
+/// A refusal reason: the `code` a refused response carries and the `details`
+/// fields that can come with it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RefusalCode {
+    /// The stable reason.
+    pub code: String,
+    /// The `details` fields a refusal with this code can carry.
+    pub fields: Vec<String>,
+}
+
+/// A violation the checkers report: its `code`, the fields beside it, and the
+/// functions that report it (`check_2d`, `check_3d`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ViolationCode {
+    /// The stable name of the violation.
+    pub code: String,
+    /// The fields a violation with this code carries.
+    pub fields: Vec<String>,
+    /// The checkers that report it.
+    pub checkers: Vec<String>,
+}
+
+/// What the engine can answer with besides a result: every refusal `code` and
+/// every checker violation `code`. On the wire:
+/// `{"refusals": [{"code", "fields"}], "violations": [{"code", "fields", "checkers"}]}`.
+/// It is read off one value of each [`Error`] and [`LayoutViolationResponse`],
+/// so it lists what the engine answers with.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CodeCatalog {
+    /// Every refusal reason.
+    pub refusals: Vec<RefusalCode>,
+    /// Every checker violation.
+    pub violations: Vec<ViolationCode>,
+}
+
+impl CodeCatalog {
+    /// The engine's vocabularies.
+    pub fn of_engine() -> Self {
+        let keys = |value: serde_json::Value| -> Vec<String> {
+            value
+                .as_object()
+                .expect("an object")
+                .keys()
+                .filter(|k| *k != "code")
+                .cloned()
+                .collect()
+        };
+        Self {
+            refusals: Error::examples()
+                .iter()
+                .map(|e| RefusalCode {
+                    code: e.code().to_string(),
+                    fields: keys(
+                        serde_json::to_value(RefusalDetails::of(e)).expect("details serialize"),
+                    ),
+                })
+                .collect(),
+            violations: LayoutViolationResponse::examples()
+                .into_iter()
+                .map(|v| {
+                    let checkers = v.checkers().iter().map(|c| c.to_string()).collect();
+                    let value = serde_json::to_value(&v).expect("a violation serializes");
+                    ViolationCode {
+                        code: value["code"].as_str().expect("tagged").to_string(),
+                        fields: keys(value),
+                        checkers,
+                    }
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Request for 2D nesting.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -770,6 +846,99 @@ pub enum LayoutViolationResponse {
     WronglyUnplaced { id: String },
 }
 
+impl LayoutViolationResponse {
+    /// One of each violation, for the published vocabulary
+    /// ([`CodeCatalog`]): its code and fields are read off these.
+    fn examples() -> Vec<Self> {
+        let s = String::new;
+        vec![
+            Self::UnknownGeometry {
+                placement: 0,
+                id: s(),
+            },
+            Self::InstanceOutOfRange {
+                placement: 0,
+                id: s(),
+                instance: 0,
+                quantity: 0,
+            },
+            Self::InstanceRepeated {
+                placement: 0,
+                id: s(),
+                instance: 0,
+            },
+            Self::RotationNotAllowed {
+                placement: 0,
+                id: s(),
+                rotation: 0.0,
+            },
+            Self::FlipNotAllowed {
+                placement: 0,
+                id: s(),
+            },
+            Self::OrientationNotAllowed {
+                placement: 0,
+                id: s(),
+                orientation: s(),
+            },
+            Self::BinNotAllowed {
+                placement: 0,
+                bin: 0,
+            },
+            Self::MassExceeded {
+                mass: 0.0,
+                max_mass: 0.0,
+            },
+            Self::Unsupported {
+                placement: 0,
+                id: s(),
+            },
+            Self::SheetNotAllowed {
+                placement: 0,
+                sheet: 0,
+            },
+            Self::OutsideBoundary {
+                placement: 0,
+                id: s(),
+            },
+            Self::Overlap {
+                placement: 0,
+                other: 0,
+            },
+            Self::TooClose {
+                placement: 0,
+                other: 0,
+                distance: 0.0,
+                spacing: 0.0,
+            },
+            Self::MissingFromUnplaced { id: s() },
+            Self::WronglyUnplaced { id: s() },
+        ]
+    }
+
+    /// The checkers that report this violation.
+    pub fn checkers(&self) -> &'static [&'static str] {
+        const BOTH: &[&str] = &["check_2d", "check_3d"];
+        match self {
+            Self::RotationNotAllowed { .. }
+            | Self::FlipNotAllowed { .. }
+            | Self::SheetNotAllowed { .. } => &["check_2d"],
+            Self::OrientationNotAllowed { .. }
+            | Self::BinNotAllowed { .. }
+            | Self::MassExceeded { .. }
+            | Self::Unsupported { .. } => &["check_3d"],
+            Self::UnknownGeometry { .. }
+            | Self::InstanceOutOfRange { .. }
+            | Self::InstanceRepeated { .. }
+            | Self::OutsideBoundary { .. }
+            | Self::Overlap { .. }
+            | Self::TooClose { .. }
+            | Self::MissingFromUnplaced { .. }
+            | Self::WronglyUnplaced { .. } => BOTH,
+        }
+    }
+}
+
 /// Whether a layout or packing keeps every rule of its problem, and each rule
 /// it breaks; or, with `success: false`, why the request was refused.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1304,6 +1473,126 @@ impl ConfigRequest {
         }
         config.validate()?;
         Ok(config)
+    }
+}
+
+#[cfg(test)]
+mod code_catalog_tests {
+    use super::*;
+
+    /// Every reason and every violation has its example: a new variant fails
+    /// to compile here until it has one, so the catalog cannot leave it out.
+    #[test]
+    fn the_catalog_covers_every_reason_and_violation() {
+        let mut reasons = [false; 11];
+        for e in Error::examples() {
+            let i = match e {
+                Error::OutOfRange { .. } => 0,
+                Error::EmptyInput { .. } => 1,
+                Error::InvalidOption { .. } => 2,
+                Error::UnknownOption { .. } => 3,
+                Error::MalformedInput { .. } => 4,
+                Error::NotFinite { .. } => 5,
+                Error::Cancelled => 6,
+                Error::InvalidGeometry { .. } => 7,
+                Error::DuplicateId { .. } => 8,
+                Error::InvalidBoundary { .. } => 9,
+                Error::Internal(_) => 10,
+            };
+            assert!(!reasons[i], "two examples of reason {i}");
+            reasons[i] = true;
+        }
+        assert!(reasons.iter().all(|r| *r), "a reason without an example");
+
+        let mut violations = [false; 15];
+        for v in LayoutViolationResponse::examples() {
+            let i = match v {
+                LayoutViolationResponse::UnknownGeometry { .. } => 0,
+                LayoutViolationResponse::InstanceOutOfRange { .. } => 1,
+                LayoutViolationResponse::InstanceRepeated { .. } => 2,
+                LayoutViolationResponse::RotationNotAllowed { .. } => 3,
+                LayoutViolationResponse::FlipNotAllowed { .. } => 4,
+                LayoutViolationResponse::OrientationNotAllowed { .. } => 5,
+                LayoutViolationResponse::BinNotAllowed { .. } => 6,
+                LayoutViolationResponse::MassExceeded { .. } => 7,
+                LayoutViolationResponse::Unsupported { .. } => 8,
+                LayoutViolationResponse::SheetNotAllowed { .. } => 9,
+                LayoutViolationResponse::OutsideBoundary { .. } => 10,
+                LayoutViolationResponse::Overlap { .. } => 11,
+                LayoutViolationResponse::TooClose { .. } => 12,
+                LayoutViolationResponse::MissingFromUnplaced { .. } => 13,
+                LayoutViolationResponse::WronglyUnplaced { .. } => 14,
+            };
+            assert!(!violations[i], "two examples of violation {i}");
+            violations[i] = true;
+        }
+        assert!(
+            violations.iter().all(|v| *v),
+            "a violation without an example"
+        );
+
+        let catalog = CodeCatalog::of_engine();
+        let range = &catalog.refusals[0];
+        assert_eq!(range.code, "parameter_out_of_range");
+        // serde_json orders an object's keys by name.
+        assert_eq!(
+            range.fields,
+            [
+                "exclusive_max",
+                "exclusive_min",
+                "got",
+                "id",
+                "max",
+                "min",
+                "parameter"
+            ]
+        );
+        let duplicate = catalog
+            .refusals
+            .iter()
+            .find(|r| r.code == "duplicate_id")
+            .expect("listed");
+        assert_eq!(duplicate.fields, ["first", "id", "index", "parameter"]);
+        let close = catalog
+            .violations
+            .iter()
+            .find(|v| v.code == "too_close")
+            .expect("listed");
+        assert_eq!(close.fields, ["distance", "other", "placement", "spacing"]);
+        assert_eq!(close.checkers, ["check_2d", "check_3d"]);
+    }
+
+    /// The npm README's code tables list exactly the published vocabulary, so
+    /// the tables and `codes()` cannot drift apart.
+    #[test]
+    fn the_npm_readme_documents_every_code_and_no_other() {
+        let readme = include_str!("../../../npm/README.md");
+        let mut documented = std::collections::BTreeSet::new();
+        let mut in_table = false;
+        for line in readme.lines() {
+            if line.starts_with("| `code` |") {
+                in_table = true;
+                continue;
+            }
+            if !line.starts_with('|') {
+                in_table = false;
+                continue;
+            }
+            if in_table && !line.starts_with("|---") {
+                let first = line.split('|').nth(1).expect("a cell");
+                for code in first.split('·') {
+                    documented.insert(code.trim().trim_matches('`').to_string());
+                }
+            }
+        }
+        let catalog = CodeCatalog::of_engine();
+        let published: std::collections::BTreeSet<String> = catalog
+            .refusals
+            .iter()
+            .map(|r| r.code.clone())
+            .chain(catalog.violations.iter().map(|v| v.code.clone()))
+            .collect();
+        assert_eq!(documented, published);
     }
 }
 

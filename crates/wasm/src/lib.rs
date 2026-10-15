@@ -13,6 +13,7 @@
 //! - [`check_2d`] — Check a 2D layout against its problem
 //! - [`check_3d`] — Check a 3D packing against its problem
 //! - [`available_strategies`] — The strategies each dimension offers and the settings each reads
+//! - [`codes`] — Every refusal and checker violation `code`
 
 use u_nesting_core::api_types::*;
 use u_nesting_core::geometry::Boundary;
@@ -72,6 +73,18 @@ pub fn optimize_cutting_path(request_json: &str) -> String {
 #[wasm_bindgen]
 pub fn version() -> String {
     API_VERSION.to_string()
+}
+
+/// Every refusal `code` a function of this package answers with, with the
+/// `details` fields that can come with it, and every violation `code`
+/// `check_2d` / `check_3d` report:
+/// `{"refusals": [{"code", "fields"}], "violations": [{"code", "fields", "checkers"}]}`.
+///
+/// It is read off the engine's own refusal and violation types, so a caller
+/// that translates codes can check its list against the package's.
+#[wasm_bindgen]
+pub fn codes() -> String {
+    serde_json::to_string(&CodeCatalog::of_engine()).expect("a catalog of names serializes")
 }
 
 /// The strategies each dimension offers in this build and the settings each

@@ -34,6 +34,7 @@ re-bundling services fail on the same import. Use a bundler or Node.
 | `check_3d(json: string): string` | Check a 3D packing against its problem |
 | `version(): string` | Get API version |
 | `available_strategies(): string` | The strategies each dimension offers and the settings each reads |
+| `codes(): string` | Every refusal `code` (with its `details` fields) and every `check_2d` / `check_3d` violation `code`: `{"refusals": [{code, fields}], "violations": [{code, fields, checkers}]}` — read off the engine's own types, the same codes the tables below explain |
 
 All functions use **JSON string I/O**.
 
@@ -498,6 +499,7 @@ interface RefusalDetails {
 | `empty_input` | `parameter` | A list with nothing in it: `geometries` (nothing to place or pack) |
 | `unknown_option` | `parameter`, `got`, `expected` | A name nobody knows: `config.strategy`, a geometry's `orientation`, a cut direction (`cutting_config.exterior_direction`, ...), the C ABI's `mode` |
 | `invalid_option` | `parameter` | A setting that cannot be used here: a `config.strategy` this build or this dimension does not offer, `config.multi_sheet` in a 3D request (3D has no sheets), a failed `solve_result` given to cut |
+| `value_not_finite` | `parameter`, `id`, `index` | A NaN or ±Infinity where a number belongs — only a binding whose values can carry one (Python) sends it; a JSON request has none |
 | `invalid_geometry` | `id` (when known) | A polygon with fewer than 3 vertices, self-intersecting or degenerate; a placement naming no geometry |
 | `duplicate_id` | `parameter`, `id`, `first`, `index` | Two geometries share an id |
 | `invalid_boundary` | `parameter` (when one field is at fault) | A boundary of a shape the engine cannot place into: both or neither of size and polygon, a polygon with fewer than 3 vertices, of no area or crossing itself |

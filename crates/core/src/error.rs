@@ -230,6 +230,60 @@ pub enum Error {
 }
 
 impl Error {
+    /// One of each reason, every optional value present -- the published
+    /// vocabulary ([`crate::api_types::CodeCatalog`]) reads each code and the
+    /// fields that can come with it off these.
+    pub(crate) fn examples() -> Vec<Self> {
+        let s = String::new;
+        vec![
+            Error::OutOfRange {
+                parameter: s(),
+                id: Some(s()),
+                min: Some(0.0),
+                max: Some(0.0),
+                exclusive_min: Some(0.0),
+                exclusive_max: Some(0.0),
+                got: 0.0,
+                range: s(),
+            },
+            Error::EmptyInput { parameter: s() },
+            Error::InvalidOption {
+                parameter: s(),
+                message: s(),
+            },
+            Error::UnknownOption {
+                parameter: s(),
+                got: s(),
+                expected: vec![],
+            },
+            Error::MalformedInput {
+                parameter: Some(s()),
+                message: s(),
+            },
+            Error::NotFinite {
+                parameter: s(),
+                id: Some(s()),
+                index: Some(0),
+                got: f64::NAN,
+            },
+            Error::Cancelled,
+            Error::InvalidGeometry {
+                id: Some(s()),
+                message: s(),
+            },
+            Error::DuplicateId {
+                id: s(),
+                first: 0,
+                second: 0,
+            },
+            Error::InvalidBoundary {
+                parameter: Some(s()),
+                message: s(),
+            },
+            Error::Internal(s()),
+        ]
+    }
+
     /// The stable name of the reason: `parameter_out_of_range`,
     /// `empty_input`, `invalid_option`, `unknown_option`, `malformed_input`,
     /// `value_not_finite`, `invalid_geometry`, `duplicate_id`,
