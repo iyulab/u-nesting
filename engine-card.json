@@ -10,12 +10,12 @@
   },
   "surfaces": [
     { "kind": "crate", "name": "u-nesting", "package_version": "0.22.0", "engine_version": "0.22.0" },
-    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.22.0", "engine_version": "0.22.0", "wasm": true, "note": "JSON string in, JSON string out. Bundler and Node targets; no bundler-less browser build." },
+    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.22.0", "engine_version": "0.22.0", "wasm": true, "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build." },
     { "kind": "pypi", "name": "u-nesting", "package_version": "0.22.0", "engine_version": "0.22.0" },
     { "kind": "nuget", "name": "UNesting", "package_version": "0.22.0", "engine_version": "0.22.0", "note": "C ABI wrapper; versioned with the crate." }
   ],
   "errors": {
-    "shape": "A refused request answers with success false, a stable 'code' and a 'details' object holding the fields listed for that code (JSON over WebAssembly and the C ABI, a dict in Python, nothing raised); the .NET binding raises NestingException carrying the same code and details.",
+    "shape": "A refused request answers with success false, a stable 'code' and a 'details' object holding the fields listed for that code (JSON over the C ABI, a dict in Python, nothing raised); WebAssembly throws an Error carrying the same code with the details fields as its properties; the .NET binding raises NestingException carrying the same code and details.",
     "codes": [
       { "code": "parameter_out_of_range", "fields": ["exclusive_max", "exclusive_min", "got", "id", "max", "min", "parameter"], "meaning": "A setting outside its range; min/max are closed bounds, exclusive_min/exclusive_max open ones." },
       { "code": "empty_input", "fields": ["parameter"], "meaning": "A list with nothing in it: no geometries." },
