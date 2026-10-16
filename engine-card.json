@@ -4,15 +4,15 @@
   "engine": {
     "id": "u-nesting",
     "summary": "2D nesting of polygons on sheets and 3D packing of boxes in a container, by constructive fills and metaheuristic searches, with checkers that say whether a layout keeps its problem's rules.",
-    "version": "0.23.0",
+    "version": "0.24.0",
     "license": "MIT",
     "repository": "https://github.com/iyulab/U-Nesting"
   },
   "surfaces": [
-    { "kind": "crate", "name": "u-nesting", "package_version": "0.23.0", "engine_version": "0.23.0" },
-    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.23.0", "engine_version": "0.23.0", "wasm": true, "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build." },
-    { "kind": "pypi", "name": "u-nesting", "package_version": "0.23.0", "engine_version": "0.23.0" },
-    { "kind": "nuget", "name": "UNesting", "package_version": "0.23.0", "engine_version": "0.23.0", "note": "C ABI wrapper; versioned with the crate." }
+    { "kind": "crate", "name": "u-nesting", "package_version": "0.24.0", "engine_version": "0.24.0" },
+    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.24.0", "engine_version": "0.24.0", "wasm": true, "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build." },
+    { "kind": "pypi", "name": "u-nesting", "package_version": "0.24.0", "engine_version": "0.24.0" },
+    { "kind": "nuget", "name": "UNesting", "package_version": "0.24.0", "engine_version": "0.24.0", "note": "C ABI wrapper; versioned with the crate." }
   ],
   "errors": {
     "shape": "A refused request answers with success false, a stable 'code' and a 'details' object holding the fields listed for that code (JSON over the C ABI, a dict in Python, nothing raised); WebAssembly throws an Error carrying the same code with the details fields as its properties; the .NET binding raises NestingException carrying the same code and details.",

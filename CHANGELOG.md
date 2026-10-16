@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0] - 2026-10-16
+
+`UNesting` and the PyPI package are 0.24.0.
+
 ### Fixed
 
 - 3D `brkga` tries every item. Its decoder ranked all 2N keys — the
