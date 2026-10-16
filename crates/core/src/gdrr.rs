@@ -182,17 +182,6 @@ pub enum RuinType {
     Worst,
 }
 
-/// Types of recreate operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RecreateType {
-    /// Best-fit decreasing by area/volume
-    BestFit,
-    /// Bottom-left fill heuristic
-    BottomLeftFill,
-    /// NFP-guided placement (2D only)
-    NfpGuided,
-}
-
 /// A removed item during ruin phase.
 #[derive(Debug, Clone)]
 pub struct RuinedItem {
@@ -224,8 +213,6 @@ pub struct RecreateResult {
     pub placed_count: usize,
     /// Number of items that could not be placed
     pub unplaced_count: usize,
-    /// Type of recreate operator used
-    pub recreate_type: RecreateType,
 }
 
 /// Progress information for GDRR callbacks.
@@ -319,26 +306,9 @@ pub trait GdrrProblem {
         rng: &mut rand::rngs::StdRng,
     ) -> RuinResult;
 
-    /// Apply best-fit recreate operator.
-    fn recreate_best_fit(
-        &mut self,
-        solution: &mut Self::Solution,
-        ruined: &RuinResult,
-    ) -> RecreateResult;
-
-    /// Apply BLF recreate operator.
-    fn recreate_blf(
-        &mut self,
-        solution: &mut Self::Solution,
-        ruined: &RuinResult,
-    ) -> RecreateResult;
-
-    /// Apply NFP-guided recreate operator (2D only).
-    fn recreate_nfp(
-        &mut self,
-        solution: &mut Self::Solution,
-        ruined: &RuinResult,
-    ) -> RecreateResult;
+    /// Re-insert the unplaced items: largest first, each at its bottom-left
+    /// feasible position.
+    fn recreate(&mut self, solution: &mut Self::Solution, ruined: &RuinResult) -> RecreateResult;
 
     /// Calculate placement score for an item (for worst ruin).
     fn placement_score(&self, solution: &Self::Solution, item_index: usize) -> f64;
@@ -465,19 +435,8 @@ impl GdrrRunner {
                 RuinType::Worst => problem.ruin_worst(&mut candidate, ruin_ratio, &mut rng),
             };
 
-            // Select recreate operator (cycle through them for diversity)
-            let recreate_type = match iteration % 3 {
-                0 => RecreateType::BestFit,
-                1 => RecreateType::BottomLeftFill,
-                _ => RecreateType::NfpGuided,
-            };
-
-            // Apply recreate
-            let _recreate_result = match recreate_type {
-                RecreateType::BestFit => problem.recreate_best_fit(&mut candidate, &ruin_result),
-                RecreateType::BottomLeftFill => problem.recreate_blf(&mut candidate, &ruin_result),
-                RecreateType::NfpGuided => problem.recreate_nfp(&mut candidate, &ruin_result),
-            };
+            // Recreate
+            let _recreate_result = problem.recreate(&mut candidate, &ruin_result);
 
             let candidate_fitness = candidate.fitness();
 
@@ -619,18 +578,6 @@ mod tests {
     }
 
     #[test]
-    fn test_recreate_type_variants() {
-        let types = [
-            RecreateType::BestFit,
-            RecreateType::BottomLeftFill,
-            RecreateType::NfpGuided,
-        ];
-        assert_eq!(types.len(), 3);
-        assert_eq!(RecreateType::BestFit, RecreateType::BestFit);
-        assert_ne!(RecreateType::BestFit, RecreateType::BottomLeftFill);
-    }
-
-    #[test]
     fn test_ruined_item() {
         let item = RuinedItem {
             index: 5,
@@ -678,12 +625,10 @@ mod tests {
         let result = RecreateResult {
             placed_count: 8,
             unplaced_count: 2,
-            recreate_type: RecreateType::BestFit,
         };
 
         assert_eq!(result.placed_count, 8);
         assert_eq!(result.unplaced_count, 2);
-        assert_eq!(result.recreate_type, RecreateType::BestFit);
     }
 
     #[test]
@@ -792,7 +737,7 @@ mod tests {
             }
         }
 
-        fn recreate_best_fit(
+        fn recreate(
             &mut self,
             solution: &mut MockSolution,
             _ruined: &RuinResult,
@@ -803,35 +748,6 @@ mod tests {
             RecreateResult {
                 placed_count: solution.placed,
                 unplaced_count: 0,
-                recreate_type: RecreateType::BestFit,
-            }
-        }
-
-        fn recreate_blf(
-            &mut self,
-            solution: &mut MockSolution,
-            _ruined: &RuinResult,
-        ) -> RecreateResult {
-            solution.fitness -= self.improvement_per_iteration * 0.5;
-            solution.fitness = solution.fitness.max(0.1);
-            RecreateResult {
-                placed_count: solution.placed,
-                unplaced_count: 0,
-                recreate_type: RecreateType::BottomLeftFill,
-            }
-        }
-
-        fn recreate_nfp(
-            &mut self,
-            solution: &mut MockSolution,
-            _ruined: &RuinResult,
-        ) -> RecreateResult {
-            solution.fitness -= self.improvement_per_iteration * 0.8;
-            solution.fitness = solution.fitness.max(0.1);
-            RecreateResult {
-                placed_count: solution.placed,
-                unplaced_count: 0,
-                recreate_type: RecreateType::NfpGuided,
             }
         }
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking** The ALNS and GDRR operator sets name what they do. GDRR's three
+  recreate operators (`recreate_best_fit`, `recreate_blf`, `recreate_nfp`)
+  all ran the same largest-first bottom-left fill, so cycling through them
+  added nothing: `GdrrProblem` has one `recreate`, and `RecreateType` and
+  `RecreateResult::recreate_type` are removed. ALNS's `Related` removal was
+  `Shaw` under another name, and its `BottomLeftFill` and `Regret` repairs were
+  `Greedy` (`Regret` was not even offered): `DestroyOperatorId::Related`,
+  `RepairOperatorId::BottomLeftFill` and `RepairOperatorId::Regret` are
+  removed, so the adaptive weights choose among operators that differ.
+- **Breaking** `PermutationChromosome` is removed: no strategy used it (2D and
+  3D carry their own chromosomes), and it drew rotation genes from one count
+  for every item, the fault fixed in 0.24.0 for the real ones.
+- The user guide describes GDRR's acceptance (late acceptance hill climbing)
+  and both searches' operators as they are.
+
 ## [0.24.0] - 2026-10-16
 
 `UNesting` and the PyPI package are 0.24.0.

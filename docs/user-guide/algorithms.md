@@ -239,10 +239,13 @@ Hybrid algorithm that iteratively destroys and rebuilds parts of the solution.
 
 **Algorithm**:
 1. Generate initial solution
-2. **Ruin**: Remove subset of placements based on goal (worst utilization, random, radial)
-3. **Recreate**: Re-insert removed items using placement heuristic
-4. Accept if improved
-5. Repeat with adaptive ruin size
+2. **Ruin**: Remove a subset of placements — random, a spatial cluster, or the
+   worst-placed items
+3. **Recreate**: Re-insert the removed items, largest first, each at its
+   bottom-left position
+4. Accept by late acceptance hill climbing (a candidate no worse than the
+   solution a fixed number of iterations ago)
+5. Repeat
 
 **Parameters**: `time_limit_ms` and `seed` (2D only). It runs at most 1000
 iterations, ruining 10-30% of the layout each time.
@@ -272,14 +275,12 @@ Advanced metaheuristic with multiple destroy/repair operators selected adaptivel
 
 **Destroy Operators**:
 - Random removal
-- Worst removal (by utilization contribution)
-- Related removal (nearby items)
-- Radial removal (from random center)
+- Worst removal (by placement score)
+- Shaw removal (items related to a seed — spatially nearby)
 
 **Repair Operators**:
-- Greedy insertion (best position)
-- Regret insertion (maximize opportunity cost)
-- Random insertion
+- Greedy: largest item first, each at its bottom-left position
+- Random: the removed items in random order, each at its bottom-left position
 
 **Algorithm**:
 1. Initialize with constructive heuristic

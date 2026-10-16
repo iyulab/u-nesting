@@ -74,12 +74,10 @@ pub use brkga::{
 };
 pub use error::{Error, Result};
 pub use exact::{ExactConfig, ExactResult, SolutionStatus};
-pub use ga::{
-    GaConfig, GaProblem, GaProgress, GaResult, GaRunner, Individual, PermutationChromosome,
-};
+pub use ga::{GaConfig, GaProblem, GaProgress, GaResult, GaRunner, Individual};
 pub use gdrr::{
     GdrrConfig, GdrrProblem, GdrrProgress, GdrrResult, GdrrRunner, GdrrSolution, RecreateResult,
-    RecreateType, RuinResult, RuinType, RuinedItem,
+    RuinResult, RuinType, RuinedItem,
 };
 pub use geometry::{
     check_quantity, Boundary, Boundary2DExt, Boundary3DExt, Geometry, Geometry2DExt, Geometry3DExt,

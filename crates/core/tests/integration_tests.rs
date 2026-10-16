@@ -1,6 +1,6 @@
 //! Integration tests for u-nesting-core.
 
-use u_nesting_core::ga::{GaConfig, PermutationChromosome};
+use u_nesting_core::ga::GaConfig;
 use u_nesting_core::geometry::RotationConstraint;
 use u_nesting_core::placement::{Placement, PlacementStats};
 use u_nesting_core::result::{SolveResult, StopReason};
@@ -232,7 +232,6 @@ mod rotation_constraint_tests {
 
 mod ga_tests {
     use super::*;
-    use rand::prelude::*;
 
     #[test]
     fn test_ga_config_builder() {
@@ -265,82 +264,6 @@ mod ga_tests {
             .with_mutation_rate(f64::NAN)
             .validate()
             .is_err());
-    }
-
-    #[test]
-    fn test_permutation_chromosome_validity() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let chromosome = PermutationChromosome::random_with_options(20, 4, &mut rng);
-
-        // Check it's a valid permutation
-        assert_eq!(chromosome.genes.len(), 20);
-        let mut sorted = chromosome.genes.clone();
-        sorted.sort();
-        assert_eq!(sorted, (0..20).collect::<Vec<_>>());
-
-        // Check rotations are valid
-        assert_eq!(chromosome.rotations.len(), 20);
-        for r in &chromosome.rotations {
-            assert!(*r < 4);
-        }
-    }
-
-    #[test]
-    fn test_permutation_crossover_validity() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let parent1 = PermutationChromosome::random_with_options(15, 6, &mut rng);
-        let parent2 = PermutationChromosome::random_with_options(15, 6, &mut rng);
-
-        // Perform multiple crossovers to ensure robustness
-        for _ in 0..100 {
-            let child = parent1.order_crossover(&parent2, &mut rng);
-
-            // Child must be a valid permutation
-            let mut sorted = child.genes.clone();
-            sorted.sort();
-            assert_eq!(
-                sorted,
-                (0..15).collect::<Vec<_>>(),
-                "Crossover produced invalid permutation"
-            );
-        }
-    }
-
-    #[test]
-    fn test_permutation_mutation_validity() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut chromosome = PermutationChromosome::random_with_options(25, 8, &mut rng);
-
-        // Perform multiple mutations
-        for _ in 0..100 {
-            chromosome.swap_mutate(&mut rng);
-
-            let mut sorted = chromosome.genes.clone();
-            sorted.sort();
-            assert_eq!(
-                sorted,
-                (0..25).collect::<Vec<_>>(),
-                "Swap mutation produced invalid permutation"
-            );
-        }
-    }
-
-    #[test]
-    fn test_permutation_inversion_mutation() {
-        let mut rng = StdRng::seed_from_u64(42);
-        let mut chromosome = PermutationChromosome::random_with_options(10, 2, &mut rng);
-
-        for _ in 0..50 {
-            chromosome.inversion_mutate(&mut rng);
-
-            let mut sorted = chromosome.genes.clone();
-            sorted.sort();
-            assert_eq!(
-                sorted,
-                (0..10).collect::<Vec<_>>(),
-                "Inversion mutation produced invalid permutation"
-            );
-        }
     }
 }
 

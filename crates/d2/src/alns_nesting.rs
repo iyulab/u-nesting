@@ -7,15 +7,13 @@
 //!
 //! - **Random**: Remove random items from the solution
 //! - **Worst**: Remove items with worst placement scores
-//! - **Related**: Remove items similar to a seed item
-//! - **Shaw**: Remove items based on spatial clustering
+//! - **Shaw**: Remove items related to a seed item (spatially nearby)
 //!
 //! # Repair Operators
 //!
-//! - **Greedy**: Place items at best available position
-//! - **Regret**: Use regret-based insertion
-//! - **Random**: Place items in random valid positions
-//! - **BLF**: Use bottom-left fill heuristic
+//! - **Greedy**: Largest item first, each at its bottom-left position
+//! - **Random**: The removed items in random order, each at its bottom-left
+//!   position
 
 use crate::boundary::Boundary2D;
 use crate::clamp_placement_to_boundary;
@@ -411,17 +409,12 @@ impl AlnsProblem for AlnsNestingProblem {
         vec![
             DestroyOperatorId::Random,
             DestroyOperatorId::Worst,
-            DestroyOperatorId::Related,
             DestroyOperatorId::Shaw,
         ]
     }
 
     fn repair_operators(&self) -> Vec<RepairOperatorId> {
-        vec![
-            RepairOperatorId::Greedy,
-            RepairOperatorId::BottomLeftFill,
-            RepairOperatorId::Random,
-        ]
+        vec![RepairOperatorId::Greedy, RepairOperatorId::Random]
     }
 
     fn destroy(
@@ -467,7 +460,7 @@ impl AlnsProblem for AlnsNestingProblem {
                     removed_indices.push(*idx);
                 }
             }
-            DestroyOperatorId::Related | DestroyOperatorId::Shaw => {
+            DestroyOperatorId::Shaw => {
                 // Cluster removal (same logic for both)
                 let seed_idx = rng.random_range(0..solution.placed.len());
                 let seed = &solution.placed[seed_idx];
@@ -525,12 +518,8 @@ impl AlnsProblem for AlnsNestingProblem {
         let initial_placed = solution.placed.len();
 
         match operator {
-            RepairOperatorId::Greedy | RepairOperatorId::BottomLeftFill => {
-                // BLF is already greedy for bottom-left positions
-                self.place_items_blf(&items_to_place, solution);
-            }
-            RepairOperatorId::Regret => {
-                // Regret-based insertion (simplified: use BLF for now)
+            RepairOperatorId::Greedy => {
+                // Largest first, each at its bottom-left position.
                 self.place_items_blf(&items_to_place, solution);
             }
             RepairOperatorId::Random => {
@@ -844,7 +833,6 @@ mod tests {
 
         assert!(operators.contains(&DestroyOperatorId::Random));
         assert!(operators.contains(&DestroyOperatorId::Worst));
-        assert!(operators.contains(&DestroyOperatorId::Related));
         assert!(operators.contains(&DestroyOperatorId::Shaw));
     }
 
@@ -859,7 +847,6 @@ mod tests {
         let operators = problem.repair_operators();
 
         assert!(operators.contains(&RepairOperatorId::Greedy));
-        assert!(operators.contains(&RepairOperatorId::BottomLeftFill));
         assert!(operators.contains(&RepairOperatorId::Random));
     }
 

@@ -25,8 +25,8 @@ use crate::nfp::{
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::gdrr::{
-    GdrrConfig, GdrrProblem, GdrrResult, GdrrRunner, GdrrSolution, RecreateResult, RecreateType,
-    RuinResult, RuinType, RuinedItem,
+    GdrrConfig, GdrrProblem, GdrrResult, GdrrRunner, GdrrSolution, RecreateResult, RuinResult,
+    RuinType, RuinedItem,
 };
 use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
@@ -602,11 +602,12 @@ impl GdrrProblem for GdrrNestingProblem {
         }
     }
 
-    fn recreate_best_fit(
+    fn recreate(
         &mut self,
         solution: &mut GdrrNestingSolution,
         _ruined: &RuinResult,
     ) -> RecreateResult {
+        // Largest first, each at its bottom-left position (`place_items_blf`).
         let items_to_place = solution.unplaced.clone();
         let initial_placed = solution.placed.len();
 
@@ -615,42 +616,6 @@ impl GdrrProblem for GdrrNestingProblem {
         RecreateResult {
             placed_count: solution.placed.len() - initial_placed,
             unplaced_count: solution.unplaced.len(),
-            recreate_type: RecreateType::BestFit,
-        }
-    }
-
-    fn recreate_blf(
-        &mut self,
-        solution: &mut GdrrNestingSolution,
-        _ruined: &RuinResult,
-    ) -> RecreateResult {
-        let items_to_place = solution.unplaced.clone();
-        let initial_placed = solution.placed.len();
-
-        self.place_items_blf(&items_to_place, solution);
-
-        RecreateResult {
-            placed_count: solution.placed.len() - initial_placed,
-            unplaced_count: solution.unplaced.len(),
-            recreate_type: RecreateType::BottomLeftFill,
-        }
-    }
-
-    fn recreate_nfp(
-        &mut self,
-        solution: &mut GdrrNestingSolution,
-        _ruined: &RuinResult,
-    ) -> RecreateResult {
-        // NFP-guided placement (same as BLF but with potential for optimization)
-        let items_to_place = solution.unplaced.clone();
-        let initial_placed = solution.placed.len();
-
-        self.place_items_blf(&items_to_place, solution);
-
-        RecreateResult {
-            placed_count: solution.placed.len() - initial_placed,
-            unplaced_count: solution.unplaced.len(),
-            recreate_type: RecreateType::NfpGuided,
         }
     }
 
@@ -928,10 +893,9 @@ mod tests {
         let after_ruin_placed = solution.placed.len();
 
         // Recreate
-        let recreate_result = problem.recreate_best_fit(&mut solution, &ruin_result);
+        let recreate_result = problem.recreate(&mut solution, &ruin_result);
 
         assert!(recreate_result.placed_count > 0 || after_ruin_placed == solution.placed.len());
-        assert_eq!(recreate_result.recreate_type, RecreateType::BestFit);
     }
 
     #[test]

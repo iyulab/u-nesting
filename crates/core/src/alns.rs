@@ -229,9 +229,7 @@ pub enum DestroyOperatorId {
     Random,
     /// Worst removal (highest cost items)
     Worst,
-    /// Related removal (similar/nearby items)
-    Related,
-    /// Shaw removal (clustering-based)
+    /// Shaw removal (related: nearby items around a seed)
     Shaw,
     /// Custom operator by index
     Custom(usize),
@@ -240,14 +238,10 @@ pub enum DestroyOperatorId {
 /// Identifies a repair operator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RepairOperatorId {
-    /// Greedy repair (best position)
+    /// Greedy repair: largest item first, each at its best position
     Greedy,
-    /// Regret-based repair
-    Regret,
-    /// Random repair
+    /// Random repair: items in random order
     Random,
-    /// BLF-based repair
-    BottomLeftFill,
     /// Custom operator by index
     Custom(usize),
 }
@@ -366,7 +360,7 @@ pub trait AlnsProblem {
         rng: &mut rand::rngs::StdRng,
     ) -> RepairResult;
 
-    /// Calculate relatedness between two items (for Shaw/Related removal).
+    /// Calculate relatedness between two items (for Shaw removal).
     fn relatedness(&self, solution: &Self::Solution, i: usize, j: usize) -> f64 {
         // Default: no relatedness information
         let _ = (solution, i, j);
@@ -693,12 +687,11 @@ mod tests {
         let ops = [
             DestroyOperatorId::Random,
             DestroyOperatorId::Worst,
-            DestroyOperatorId::Related,
             DestroyOperatorId::Shaw,
             DestroyOperatorId::Custom(0),
         ];
 
-        assert_eq!(ops.len(), 5);
+        assert_eq!(ops.len(), 4);
         assert_eq!(DestroyOperatorId::Random, DestroyOperatorId::Random);
         assert_ne!(DestroyOperatorId::Random, DestroyOperatorId::Worst);
     }
@@ -707,15 +700,13 @@ mod tests {
     fn test_repair_operator_ids() {
         let ops = [
             RepairOperatorId::Greedy,
-            RepairOperatorId::Regret,
             RepairOperatorId::Random,
-            RepairOperatorId::BottomLeftFill,
             RepairOperatorId::Custom(0),
         ];
 
-        assert_eq!(ops.len(), 5);
+        assert_eq!(ops.len(), 3);
         assert_eq!(RepairOperatorId::Greedy, RepairOperatorId::Greedy);
-        assert_ne!(RepairOperatorId::Greedy, RepairOperatorId::Regret);
+        assert_ne!(RepairOperatorId::Greedy, RepairOperatorId::Random);
     }
 
     #[test]
@@ -809,7 +800,7 @@ mod tests {
         }
 
         fn repair_operators(&self) -> Vec<RepairOperatorId> {
-            vec![RepairOperatorId::Greedy, RepairOperatorId::BottomLeftFill]
+            vec![RepairOperatorId::Greedy, RepairOperatorId::Random]
         }
 
         fn destroy(
