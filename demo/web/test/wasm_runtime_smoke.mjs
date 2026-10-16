@@ -23,7 +23,7 @@ const STRATEGIES_2D = ['blf', 'nfp', 'ga', 'brkga', 'sa', 'gdrr', 'alns'];
 const STRATEGIES_3D = ['blf', 'ep', 'ga', 'brkga', 'sa'];
 
 function req2d(strategy) {
-  return JSON.stringify({
+  return ({
     geometries: [
       { id: 'A', polygon: [[0, 0], [40, 0], [40, 30], [0, 30]], quantity: 4 },
       { id: 'B', polygon: [[0, 0], [25, 0], [25, 25], [0, 25]], quantity: 3 },
@@ -34,7 +34,7 @@ function req2d(strategy) {
 }
 
 function req3d(strategy) {
-  return JSON.stringify({
+  return ({
     geometries: [{ id: 'mid', dimensions: [30, 20, 25], quantity: 6 }],
     boundary: { dimensions: [100, 100, 100] },
     config: { strategy, time_limit_ms: 500 },
@@ -42,7 +42,7 @@ function req3d(strategy) {
 }
 
 test('available_strategies lists each dimension with the settings each strategy reads', () => {
-  const s = JSON.parse(available_strategies());
+  const s = available_strategies();
   assert.deepEqual(s['2d'].map((i) => i.name), STRATEGIES_2D);
   assert.deepEqual(s['3d'].map((i) => i.name).sort(), [...STRATEGIES_3D].sort());
   for (const info of [...s['2d'], ...s['3d']]) assert.ok(info.reads.includes('spacing'), info.name);
@@ -51,16 +51,16 @@ test('available_strategies lists each dimension with the settings each strategy 
 for (const strategy of STRATEGIES_2D) {
   test(`solve_2d:${strategy} runs without panic`, () => {
     const out = solve_2d(req2d(strategy)); // throws RuntimeError on wasm panic
-    const res = JSON.parse(out);
-    assert.ok(res, `solve_2d(${strategy}) returned a parseable result`);
+    const res = out;
+    assert.ok(res, `solve_2d(${strategy}) returned a result`);
   });
 }
 
 for (const strategy of STRATEGIES_3D) {
   test(`solve_3d:${strategy} runs without panic`, () => {
     const out = solve_3d(req3d(strategy));
-    const res = JSON.parse(out);
-    assert.ok(res, `solve_3d(${strategy}) returned a parseable result`);
+    const res = out;
+    assert.ok(res, `solve_3d(${strategy}) returned a result`);
   });
 }
 
@@ -77,7 +77,7 @@ function dimsForOrientation(base, label) {
 // the identity "xyz", which reconstructs to a 25x25x80 footprint that overflows the
 // 30-tall bin — the exact "out-of-bounds" the demo self-check flagged on 0.3.3.
 function req3dRotation(strategy) {
-  return JSON.stringify({
+  return ({
     geometries: [{ id: 'tall', dimensions: [25, 25, 80], quantity: 3 }],
     boundary: { dimensions: [100, 100, 30] },
     config: { strategy, time_limit_ms: 500 },
@@ -86,7 +86,7 @@ function req3dRotation(strategy) {
 
 for (const strategy of STRATEGIES_3D) {
   test(`solve_3d:${strategy} reports orientation that keeps boxes in bounds`, () => {
-    const res = JSON.parse(solve_3d(req3dRotation(strategy)));
+    const res = solve_3d(req3dRotation(strategy));
     const base = [25, 25, 80];
     const [bx, by, bz] = [100, 100, 30];
     const e = 1e-6;
@@ -106,14 +106,14 @@ for (const strategy of STRATEGIES_3D) {
 // x must be sheet-LOCAL (∈ [0, 300)) — the contract per-sheet panels render against.
 // `cargo check`/FFI tests cannot catch a wasm-only regression in this path.
 test('solve_2d:multi_sheet distributes overflow with sheet-local coords', () => {
-  const req = JSON.stringify({
+  const req = ({
     geometries: [
       { id: 'part', polygon: [[0, 0], [100, 0], [100, 100], [0, 100]], quantity: 20 },
     ],
     boundary: { width: 300, height: 300 },
     config: { strategy: 'blf', multi_sheet: true },
   });
-  const res = JSON.parse(solve_2d(req));
+  const res = solve_2d(req);
   assert.equal(res.sheets_used, 3, '20 of 100x100 in 300x300 => 3 sheets');
   assert.equal(res.placements.length, 20, 'all 20 instances placed');
   assert.equal(res.unplaced.length, 0, 'nothing unplaced');
@@ -126,15 +126,23 @@ test('solve_2d:multi_sheet distributes overflow with sheet-local coords', () => 
 
 // Default (no multi_sheet) keeps the single-sheet path: overflow stays unplaced.
 test('solve_2d:single-sheet default leaves overflow unplaced', () => {
-  const req = JSON.stringify({
+  const req = ({
     geometries: [
       { id: 'part', polygon: [[0, 0], [100, 0], [100, 100], [0, 100]], quantity: 20 },
     ],
     boundary: { width: 300, height: 300 },
     config: { strategy: 'blf' },
   });
-  const res = JSON.parse(solve_2d(req));
+  const res = solve_2d(req);
   assert.ok(res.sheets_used <= 1, 'single-sheet uses at most 1 sheet');
   assert.equal(res.total_requested, 20);
   assert.equal(res.unplaced.length, 1, 'overflow surfaces as 1 deduped unplaced id');
+});
+
+// A refusal is thrown as an Error carrying the code and the path of the field.
+test('a refused request throws with code and parameter', () => {
+  assert.throws(
+    () => solve_2d({ geometries: [], boundary: { width: 10, height: 10 } }),
+    (e) => e instanceof Error && e.code === 'empty_input' && e.parameter === 'geometries',
+  );
 });

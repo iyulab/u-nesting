@@ -52,6 +52,7 @@ milp = []
 getrandom = { version = "0.4", features = ["wasm_js"] }
 
 # `getrandom` is named nowhere in the source: it is declared only to turn on its
-# `wasm_js` backend for wasm32, which `rand` needs to build there.
+# `wasm_js` backend for wasm32, which `rand` needs to build there. `wasm-bindgen`
+# is named only by what the `tsify` derive expands to.
 [package.metadata.cargo-machete]
-ignored = ["getrandom"]
+ignored = ["getrandom", "wasm-bindgen"]

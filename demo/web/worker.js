@@ -15,11 +15,12 @@ self.onmessage = async (e) => {
   try {
     await ensureReady();
     if (mode === 'meta') {
-      self.postMessage({ id, ok: true, version: version(), strategies: JSON.parse(available_strategies()) });
+      self.postMessage({ id, ok: true, version: version(), strategies: available_strategies() });
       return;
     }
-    const out = FN[mode](JSON.stringify(request));
-    self.postMessage({ id, ok: true, response: JSON.parse(out), version: version() });
+    // A refused request throws (an Error carrying `code`); the catch reports it.
+    const response = FN[mode](request);
+    self.postMessage({ id, ok: true, response, version: version() });
   } catch (err) {
     self.postMessage({ id, ok: false, error: String(err && err.message ? err.message : err) });
   }
