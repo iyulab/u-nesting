@@ -203,22 +203,9 @@ impl BrkgaNestingProblem {
             return (Vec::new(), 0.0, 0);
         }
 
-        // Placement order: the first N keys, ranked.
-        //
-        // `decode_as_permutation` ranks *every* key it holds, and this
-        // chromosome holds 2N or 3N of them -- the rotation and mirror blocks
-        // too. Taking the first N of that ranking therefore took whichever
-        // indices happened to carry the smallest keys, rotation keys included;
-        // those are not instances, so they were dropped further down and the
-        // instances they displaced were never attempted at all. With uniform
-        // keys that is about half the pieces, on every chromosome, which is
-        // why this search could not reach a full layout however long it ran.
-        let mut order: Vec<usize> = (0..n).collect();
-        order.sort_by(|&a, &b| {
-            chromosome.keys[a]
-                .partial_cmp(&chromosome.keys[b])
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        // Placement order: the first N keys, ranked (the rotation and mirror
+        // blocks after them are not instances).
+        let order = chromosome.decode_as_permutation(n);
 
         let mut placements = Vec::new();
         let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
@@ -696,12 +683,8 @@ mod tests {
     /// strategy as GA/SA: `decode()` calls no `.validate()` at all.
     ///
     /// Chromosome keys are hand-picked (not random) to force a deterministic
-    /// order/mirror outcome: `decode_as_permutation()` sorts ALL `num_keys()`
-    /// key indices by value (a pre-existing property of this decoder, not
-    /// something this change introduces — see the third key block's doc
-    /// comment), so the order-block keys (indices 0, 1) are set smaller than
-    /// every other key to guarantee they sort first and `.take(n)` selects
-    /// exactly instances 0 and 1, in that order.
+    /// order/mirror outcome: the order-block keys (indices 0, 1) rank
+    /// instances 0 and 1, in that order.
     #[test]
     fn test_brkga_decode_mirror_no_overlap() {
         let geometries = vec![chiral_l("L").with_flip(true).with_quantity(2)];

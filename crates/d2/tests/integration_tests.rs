@@ -965,7 +965,6 @@ mod bucket_b_tests {
         // parallel, where 20 s ran out with one instance still unplaced.
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(120_000)
-            .with_rotation_steps(4)
             .with_grid_step(10.0);
         let result = run_nfp_cm_nesting(
             std::slice::from_ref(&piece),
@@ -1033,7 +1032,6 @@ mod bucket_b_tests {
             let exact_config = ExactConfig::default()
                 .with_time_limit_ms(limit_ms)
                 .with_max_items(15)
-                .with_rotation_steps(4)
                 .with_grid_step(10.0);
 
             let start = Instant::now();
@@ -1104,12 +1102,8 @@ mod bucket_b_tests {
     /// succeed outright (this only needs to prove the strategy works
     /// end-to-end through the public API, not exercise the fallback itself
     /// — that path already delegates to `alns`, which has its own coverage).
-    /// Deliberately a single instance, not two: `HybridExact`'s own config
-    /// (unlike `MilpExact`'s) doesn't override the default 1.0 grid step,
-    /// and two instances' worth of conflict-candidate pairs at that
-    /// granularity is far too slow for a test (the same reason the
-    /// multi-instance MILP tests above call the solver module directly with
-    /// a coarser grid instead of going through this public entry point).
+    /// A single instance keeps it fast; the multi-instance MILP tests above
+    /// call the solver module directly with a coarser grid.
     #[cfg(feature = "milp")]
     #[test]
     fn hybrid_exact_solves_through_public_api() {

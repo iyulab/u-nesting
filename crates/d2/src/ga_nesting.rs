@@ -30,12 +30,13 @@ pub struct NestingChromosome {
     pub order: Vec<usize>,
     /// Rotation index for each geometry instance.
     pub rotations: Vec<usize>,
+    /// Each instance's number of allowed rotations: `rotations[i]` is always
+    /// below `rotation_counts[i]`. Shared by the whole population.
+    pub rotation_counts: Arc<[usize]>,
     /// Mirror flag for each geometry instance (`allow_flip` support).
     ///
     /// Populated unconditionally for every instance, same as `rotations` —
     /// `decode()` masks it against the instance's own `Geometry2D::allow_flip()`,
-    /// the same modulo-based tolerance `rotations` already uses for
-    /// geometries with fewer rotation options than the population-wide max.
     /// A gene for a non-flippable geometry is simply never read.
     pub mirrors: Vec<bool>,
     /// Cached fitness value.
@@ -47,11 +48,16 @@ pub struct NestingChromosome {
 }
 
 impl NestingChromosome {
-    /// Creates a new chromosome for the given number of instances and rotation options.
-    pub fn new(num_instances: usize, _rotation_options: usize) -> Self {
+    /// The identity order, every instance at its first rotation; one
+    /// instance per entry of `rotation_counts` (each one's number of allowed
+    /// rotations).
+    pub fn new(rotation_counts: impl Into<Arc<[usize]>>) -> Self {
+        let rotation_counts = rotation_counts.into();
+        let num_instances = rotation_counts.len();
         Self {
             order: (0..num_instances).collect(),
             rotations: vec![0; num_instances],
+            rotation_counts,
             mirrors: vec![false; num_instances],
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
@@ -59,17 +65,20 @@ impl NestingChromosome {
         }
     }
 
-    /// Creates a random chromosome.
+    /// A random order, each instance at a rotation drawn uniformly from its
+    /// own allowed ones.
     pub fn random_with_options<R: Rng>(
-        num_instances: usize,
-        rotation_options: usize,
+        rotation_counts: impl Into<Arc<[usize]>>,
         rng: &mut R,
     ) -> Self {
+        let rotation_counts = rotation_counts.into();
+        let num_instances = rotation_counts.len();
         let mut order: Vec<usize> = (0..num_instances).collect();
         order.shuffle(rng);
 
-        let rotations: Vec<usize> = (0..num_instances)
-            .map(|_| rng.random_range(0..rotation_options.max(1)))
+        let rotations: Vec<usize> = rotation_counts
+            .iter()
+            .map(|&k| rng.random_range(0..k.max(1)))
             .collect();
 
         let mirrors: Vec<bool> = (0..num_instances).map(|_| rng.random()).collect();
@@ -77,6 +86,7 @@ impl NestingChromosome {
         Self {
             order,
             rotations,
+            rotation_counts,
             mirrors,
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
@@ -145,6 +155,7 @@ impl NestingChromosome {
         Self {
             order: child_order,
             rotations,
+            rotation_counts: self.rotation_counts.clone(),
             mirrors,
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
@@ -164,15 +175,22 @@ impl NestingChromosome {
         self.fitness = f64::NEG_INFINITY;
     }
 
-    /// Rotation mutation.
-    pub fn rotation_mutate<R: Rng>(&mut self, rotation_options: usize, rng: &mut R) {
-        if self.rotations.is_empty() || rotation_options <= 1 {
-            return;
+    /// Rotation mutation: moves one instance that has more than one allowed
+    /// rotation to another of its own, drawn uniformly. Returns whether it
+    /// changed anything (nothing to turn when every instance is fixed).
+    pub fn rotation_mutate<R: Rng>(&mut self, rng: &mut R) -> bool {
+        let turnable: Vec<usize> = (0..self.rotations.len())
+            .filter(|&i| self.rotation_counts.get(i).copied().unwrap_or(1) > 1)
+            .collect();
+        if turnable.is_empty() {
+            return false;
         }
 
-        let idx = rng.random_range(0..self.rotations.len());
-        self.rotations[idx] = rng.random_range(0..rotation_options);
+        let idx = turnable[rng.random_range(0..turnable.len())];
+        self.rotations[idx] =
+            u_nesting_core::sa::another_option(self.rotations[idx], self.rotation_counts[idx], rng);
         self.fitness = f64::NEG_INFINITY;
+        true
     }
 
     /// Mirror-flag mutation (`allow_flip` support): flips one instance's
@@ -215,7 +233,7 @@ impl Individual for NestingChromosome {
 
     fn random<R: Rng>(rng: &mut R) -> Self {
         // Default: empty, will be overridden by problem's initialize_population
-        Self::random_with_options(0, 1, rng)
+        Self::random_with_options(Vec::new(), rng)
     }
 
     fn crossover<R: Rng>(&self, other: &Self, rng: &mut R) -> Self {
@@ -230,8 +248,10 @@ impl Individual for NestingChromosome {
         } else if r < 0.70 {
             self.inversion_mutate(rng);
         } else if r < 0.85 {
-            // Rotation mutation with 4 options (0, 90, 180, 270 degrees)
-            self.rotation_mutate(4, rng);
+            // Each instance's own rotations; with none to turn, reorder instead.
+            if !self.rotation_mutate(rng) {
+                self.swap_mutate(rng);
+            }
         } else {
             self.mirror_mutate(rng);
         }
@@ -250,8 +270,8 @@ pub struct NestingProblem {
     instances: Vec<InstanceInfo>,
     /// Available rotation angles per geometry.
     rotation_angles: Vec<Vec<f64>>,
-    /// Number of rotation options.
-    rotation_options: usize,
+    /// Each instance's number of allowed rotations (shared by every chromosome).
+    rotation_counts: Arc<[usize]>,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
     /// Time limit and best layout, shared with the run.
@@ -287,8 +307,10 @@ impl NestingProblem {
             }
         }
 
-        // Maximum rotation options across all geometries
-        let rotation_options = rotation_angles.iter().map(|a| a.len()).max().unwrap_or(1);
+        let rotation_counts: Arc<[usize]> = instances
+            .iter()
+            .map(|i: &InstanceInfo| rotation_angles[i.geometry_idx].len())
+            .collect();
 
         Self {
             geometries,
@@ -296,7 +318,7 @@ impl NestingProblem {
             config,
             instances,
             rotation_angles,
-            rotation_options,
+            rotation_counts,
             cancelled,
             search: SearchState::default(),
             seed: None,
@@ -328,9 +350,9 @@ impl NestingProblem {
         self.instances.len()
     }
 
-    /// Returns the number of rotation options.
-    pub fn rotation_options(&self) -> usize {
-        self.rotation_options
+    /// Each instance's number of allowed rotations.
+    pub fn rotation_counts(&self) -> Arc<[usize]> {
+        self.rotation_counts.clone()
     }
 
     /// Decodes a chromosome into placements using NFP-guided placement.
@@ -517,17 +539,12 @@ impl GaProblem for NestingProblem {
             .map(|i| match (&self.seed, i) {
                 // The first individual is the seed layout, when there is one.
                 (Some((rotations, mirrors)), 0) => {
-                    let mut seeded =
-                        NestingChromosome::new(self.num_instances(), self.rotation_options());
+                    let mut seeded = NestingChromosome::new(self.rotation_counts());
                     seeded.rotations = rotations.clone();
                     seeded.mirrors = mirrors.clone();
                     seeded
                 }
-                _ => NestingChromosome::random_with_options(
-                    self.num_instances(),
-                    self.rotation_options(),
-                    rng,
-                ),
+                _ => NestingChromosome::random_with_options(self.rotation_counts(), rng),
             })
             .collect()
     }
@@ -655,10 +672,34 @@ mod tests {
     use super::*;
 
     #[test]
+    fn rotation_mutation_reaches_every_allowed_rotation_and_no_other() {
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+        let mut rng = StdRng::seed_from_u64(3);
+        let counts = vec![8, 1, 3];
+        let mut chromosome = NestingChromosome::random_with_options(counts.clone(), &mut rng);
+        let mut reached = vec![std::collections::HashSet::new(); counts.len()];
+        for _ in 0..3000 {
+            assert!(chromosome.rotation_mutate(&mut rng));
+            for (i, &r) in chromosome.rotations.iter().enumerate() {
+                assert!(r < counts[i], "instance {i}: {r} of {}", counts[i]);
+                reached[i].insert(r);
+            }
+        }
+        assert_eq!(
+            reached.iter().map(|r| r.len()).collect::<Vec<_>>(),
+            vec![8, 1, 3]
+        );
+        // All fixed: nothing to turn, and the mutation says so.
+        let mut fixed = NestingChromosome::new(vec![1; 3]);
+        assert!(!fixed.rotation_mutate(&mut rng));
+    }
+
+    #[test]
     fn test_nesting_chromosome_crossover() {
         let mut rng = rand::rng();
-        let parent1 = NestingChromosome::random_with_options(10, 4, &mut rng);
-        let parent2 = NestingChromosome::random_with_options(10, 4, &mut rng);
+        let parent1 = NestingChromosome::random_with_options(vec![4; 10], &mut rng);
+        let parent2 = NestingChromosome::random_with_options(vec![4; 10], &mut rng);
 
         let child = parent1.order_crossover(&parent2, &mut rng);
 
@@ -672,7 +713,7 @@ mod tests {
     #[test]
     fn test_nesting_chromosome_mutation() {
         let mut rng = rand::rng();
-        let mut chromosome = NestingChromosome::random_with_options(10, 4, &mut rng);
+        let mut chromosome = NestingChromosome::random_with_options(vec![4; 10], &mut rng);
 
         chromosome.swap_mutate(&mut rng);
 
@@ -685,10 +726,10 @@ mod tests {
     #[test]
     fn test_nesting_chromosome_mirrors_gene_present() {
         let mut rng = rand::rng();
-        let chromosome = NestingChromosome::random_with_options(10, 4, &mut rng);
+        let chromosome = NestingChromosome::random_with_options(vec![4; 10], &mut rng);
         assert_eq!(chromosome.mirrors.len(), 10);
 
-        let fixed = NestingChromosome::new(10, 4);
+        let fixed = NestingChromosome::new(vec![4; 10]);
         assert_eq!(fixed.mirrors, vec![false; 10]);
     }
 
@@ -700,8 +741,8 @@ mod tests {
         // per position (not some third corrupted value — trivially true for
         // bool, but this also proves the vector is populated per-position,
         // not left at a stale default length).
-        let mut parent1 = NestingChromosome::random_with_options(10, 4, &mut rng);
-        let mut parent2 = NestingChromosome::random_with_options(10, 4, &mut rng);
+        let mut parent1 = NestingChromosome::random_with_options(vec![4; 10], &mut rng);
+        let mut parent2 = NestingChromosome::random_with_options(vec![4; 10], &mut rng);
         parent1.mirrors = vec![true; 10];
         parent2.mirrors = vec![false; 10];
 
@@ -713,11 +754,11 @@ mod tests {
     #[test]
     fn test_mirror_mutate_flips_bit() {
         let mut rng = rand::rng();
-        let mut chromosome = NestingChromosome::new(5, 1);
+        let mut chromosome = NestingChromosome::new(vec![1; 5]);
         assert_eq!(chromosome.mirrors, vec![false; 5]);
 
         // Deterministic single-instance chromosome — flip must change it.
-        let mut single = NestingChromosome::new(1, 1);
+        let mut single = NestingChromosome::new(vec![1; 1]);
         single.mirror_mutate(&mut rng);
         assert!(single.mirrors[0]);
         single.mirror_mutate(&mut rng);
@@ -768,7 +809,7 @@ mod tests {
         // unmirrored, instance 1 second mirrored — decode() applies exactly
         // what the chromosome specifies (the GA's job across generations is
         // to discover which values are good, not decode()'s).
-        let mut chromosome = NestingChromosome::new(2, 1);
+        let mut chromosome = NestingChromosome::new(vec![1; 2]);
         chromosome.mirrors = vec![false, true];
 
         let (placements, utilization, placed_count) = problem.decode(&chromosome);
@@ -818,7 +859,7 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
 
-        let mut chromosome = NestingChromosome::new(1, 1);
+        let mut chromosome = NestingChromosome::new(vec![1; 1]);
         chromosome.mirrors = vec![true];
 
         let (placements, _utilization, placed_count) = problem.decode(&chromosome);
@@ -925,7 +966,7 @@ mod tests {
         assert_eq!(problem.num_instances(), 2);
 
         // Create a chromosome and decode
-        let chromosome = NestingChromosome::new(2, 1);
+        let chromosome = NestingChromosome::new(vec![1; 2]);
         let (placements, utilization, placed_count) = problem.decode(&chromosome);
 
         assert_eq!(placed_count, 2);

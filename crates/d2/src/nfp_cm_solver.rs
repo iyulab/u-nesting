@@ -231,18 +231,11 @@ fn nfp_cm_nesting(
         return result;
     }
 
-    let rotation_angles = exact_config.rotation_angles();
     let grid_step = exact_config.grid_step;
 
-    // Build piece info with candidate positions
-    let pieces = build_piece_info(
-        geometries,
-        boundary,
-        config,
-        &rotation_angles,
-        grid_step,
-        &cancelled,
-    );
+    // Build piece info with candidate positions: each piece at the rotations
+    // its geometry allows.
+    let pieces = build_piece_info(geometries, boundary, config, grid_step, &cancelled);
 
     if pieces.is_empty() {
         result.computation_time_ms = start.elapsed().as_millis() as u64;
@@ -435,11 +428,13 @@ fn grid_positions(span: f64, step: f64) -> Vec<f64> {
 }
 
 /// Build piece info with candidate positions.
+/// Each piece is tried at the rotations its own geometry allows
+/// ([`Geometry2D::rotations`]) — a geometry fixed in orientation is never
+/// turned, and one allowed eight angles is tried at all eight.
 fn build_piece_info(
     geometries: &[Geometry2D],
     boundary: &Boundary2D,
     config: &Config,
-    rotation_angles: &[f64],
     grid_step: f64,
     cancelled: &Arc<AtomicBool>,
 ) -> Vec<PieceInfo> {
@@ -451,7 +446,7 @@ fn build_piece_info(
     let mut all_widths = Vec::new();
     let mut all_heights = Vec::new();
     for geom in geometries {
-        for &angle in rotation_angles {
+        for angle in geom.rotations() {
             let (g_min, g_max) = geom.aabb_at_rotation(angle);
             all_widths.push(g_max[0] - g_min[0]);
             all_heights.push(g_max[1] - g_min[1]);
@@ -471,10 +466,11 @@ fn build_piece_info(
             return pieces;
         }
 
-        // Compute dimensions at each rotation
+        // Compute dimensions at each rotation this geometry allows
+        let rotation_angles = geom.rotations();
         let mut widths = Vec::new();
         let mut heights = Vec::new();
-        for &angle in rotation_angles {
+        for &angle in &rotation_angles {
             let (g_min, g_max) = geom.aabb_at_rotation(angle);
             widths.push(g_max[0] - g_min[0]);
             heights.push(g_max[1] - g_min[1]);
@@ -999,7 +995,6 @@ mod tests {
         let boundary = Boundary2D::rectangle(200.0, 100.0);
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(60_000)
-            .with_rotation_steps(1)
             .with_grid_step(12.5);
 
         let result = run_nfp_cm_nesting(
@@ -1031,7 +1026,6 @@ mod tests {
         let boundary = Boundary2D::rectangle(60.0, 60.0);
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(60_000)
-            .with_rotation_steps(1)
             .with_grid_step(5.0);
 
         let result = run_nfp_cm_nesting(
@@ -1073,7 +1067,6 @@ mod tests {
         let boundary = Boundary2D::rectangle(100.0, 40.0);
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(60_000)
-            .with_rotation_steps(1)
             .with_grid_step(5.0);
 
         let result = run_nfp_cm_nesting(
@@ -1149,7 +1142,6 @@ mod tests {
         let boundary = Boundary2D::rectangle(400.0, 100.0);
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(60_000)
-            .with_rotation_steps(4)
             .with_grid_step(12.5);
 
         let result = run_nfp_cm_nesting(
@@ -1170,6 +1162,44 @@ mod tests {
         assert!(result.unplaced.is_empty(), "{:?}", result.unplaced);
     }
 
+    /// A piece is turned only to the angles its geometry allows: a 60 × 20
+    /// strip fits a 30 × 70 sheet only upright, so fixed in orientation it
+    /// stays unplaced, and allowed 0° and 90° it is placed at 90°.
+    #[test]
+    #[cfg(feature = "milp")]
+    fn each_piece_turns_only_to_its_own_rotations() {
+        let boundary = Boundary2D::rectangle(30.0, 70.0);
+        let exact_config = ExactConfig::default()
+            .with_time_limit_ms(30_000)
+            .with_grid_step(5.0);
+        let solve = |piece: Geometry2D| {
+            run_nfp_cm_nesting(
+                &[piece],
+                &boundary,
+                &Config::default(),
+                &exact_config,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .expect("a valid configuration")
+        };
+
+        let fixed = solve(Geometry2D::rectangle("S", 60.0, 20.0).with_quantity(1));
+        assert!(
+            fixed.placements.is_empty(),
+            "turned a fixed piece: {:?}",
+            fixed.placements
+        );
+
+        let turnable =
+            solve(Geometry2D::rectangle("S", 60.0, 20.0).with_rotations_deg(vec![0.0, 90.0]));
+        assert_eq!(turnable.placements.len(), 1, "{:?}", turnable.unplaced);
+        let rotation = turnable.placements[0].rotation[0];
+        assert!(
+            (rotation - std::f64::consts::FRAC_PI_2).abs() < 1e-9,
+            "{rotation}"
+        );
+    }
+
     #[test]
     #[cfg(feature = "milp")]
     fn test_nfp_cm_simple() {
@@ -1179,7 +1209,6 @@ mod tests {
         let config = Config::default();
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(10000)
-            .with_rotation_steps(1)
             .with_grid_step(5.0); // Coarse grid for faster test
 
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -1194,18 +1223,10 @@ mod tests {
     fn test_build_piece_info_mirror_candidates_only_when_allowed() {
         let boundary = Boundary2D::rectangle(50.0, 50.0);
         let config = Config::default();
-        let rotation_angles = vec![0.0];
         let cancelled = Arc::new(AtomicBool::new(false));
 
         let plain = vec![Geometry2D::rectangle("R1", 10.0, 10.0).with_quantity(1)];
-        let pieces = build_piece_info(
-            &plain,
-            &boundary,
-            &config,
-            &rotation_angles,
-            10.0,
-            &cancelled,
-        );
+        let pieces = build_piece_info(&plain, &boundary, &config, 10.0, &cancelled);
         assert!(
             pieces[0].candidates.iter().all(|c| !c.mirror),
             "no candidate should be tagged mirrored without allow_flip"
@@ -1214,14 +1235,7 @@ mod tests {
         let flippable = vec![Geometry2D::rectangle("R1", 10.0, 10.0)
             .with_flip(true)
             .with_quantity(1)];
-        let pieces = build_piece_info(
-            &flippable,
-            &boundary,
-            &config,
-            &rotation_angles,
-            10.0,
-            &cancelled,
-        );
+        let pieces = build_piece_info(&flippable, &boundary, &config, 10.0, &cancelled);
         assert!(
             pieces[0].candidates.iter().any(|c| c.mirror),
             "allow_flip must produce at least one mirrored candidate"
@@ -1269,10 +1283,6 @@ mod tests {
         };
         for (exact_config, parameter) in [
             (ExactConfig::default().with_grid_step(0.0), "grid_step"),
-            (
-                ExactConfig::default().with_rotation_steps(0),
-                "rotation_steps",
-            ),
             (ExactConfig::default().with_max_items(0), "max_items"),
         ] {
             match run(exact_config) {
@@ -1306,7 +1316,6 @@ mod tests {
         let config = Config::default().with_spacing(1.0);
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(15000)
-            .with_rotation_steps(1)
             .with_grid_step(5.0);
 
         let cancelled = Arc::new(AtomicBool::new(false));

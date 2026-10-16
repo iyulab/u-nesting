@@ -70,6 +70,11 @@ impl SaPackingProblem {
         }
     }
 
+    /// Each instance's number of allowed orientations.
+    fn orientation_counts(&self) -> Arc<[usize]> {
+        self.instances.iter().map(|i| i.orientation_count).collect()
+    }
+
     /// Starts the search from `placements` -- a layer fill's layout: the
     /// instances in request order, each in the orientation the layout gave
     /// it, which decodes back to that layout.
@@ -78,8 +83,7 @@ impl SaPackingProblem {
         placements: Option<&[u_nesting_core::Placement<f64>]>,
     ) -> Self {
         self.seed = placements.map(|p| {
-            let mut seed =
-                PermutationSolution::new(self.instances.len(), self.max_orientation_count);
+            let mut seed = PermutationSolution::new(self.orientation_counts());
             // The sequence is the identity, so position i holds instance i.
             seed.rotations = seed_orientations(&self.instances, &self.geometries, p);
             seed
@@ -105,10 +109,9 @@ impl SaPackingProblem {
         let items: Vec<PlacementItem> = solution
             .sequence
             .iter()
-            .enumerate()
-            .map(|(seq_idx, &instance_idx)| PlacementItem {
+            .map(|&instance_idx| PlacementItem {
                 instance_idx,
-                orientation_idx: solution.rotations.get(seq_idx).copied().unwrap_or(0),
+                orientation_idx: solution.rotations.get(instance_idx).copied().unwrap_or(0),
             })
             .collect();
 
@@ -131,9 +134,7 @@ impl SaProblem for SaPackingProblem {
         match &self.seed {
             // Start from the seed layout, when there is one.
             Some(seed) => seed.clone(),
-            None => {
-                PermutationSolution::random(self.instances.len(), self.max_orientation_count, rng)
-            }
+            None => PermutationSolution::random(self.orientation_counts(), rng),
         }
     }
 
@@ -377,7 +378,7 @@ mod tests {
 
         // Create a random solution and decode
         let mut rng = rand::rng();
-        let solution = PermutationSolution::random(problem.num_instances(), 1, &mut rng);
+        let solution = PermutationSolution::random(vec![1; problem.num_instances()], &mut rng);
         let (placements, utilization, placed_count) = problem.decode(&solution);
 
         // Should place at least one item

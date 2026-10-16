@@ -868,7 +868,6 @@ impl Nester2D {
         let exact_config = ExactConfig::default()
             .with_time_limit_ms(milp_time_limit(self.config.time_limit_ms))
             .with_max_items(15)
-            .with_rotation_steps(4)
             .with_grid_step(milp_grid_step(geometries, boundary));
 
         run_nfp_cm_nesting(
@@ -898,7 +897,8 @@ impl Nester2D {
             // `milp_time_limit`.
             let exact_config = ExactConfig::default()
                 .with_time_limit_ms(milp_time_limit(self.config.time_limit_ms / 2))
-                .with_max_items(15);
+                .with_max_items(15)
+                .with_grid_step(milp_grid_step(geometries, boundary));
 
             let exact_result = run_nfp_cm_nesting(
                 geometries,
@@ -908,21 +908,39 @@ impl Nester2D {
                 self.cancelled.clone(),
             )?;
 
-            // If got a good solution, return it
-            if !exact_result.placements.is_empty() {
+            // A complete exact layout is the answer. A partial one -- the
+            // solver stopped on its limit with an incumbent that leaves pieces
+            // out -- is not: it used to be returned as soon as it placed
+            // anything, so one piece of four could come back while the
+            // heuristic would have placed all of them. It competes with the
+            // heuristic below instead.
+            if !exact_result.placements.is_empty() && exact_result.unplaced.is_empty() {
                 return Ok(exact_result);
             }
+            let heuristic =
+                self.alns_within(geometries, boundary, self.fallback_budget(started), None)?;
+            let (exact_placed, exact_length) =
+                solution_quality(&exact_result, geometries, boundary);
+            let (placed, length) = solution_quality(&heuristic, geometries, boundary);
+            let exact_wins =
+                exact_placed > placed || (exact_placed == placed && exact_length < length);
+            return Ok(if exact_wins { exact_result } else { heuristic });
         }
 
         // Fallback to ALNS (best heuristic), in what is left of the caller's
         // limit. It used to get its usual budget afresh after the exact attempt
         // had spent half the limit, so any limit under ten seconds ran over by
         // up to half again.
-        let budget = match self.config.time_limit_ms {
+        self.alns_within(geometries, boundary, self.fallback_budget(started), None)
+    }
+
+    /// What is left of the caller's limit after the exact attempt (the usual
+    /// search budget when there is no limit).
+    fn fallback_budget(&self, started: Timer) -> u64 {
+        match self.config.time_limit_ms {
             0 => self.search_budget_ms(),
             limit => limit.saturating_sub(started.elapsed_ms()).max(1),
-        };
-        self.alns_within(geometries, boundary, budget, None)
+        }
     }
 
     /// The bottom-left fill both entry points run.

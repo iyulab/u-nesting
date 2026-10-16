@@ -67,9 +67,6 @@ pub struct ExactConfig {
 
     /// Grid discretization step for position variables.
     pub grid_step: f64,
-
-    /// Number of discrete rotation angles to consider.
-    pub rotation_steps: usize,
 }
 
 impl Default for ExactConfig {
@@ -78,7 +75,6 @@ impl Default for ExactConfig {
             time_limit_ms: 60000, // 1 minute default
             max_items: 15,        // Small instances only
             grid_step: 1.0,       // 1 unit grid
-            rotation_steps: 4,    // 0, 90, 180, 270 degrees
         }
     }
 }
@@ -100,12 +96,11 @@ impl ExactConfig {
     ///
     /// # Errors
     /// `ConfigError` for a `grid_step` that is not finite and positive, or a
-    /// `max_items` or `rotation_steps` below 1.
+    /// `max_items` below 1.
     pub fn validate(&self) -> crate::error::Result<()> {
         use crate::error::{check_above, check_at_least};
         check_above("grid_step", self.grid_step, 0.0)?;
         check_at_least("max_items", self.max_items as f64, 1.0)?;
-        check_at_least("rotation_steps", self.rotation_steps as f64, 1.0)?;
         Ok(())
     }
 
@@ -121,21 +116,9 @@ impl ExactConfig {
         self
     }
 
-    /// Set number of discrete rotation angles.
-    pub fn with_rotation_steps(mut self, steps: usize) -> Self {
-        self.rotation_steps = steps;
-        self
-    }
-
     /// Check if the number of items is within the exact solving limit.
     pub fn is_within_limit(&self, num_items: usize) -> bool {
         num_items <= self.max_items
-    }
-
-    /// Get discrete rotation angles in radians.
-    pub fn rotation_angles(&self) -> Vec<f64> {
-        let step = std::f64::consts::TAU / self.rotation_steps as f64;
-        (0..self.rotation_steps).map(|i| i as f64 * step).collect()
     }
 }
 
@@ -273,7 +256,6 @@ mod tests {
         let config = ExactConfig::default();
         assert_eq!(config.time_limit_ms, 60000);
         assert_eq!(config.max_items, 15);
-        assert_eq!(config.rotation_steps, 4);
     }
 
     #[test]
@@ -281,23 +263,11 @@ mod tests {
         let config = ExactConfig::new()
             .with_time_limit_ms(30000)
             .with_max_items(10)
-            .with_rotation_steps(8)
             .with_grid_step(0.5);
 
         assert_eq!(config.time_limit_ms, 30000);
         assert_eq!(config.max_items, 10);
-        assert_eq!(config.rotation_steps, 8);
         assert_eq!(config.grid_step, 0.5);
-    }
-
-    #[test]
-    fn test_rotation_angles() {
-        let config = ExactConfig::default().with_rotation_steps(4);
-        let angles = config.rotation_angles();
-        assert_eq!(angles.len(), 4);
-        assert!((angles[0] - 0.0).abs() < 1e-10);
-        assert!((angles[1] - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
-        assert!((angles[2] - std::f64::consts::PI).abs() < 1e-10);
     }
 
     #[test]

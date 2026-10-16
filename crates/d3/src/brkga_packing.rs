@@ -112,9 +112,10 @@ impl BrkgaPackingProblem {
             return (Vec::new(), 0.0, 0);
         }
 
-        // Decode placement order from first N keys
-        let order = chromosome.decode_as_permutation();
-        let order: Vec<usize> = order.into_iter().take(n).collect();
+        // Placement order: the first N keys, ranked. The orientation keys after
+        // them are not instances -- ranking all 2N and taking N dropped about
+        // half the items before any was tried.
+        let order = chromosome.decode_as_permutation(n);
 
         let items: Vec<PlacementItem> = order
             .iter()
@@ -363,19 +364,15 @@ mod tests {
         // 2 instances * 2 (order + orientation) = 4 keys
         assert_eq!(problem.num_keys(), 4);
 
-        // Use a seeded RNG for reproducibility
-        let mut rng = StdRng::seed_from_u64(42);
-        let chromosome = RandomKeyChromosome::random(problem.num_keys(), &mut rng);
-        let (placements, utilization, placed_count) = problem.decode(&chromosome);
-
-        // With such a large boundary (500^3 vs 10^3 items), at least one item should fit
-        assert!(
-            placed_count >= 1,
-            "Expected at least 1 placement but got {}",
-            placed_count
-        );
-        assert_eq!(placements.len(), placed_count);
-        if placed_count > 0 {
+        // Every chromosome tries every item: two small boxes in a huge
+        // container are both placed, whatever the keys. (Ranking all 2N keys
+        // and keeping N used to drop about half the items untried.)
+        for seed in 0..50 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let chromosome = RandomKeyChromosome::random(problem.num_keys(), &mut rng);
+            let (placements, utilization, placed_count) = problem.decode(&chromosome);
+            assert_eq!(placed_count, 2, "seed {seed}: {placements:?}");
+            assert_eq!(placements.len(), 2);
             assert!(utilization > 0.0);
         }
     }

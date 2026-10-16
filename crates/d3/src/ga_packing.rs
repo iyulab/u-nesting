@@ -23,6 +23,9 @@ pub struct PackingChromosome {
     pub order: Vec<usize>,
     /// Orientation index for each instance (0-5 for boxes with Any constraint).
     pub orientations: Vec<usize>,
+    /// Each instance's number of allowed orientations: `orientations[i]` is
+    /// always below `orientation_counts[i]`. Shared by the whole population.
+    pub orientation_counts: Arc<[usize]>,
     /// Cached fitness value.
     fitness: f64,
     /// Number of placed pieces.
@@ -32,23 +35,29 @@ pub struct PackingChromosome {
 }
 
 impl PackingChromosome {
-    /// Creates a new chromosome for the given number of instances.
-    pub fn new(num_instances: usize) -> Self {
+    /// The identity order, every instance in its first orientation; one
+    /// instance per entry of `orientation_counts`.
+    pub fn new(orientation_counts: impl Into<Arc<[usize]>>) -> Self {
+        let orientation_counts = orientation_counts.into();
+        let num_instances = orientation_counts.len();
         Self {
             order: (0..num_instances).collect(),
             orientations: vec![0; num_instances],
+            orientation_counts,
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
             total_count: num_instances,
         }
     }
 
-    /// Creates a random chromosome with given orientation options per instance.
+    /// A random order, each instance in an orientation drawn uniformly from
+    /// its own allowed ones.
     pub fn random_with_options<R: Rng>(
-        num_instances: usize,
-        orientation_counts: &[usize],
+        orientation_counts: impl Into<Arc<[usize]>>,
         rng: &mut R,
     ) -> Self {
+        let orientation_counts = orientation_counts.into();
+        let num_instances = orientation_counts.len();
         let mut order: Vec<usize> = (0..num_instances).collect();
         order.shuffle(rng);
 
@@ -60,6 +69,7 @@ impl PackingChromosome {
         Self {
             order,
             orientations,
+            orientation_counts,
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
             total_count: num_instances,
@@ -73,12 +83,7 @@ impl PackingChromosome {
     }
 
     /// Order crossover (OX1) for permutation genes.
-    pub fn order_crossover<R: Rng>(
-        &self,
-        other: &Self,
-        orientation_counts: &[usize],
-        rng: &mut R,
-    ) -> Self {
+    pub fn order_crossover<R: Rng>(&self, other: &Self, rng: &mut R) -> Self {
         let n = self.order.len();
         if n < 2 {
             return self.clone();
@@ -113,22 +118,19 @@ impl PackingChromosome {
             }
         }
 
-        // Crossover orientations (uniform with bounds checking)
+        // Crossover orientations (uniform): both parents hold each instance's
+        // gene within its own count, so the child does too.
         let orientations: Vec<usize> = self
             .orientations
             .iter()
             .zip(&other.orientations)
-            .enumerate()
-            .map(|(i, (a, b))| {
-                let max_orient = orientation_counts.get(i).copied().unwrap_or(1);
-                let chosen = if rng.random() { *a } else { *b };
-                chosen % max_orient.max(1)
-            })
+            .map(|(a, b)| if rng.random() { *a } else { *b })
             .collect();
 
         Self {
             order: child_order,
             orientations,
+            orientation_counts: self.orientation_counts.clone(),
             fitness: f64::NEG_INFINITY,
             placed_count: 0,
             total_count: self.total_count,
@@ -147,18 +149,25 @@ impl PackingChromosome {
         self.fitness = f64::NEG_INFINITY;
     }
 
-    /// Orientation mutation.
-    pub fn orientation_mutate<R: Rng>(&mut self, orientation_counts: &[usize], rng: &mut R) {
-        if self.orientations.is_empty() {
-            return;
+    /// Orientation mutation: moves one instance that has more than one
+    /// allowed orientation to another of its own, drawn uniformly. Returns
+    /// whether it changed anything.
+    pub fn orientation_mutate<R: Rng>(&mut self, rng: &mut R) -> bool {
+        let turnable: Vec<usize> = (0..self.orientations.len())
+            .filter(|&i| self.orientation_counts.get(i).copied().unwrap_or(1) > 1)
+            .collect();
+        if turnable.is_empty() {
+            return false;
         }
 
-        let idx = rng.random_range(0..self.orientations.len());
-        let max_orient = orientation_counts.get(idx).copied().unwrap_or(1);
-        if max_orient > 1 {
-            self.orientations[idx] = rng.random_range(0..max_orient);
-            self.fitness = f64::NEG_INFINITY;
-        }
+        let idx = turnable[rng.random_range(0..turnable.len())];
+        self.orientations[idx] = u_nesting_core::sa::another_option(
+            self.orientations[idx],
+            self.orientation_counts[idx],
+            rng,
+        );
+        self.fitness = f64::NEG_INFINITY;
+        true
     }
 
     /// Inversion mutation (reverses a segment of the order).
@@ -187,13 +196,11 @@ impl Individual for PackingChromosome {
 
     fn random<R: Rng>(_rng: &mut R) -> Self {
         // Default: empty, will be overridden by problem's initialize_population
-        Self::new(0)
+        Self::new(Vec::new())
     }
 
     fn crossover<R: Rng>(&self, other: &Self, rng: &mut R) -> Self {
-        // Default crossover without orientation bounds - should use problem's crossover
-        let fake_counts = vec![6; self.orientations.len()];
-        self.order_crossover(other, &fake_counts, rng)
+        self.order_crossover(other, rng)
     }
 
     fn mutate<R: Rng>(&mut self, rng: &mut R) {
@@ -203,10 +210,9 @@ impl Individual for PackingChromosome {
             self.swap_mutate(rng);
         } else if r < 0.8 {
             self.inversion_mutate(rng);
-        } else {
-            // Orientation mutation with max 6 options
-            let fake_counts = vec![6; self.orientations.len()];
-            self.orientation_mutate(&fake_counts, rng);
+        } else if !self.orientation_mutate(rng) {
+            // Nothing to turn: reorder instead.
+            self.swap_mutate(rng);
         }
     }
 }
@@ -221,8 +227,8 @@ pub struct PackingProblem {
     config: Config,
     /// Instance mapping.
     instances: Vec<InstanceInfo>,
-    /// Orientation counts per instance.
-    orientation_counts: Vec<usize>,
+    /// Orientation counts per instance (shared by every chromosome).
+    orientation_counts: Arc<[usize]>,
     /// Cancellation flag.
     cancelled: Arc<AtomicBool>,
     /// The chromosome of the layout the search starts from, when there is one.
@@ -238,7 +244,7 @@ impl PackingProblem {
         cancelled: Arc<AtomicBool>,
     ) -> Self {
         let instances = build_instances(&geometries);
-        let orientation_counts: Vec<usize> =
+        let orientation_counts: Arc<[usize]> =
             instances.iter().map(|i| i.orientation_count).collect();
 
         Self {
@@ -260,7 +266,7 @@ impl PackingProblem {
         placements: Option<&[u_nesting_core::Placement<f64>]>,
     ) -> Self {
         self.seed = placements.map(|p| {
-            let mut seed = PackingChromosome::new(self.instances.len());
+            let mut seed = PackingChromosome::new(self.orientation_counts.clone());
             seed.orientations = seed_orientations(&self.instances, &self.geometries, p);
             seed
         });
@@ -317,11 +323,7 @@ impl GaProblem for PackingProblem {
             .map(|i| match (&self.seed, i) {
                 // The first individual is the seed layout, when there is one.
                 (Some(seed), 0) => seed.clone(),
-                _ => PackingChromosome::random_with_options(
-                    self.num_instances(),
-                    &self.orientation_counts,
-                    rng,
-                ),
+                _ => PackingChromosome::random_with_options(self.orientation_counts.clone(), rng),
             })
             .collect()
     }
@@ -419,10 +421,10 @@ mod tests {
     fn test_packing_chromosome_crossover() {
         let mut rng = rand::rng();
         let orientation_counts = vec![6, 6, 6, 6, 6];
-        let parent1 = PackingChromosome::random_with_options(5, &orientation_counts, &mut rng);
-        let parent2 = PackingChromosome::random_with_options(5, &orientation_counts, &mut rng);
+        let parent1 = PackingChromosome::random_with_options(orientation_counts.clone(), &mut rng);
+        let parent2 = PackingChromosome::random_with_options(orientation_counts.clone(), &mut rng);
 
-        let child = parent1.order_crossover(&parent2, &orientation_counts, &mut rng);
+        let child = parent1.order_crossover(&parent2, &mut rng);
 
         // Child should be a valid permutation
         assert_eq!(child.order.len(), 5);
@@ -441,7 +443,7 @@ mod tests {
         let mut rng = rand::rng();
         let orientation_counts = vec![6, 6, 6, 6, 6];
         let mut chromosome =
-            PackingChromosome::random_with_options(5, &orientation_counts, &mut rng);
+            PackingChromosome::random_with_options(orientation_counts.clone(), &mut rng);
 
         chromosome.swap_mutate(&mut rng);
 
@@ -547,7 +549,7 @@ mod tests {
         assert_eq!(problem.num_instances(), 2);
 
         // Create a chromosome and decode
-        let chromosome = PackingChromosome::new(2);
+        let chromosome = PackingChromosome::new(problem.orientation_counts().to_vec());
         let (placements, utilization, placed_count) = problem.decode(&chromosome);
 
         assert_eq!(placed_count, 2);

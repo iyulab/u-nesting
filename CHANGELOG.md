@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- 3D `brkga` tries every item. Its decoder ranked all 2N keys — the
+  orientation keys too — and kept the first N indices, so about half the items
+  were dropped before any was tried (2D had the same fault, fixed earlier).
+  `RandomKeyChromosome::decode_as_permutation(n)` now ranks the first `n`
+  keys, and both dimensions use it.
+- 2D `ga` and `sa`, and 3D `ga` and `sa`, draw each instance's rotation or
+  orientation from its own allowed ones, uniformly. They drew from the largest
+  count among all geometries and folded the index back with a modulo, so a
+  geometry with fewer options favoured its first angles; the 2D `ga` mutation
+  drew from four options whatever the geometry allowed, so a fifth angle and
+  beyond were unreachable; 3D `ga` drew from six. A rotation move now always
+  turns an instance that has a choice (and reorders when none has).
+- 2D and 3D `sa` read each instance's rotation by instance, not by its place
+  in the sequence: a swap, relocation, inversion or chain move changed the
+  rotations of the instances it moved.
+- The exact MILP strategies (`milp` feature) place each piece only at the
+  rotations its geometry allows; they tried 0°, 90°, 180° and 270° for every
+  piece, so a piece fixed in orientation could come back turned.
+- `hybrid_exact` returns the exact layout only when it places every piece; a
+  partial one (the solver stopped on its limit) competes with the heuristic
+  fallback, and the layout with more pieces placed, then the shorter strip,
+  wins. It returned any exact layout that placed one piece. The exact attempt
+  uses the candidate grid derived from the pieces, as `milp_exact` does (it
+  used a 1-unit grid).
+- The npm README's omitted `max_iterations` is 500 for `sa` and 1000 for
+  `gdrr` and `alns` (it said 50).
+
+### Changed
+
+- **Breaking** `PermutationSolution` (`rotation_counts` per item, replacing
+  `rotation_options`), `NestingChromosome` and `PackingChromosome` take each
+  instance's number of options (`new(counts)`, `random…(counts, rng)`);
+  `rotation_mutate` / `orientation_mutate` take no count and return whether
+  they changed anything. `ExactConfig::rotation_steps`,
+  `with_rotation_steps` and `rotation_angles` are removed — the exact
+  strategies read each geometry's rotations.
+  `RandomKeyChromosome::decode_as_permutation` takes the number of items.
+
 ## [0.23.0] - 2026-10-16
 
 ### Changed

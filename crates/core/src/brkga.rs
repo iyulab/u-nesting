@@ -244,12 +244,17 @@ impl RandomKeyChromosome {
         }
     }
 
-    /// Decodes the random keys into a permutation (sorted indices by key value).
+    /// The order of `n` items held in the first `n` keys: item indices
+    /// `0..n`, ranked by their keys (ties keep index order).
     ///
-    /// This is the most common decoding: sort items by their random keys
-    /// to get a placement order.
-    pub fn decode_as_permutation(&self) -> Vec<usize> {
-        let mut indices: Vec<usize> = (0..self.keys.len()).collect();
+    /// Only the first `n` keys are ranked. A chromosome that also carries
+    /// rotation or orientation keys after them must not rank those: ranking
+    /// every key and taking the first `n` indices picks whichever indices hold
+    /// the smallest keys, rotation keys included, and drops the items they
+    /// displace -- about half of them with uniform keys.
+    pub fn decode_as_permutation(&self, n: usize) -> Vec<usize> {
+        let n = n.min(self.keys.len());
+        let mut indices: Vec<usize> = (0..n).collect();
         indices.sort_by(|&a, &b| {
             self.keys[a]
                 .partial_cmp(&self.keys[b])
@@ -707,10 +712,12 @@ mod tests {
         let mut chromosome = RandomKeyChromosome::new(5);
         chromosome.keys = vec![0.3, 0.1, 0.9, 0.5, 0.2];
 
-        let perm = chromosome.decode_as_permutation();
+        let perm = chromosome.decode_as_permutation(5);
 
         // Sorted order: 0.1(1), 0.2(4), 0.3(0), 0.5(3), 0.9(2)
         assert_eq!(perm, vec![1, 4, 0, 3, 2]);
+        // Only the first n keys are items: the smaller keys after them are not.
+        assert_eq!(chromosome.decode_as_permutation(3), vec![1, 0, 2]);
     }
 
     #[test]

@@ -539,15 +539,27 @@ impl<P: SaProblem> SaRunner<P> {
     }
 }
 
+/// One of `count` options other than `current`, uniformly (`count` > 1).
+pub fn another_option<R: Rng>(current: usize, count: usize, rng: &mut R) -> usize {
+    let pick = rng.random_range(0..count - 1);
+    if pick >= current.min(count - 1) {
+        pick + 1
+    } else {
+        pick
+    }
+}
+
 /// Permutation-based solution for SA.
 #[derive(Debug, Clone)]
 pub struct PermutationSolution {
     /// The permutation (indices).
     pub sequence: Vec<usize>,
-    /// Additional rotation/orientation values.
+    /// Rotation/orientation index per item (by item, not by sequence
+    /// position — a reorder moves items, not their rotations).
     pub rotations: Vec<usize>,
-    /// Number of rotation options per item.
-    pub rotation_options: usize,
+    /// How many rotation/orientation options each item has: `rotations[i]`
+    /// is always below `rotation_counts[i]`.
+    pub rotation_counts: std::sync::Arc<[usize]>,
     /// Mirror flag per item (`allow_flip` support, 2D nesting only — see
     /// [`NeighborhoodOperator::MirrorFlip`]).
     pub mirrors: Vec<bool>,
@@ -556,24 +568,34 @@ pub struct PermutationSolution {
 }
 
 impl PermutationSolution {
-    /// Creates a new permutation solution.
-    pub fn new(size: usize, rotation_options: usize) -> Self {
+    /// The identity order, every item at its first rotation; one item per
+    /// entry of `rotation_counts` (each item's number of options).
+    pub fn new(rotation_counts: impl Into<std::sync::Arc<[usize]>>) -> Self {
+        let rotation_counts = rotation_counts.into();
+        let size = rotation_counts.len();
         Self {
             sequence: (0..size).collect(),
             rotations: vec![0; size],
-            rotation_options,
+            rotation_counts,
             mirrors: vec![false; size],
             objective: f64::NEG_INFINITY,
         }
     }
 
-    /// Creates a random permutation solution.
-    pub fn random<R: Rng>(size: usize, rotation_options: usize, rng: &mut R) -> Self {
+    /// A random order, each item at a rotation drawn uniformly from its own
+    /// options.
+    pub fn random<R: Rng>(
+        rotation_counts: impl Into<std::sync::Arc<[usize]>>,
+        rng: &mut R,
+    ) -> Self {
+        let rotation_counts = rotation_counts.into();
+        let size = rotation_counts.len();
         let mut sequence: Vec<usize> = (0..size).collect();
         sequence.shuffle(rng);
 
-        let rotations: Vec<usize> = (0..size)
-            .map(|_| rng.random_range(0..rotation_options.max(1)))
+        let rotations: Vec<usize> = rotation_counts
+            .iter()
+            .map(|&k| rng.random_range(0..k.max(1)))
             .collect();
 
         let mirrors: Vec<bool> = (0..size).map(|_| rng.random()).collect();
@@ -581,7 +603,7 @@ impl PermutationSolution {
         Self {
             sequence,
             rotations,
-            rotation_options,
+            rotation_counts,
             mirrors,
             objective: f64::NEG_INFINITY,
         }
@@ -651,15 +673,21 @@ impl PermutationSolution {
         result
     }
 
-    /// Applies rotation operator: changes rotation of one element.
+    /// Applies rotation operator: moves one item that has more than one
+    /// option to another of its options, drawn uniformly. An item with one
+    /// option is never chosen, so the move always changes the solution.
     pub fn apply_rotation<R: Rng>(&self, rng: &mut R) -> Self {
         let mut result = self.clone();
-        if result.rotations.is_empty() || result.rotation_options <= 1 {
+        let turnable: Vec<usize> = (0..result.rotations.len())
+            .filter(|&i| result.rotation_counts.get(i).copied().unwrap_or(1) > 1)
+            .collect();
+        if turnable.is_empty() {
             return result;
         }
 
-        let idx = rng.random_range(0..result.rotations.len());
-        result.rotations[idx] = rng.random_range(0..result.rotation_options);
+        let idx = turnable[rng.random_range(0..turnable.len())];
+        result.rotations[idx] =
+            another_option(result.rotations[idx], result.rotation_counts[idx], rng);
         result.objective = f64::NEG_INFINITY;
         result
     }
@@ -724,6 +752,40 @@ impl SaSolution for PermutationSolution {
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_rotation_move_turns_only_items_with_options_within_their_own() {
+        use rand::rngs::StdRng;
+        use rand::SeedableRng;
+        let mut rng = StdRng::seed_from_u64(7);
+        let counts: Vec<usize> = vec![1, 3, 1, 8];
+        let start = PermutationSolution::random(counts.clone(), &mut rng);
+        for (r, k) in start.rotations.iter().zip(&counts) {
+            assert!(r < k);
+        }
+        let mut reached = vec![std::collections::HashSet::new(); counts.len()];
+        let mut current = start;
+        for _ in 0..2000 {
+            let next = current.apply_rotation(&mut rng);
+            let changed: Vec<usize> = (0..counts.len())
+                .filter(|&i| next.rotations[i] != current.rotations[i])
+                .collect();
+            assert_eq!(changed.len(), 1, "a move changes exactly one item");
+            assert!(counts[changed[0]] > 1, "a fixed item was turned");
+            for (i, &r) in next.rotations.iter().enumerate() {
+                assert!(r < counts[i]);
+                reached[i].insert(r);
+            }
+            current = next;
+        }
+        // Every option of every item is reachable: 3 and 8 of them.
+        assert_eq!(reached[1].len(), 3);
+        assert_eq!(reached[3].len(), 8);
+        assert_eq!(reached[0].len(), 1);
+        // Nothing to turn: the move leaves the solution as it is.
+        let fixed = PermutationSolution::new(vec![1; 4]);
+        assert_eq!(fixed.apply_rotation(&mut rng).rotations, vec![0; 4]);
+    }
+
     struct SimpleMaxProblem {
         size: usize,
     }
@@ -732,7 +794,7 @@ mod tests {
         type Solution = PermutationSolution;
 
         fn initial_solution<R: Rng>(&self, rng: &mut R) -> Self::Solution {
-            PermutationSolution::random(self.size, 1, rng)
+            PermutationSolution::random(vec![1; self.size], rng)
         }
 
         fn neighbor<R: Rng>(
@@ -809,7 +871,7 @@ mod tests {
     #[test]
     fn test_neighborhood_operators() {
         let mut rng = rand::rng();
-        let solution = PermutationSolution::random(10, 4, &mut rng);
+        let solution = PermutationSolution::random(vec![4; 10], &mut rng);
 
         // Test all operators produce valid permutations
         let swap = solution.apply_swap(&mut rng);

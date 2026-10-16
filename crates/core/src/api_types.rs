@@ -2121,10 +2121,6 @@ mod dto_strictness_tests {
             details(ExactConfig::default().with_max_items(0).validate()),
             range(json!({ "parameter": "max_items", "min": 1.0, "got": 0.0 }))
         );
-        assert_eq!(
-            details(ExactConfig::default().with_rotation_steps(0).validate()),
-            range(json!({ "parameter": "rotation_steps", "min": 1.0, "got": 0.0 }))
-        );
 
         let gdrr = GdrrConfig::default().with_ruin_weights(-1.0, 1.0, 1.0);
         assert_eq!(gdrr.random_ruin_weight, -1.0);

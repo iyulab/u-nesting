@@ -240,7 +240,7 @@ interface Request2D {
                                        //   (omitted: 30, what the 2D searches are tuned for)
     max_generations?: number;          // GA/BRKGA generation budget, >= 0, run as given
     max_iterations?: number;           // SA/GDRR/ALNS iteration budget, >= 1, run as given
-                                       //   (omitted: 50)
+                                       //   (omitted: 500 for sa, 1000 for gdrr and alns)
     crossover_rate?: number;           // GA crossover rate (default: 0.85)
     mutation_rate?: number;            // GA mutation rate (default: 0.05)
     time_limit_ms?: number;            // Time limit in ms for the whole solve

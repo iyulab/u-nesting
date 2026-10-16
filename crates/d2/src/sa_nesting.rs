@@ -151,7 +151,7 @@ impl SaNestingProblem {
         let sample_step = self.compute_sample_step();
 
         // Place geometries in the solution order
-        for (seq_idx, &instance_idx) in solution.sequence.iter().enumerate() {
+        for &instance_idx in &solution.sequence {
             if self.cancelled.load(Ordering::Relaxed) || self.search.out_of_time() {
                 break;
             }
@@ -163,8 +163,9 @@ impl SaNestingProblem {
             let info = &self.instances[instance_idx];
             let geom = &self.geometries[info.geometry_idx];
 
-            // Get rotation from solution
-            let rotation_idx = solution.rotations.get(seq_idx).copied().unwrap_or(0);
+            // The instance's own rotation (genes belong to instances, so a
+            // reorder does not change any instance's rotation).
+            let rotation_idx = solution.rotations.get(instance_idx).copied().unwrap_or(0);
             let num_rotations = self
                 .rotation_angles
                 .get(info.geometry_idx)
@@ -182,7 +183,7 @@ impl SaNestingProblem {
             // against this instance's own geometry — see
             // `PermutationSolution.mirrors` / `NeighborhoodOperator::MirrorFlip`.
             let mirror =
-                solution.mirrors.get(seq_idx).copied().unwrap_or(false) && geom.allow_flip();
+                solution.mirrors.get(instance_idx).copied().unwrap_or(false) && geom.allow_flip();
 
             // Compute IFP for this geometry at this rotation
             let ifp = match compute_ifp_with_margin_and_mirror(
@@ -304,6 +305,16 @@ impl SaNestingProblem {
     }
 }
 
+impl SaNestingProblem {
+    /// Each instance's number of allowed rotations.
+    fn rotation_counts(&self) -> Arc<[usize]> {
+        self.instances
+            .iter()
+            .map(|i| self.rotation_angles[i.geometry_idx].len())
+            .collect()
+    }
+}
+
 impl SaProblem for SaNestingProblem {
     type Solution = PermutationSolution;
 
@@ -311,15 +322,12 @@ impl SaProblem for SaNestingProblem {
         match &self.seed {
             // Start from the seed layout, when there is one.
             Some((rotations, mirrors)) => {
-                let mut seeded =
-                    PermutationSolution::new(self.instances.len(), self.max_rotation_options);
+                let mut seeded = PermutationSolution::new(self.rotation_counts());
                 seeded.rotations = rotations.clone();
                 seeded.mirrors = mirrors.clone();
                 seeded
             }
-            None => {
-                PermutationSolution::random(self.instances.len(), self.max_rotation_options, rng)
-            }
+            None => PermutationSolution::random(self.rotation_counts(), rng),
         }
     }
 
@@ -475,6 +483,35 @@ pub fn run_sa_nesting(
 mod tests {
     use super::*;
 
+    /// Rotation genes belong to instances: placing an instance later in the
+    /// sequence does not change which rotation it gets.
+    #[test]
+    fn an_instance_keeps_its_rotation_wherever_it_is_placed() {
+        let geometries = vec![
+            Geometry2D::rectangle("Tall", 10.0, 40.0).with_rotations_deg(vec![0.0, 90.0]),
+            Geometry2D::rectangle("Fixed", 5.0, 5.0),
+        ];
+        let problem = SaNestingProblem::new(
+            geometries,
+            Boundary2D::rectangle(100.0, 100.0),
+            Config::default(),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let mut solution = PermutationSolution::new(vec![2, 1]);
+        solution.rotations = vec![1, 0]; // instance 0 (Tall) turned 90°
+        solution.sequence = vec![1, 0]; // Tall placed second
+        let (placements, _, placed) = problem.decode(&solution);
+        assert_eq!(placed, 2);
+        let tall = placements
+            .iter()
+            .find(|p| p.geometry_id == "Tall")
+            .expect("Tall is placed");
+        assert!(
+            (tall.rotation[0] - std::f64::consts::FRAC_PI_2).abs() < 1e-9,
+            "{tall:?}"
+        );
+    }
+
     #[test]
     fn test_sa_nesting_basic() {
         let geometries = vec![
@@ -576,7 +613,7 @@ mod tests {
 
         // Create a random solution and decode
         let mut rng = rand::rng();
-        let solution = PermutationSolution::random(problem.num_instances(), 1, &mut rng);
+        let solution = PermutationSolution::random(vec![1; problem.num_instances()], &mut rng);
         let (placements, utilization, placed_count) = problem.decode(&solution);
 
         // Should place at least one item
@@ -590,17 +627,17 @@ mod tests {
     #[test]
     fn test_permutation_solution_mirrors_gene_present() {
         let mut rng = rand::rng();
-        let solution = PermutationSolution::random(10, 4, &mut rng);
+        let solution = PermutationSolution::random(vec![4; 10], &mut rng);
         assert_eq!(solution.mirrors.len(), 10);
 
-        let fixed = PermutationSolution::new(10, 4);
+        let fixed = PermutationSolution::new(vec![4; 10]);
         assert_eq!(fixed.mirrors, vec![false; 10]);
     }
 
     #[test]
     fn test_apply_mirror_flip_flips_bit() {
         let mut rng = rand::rng();
-        let mut single = PermutationSolution::new(1, 1);
+        let mut single = PermutationSolution::new(vec![1]);
         assert!(!single.mirrors[0]);
 
         single = single.apply_mirror_flip(&mut rng);
@@ -671,7 +708,7 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
 
-        let mut solution = PermutationSolution::new(2, 1);
+        let mut solution = PermutationSolution::new(vec![1; 2]);
         solution.mirrors = vec![false, true];
 
         let (placements, utilization, placed_count) = problem.decode(&solution);
@@ -719,7 +756,7 @@ mod tests {
             Arc::new(AtomicBool::new(false)),
         );
 
-        let mut solution = PermutationSolution::new(1, 1);
+        let mut solution = PermutationSolution::new(vec![1]);
         solution.mirrors = vec![true];
 
         let (placements, _utilization, placed_count) = problem.decode(&solution);
