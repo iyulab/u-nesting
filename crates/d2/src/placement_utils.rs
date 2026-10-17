@@ -41,6 +41,57 @@ pub fn polygon_centroid(polygon: &[(f64, f64)]) -> (f64, f64) {
     (sum.0 / n, sum.1 / n)
 }
 
+/// The no-fit polygons that keep `geom`, rotated by `rotation` and mirrored
+/// when `mirror`, off every geometry already placed, each grown by `spacing`.
+///
+/// A no-fit polygon depends on the two shapes and the rotation between them,
+/// not on where either lies, so one is computed between the placed geometry at
+/// its origin and `geom` turned by the rotation relative to the placed one,
+/// kept in `cache` under the two ids, and then turned by the placed rotation
+/// and moved to the placed position. A search that places the same pieces in a
+/// new order thousands of times finds nearly every pair in the cache; computing
+/// each pair afresh is what a layout costs without it. Ids name shapes, so
+/// they must be unique per shape within one cache (geometry ids are).
+/// A pair whose no-fit polygon cannot be computed is left out.
+pub(crate) fn nfps_against_placed(
+    cache: &crate::nfp::NfpCache,
+    placed: &[crate::nfp::PlacedGeometry],
+    geom: &Geometry2D,
+    rotation: f64,
+    mirror: bool,
+    spacing: f64,
+) -> Vec<Nfp> {
+    placed
+        .iter()
+        .filter_map(|p| {
+            let relative = rotation - p.rotation;
+            let at_origin = cache
+                .get_or_compute_mirrored(
+                    (
+                        p.geometry.id().as_str(),
+                        geom.id().as_str(),
+                        relative,
+                        p.mirrored,
+                        mirror,
+                    ),
+                    || {
+                        crate::nfp::compute_nfp_mirrored(
+                            &p.geometry, geom, relative, p.mirrored, mirror,
+                        )
+                        // Grown before caching: an offset commutes with the
+                        // rotation and translation below.
+                        .map(|nfp| offset_nfp(&nfp, spacing))
+                    },
+                )
+                .ok()?;
+            Some(crate::nfp::translate_nfp(
+                &crate::nfp::rotate_nfp(&at_origin, p.rotation),
+                p.position,
+            ))
+        })
+        .collect()
+}
+
 /// Grows an NFP by `spacing`, so that a reference point outside the result
 /// keeps the two pieces at least `spacing` apart.
 ///

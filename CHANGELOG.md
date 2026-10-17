@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The search strategies (GA, BRKGA, SA, GDRR, ALNS) keep the no-fit polygons
+  between the pieces across the layouts they build, as the NFP-guided
+  placement does, instead of computing every pair afresh for every layout: a
+  no-fit polygon depends on the two shapes and their relative rotation, not on
+  where either lies. The five copies of that loop are one function.
+- The bottom-left placement search no longer sorts every candidate point (some
+  tens of thousands, nearly all far past the answer): it takes them in packing
+  order a block at a time, and ends its grid past the last no-fit polygon,
+  where every point is clear of them all. The same point is found; one NFP-guided
+  layout of 24 pieces takes 115 ms where it took 270 ms.
+
 ### Fixed
 
 - A polygon written with its first vertex repeated at the end (GeoJSON, WKT,

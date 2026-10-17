@@ -1129,25 +1129,45 @@ pub fn find_bottom_left_placement(
     // Find the bounding box of the IFP for grid sampling
     let (min_x, min_y, max_x, max_y) = ifp_bounding_box(ifp);
 
-    // Add grid sample points
-    let mut y = min_y;
-    while y <= max_y {
-        let mut x = min_x;
-        while x <= max_x {
-            candidates.push((x, y));
-            x += sample_step;
+    // Add grid sample points, line by line along the length axis. Past the
+    // furthest point of any NFP every point is clear of them all, and the first
+    // such line answers for the rest (the same points, further along): the
+    // grid ends there instead of running to the far end of the sheet.
+    let reach = nfps
+        .iter()
+        .flat_map(|nfp| nfp.polygons.iter().flatten())
+        .map(|&point| axis.key(point).0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let ((along_min, along_max), (across_min, across_max)) = match axis {
+        PackingAxis::X => ((min_x, max_x), (min_y, max_y)),
+        PackingAxis::Y => ((min_y, max_y), (min_x, max_x)),
+    };
+    let mut along = along_min;
+    while along <= along_max {
+        let mut across = across_min;
+        while across <= across_max {
+            candidates.push(match axis {
+                PackingAxis::X => (along, across),
+                PackingAxis::Y => (across, along),
+            });
+            across += sample_step;
         }
-        y += sample_step;
+        if along > reach {
+            break;
+        }
+        along += sample_step;
     }
 
     // The first valid candidate in packing order is the answer: least along the
-    // length axis, then least across it. Checking in that order stops at the
-    // answer instead of validating every candidate.
+    // length axis, then least across it. The candidates are taken in that order
+    // a block at a time -- the answer is almost always among the first few
+    // hundred of some tens of thousands, so sorting them all is most of the
+    // cost of the search.
     candidates.retain(|p| p.0.is_finite() && p.1.is_finite());
-    candidates.sort_by(|a, b| {
+    let in_packing_order = |a: &(f64, f64), b: &(f64, f64)| {
         let (a, b) = (axis.key(*a), axis.key(*b));
         a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
-    });
+    };
 
     // A point outside a polygon's bounding box is outside the polygon; most NFPs
     // are nowhere near a given candidate.
@@ -1156,7 +1176,7 @@ pub fn find_bottom_left_placement(
         .map(|polygon| bounding_box(polygon))
         .collect();
 
-    candidates.into_iter().find(|&point| {
+    let valid = |point: (f64, f64)| {
         // Must be inside IFP (including boundary points)
         let in_ifp = ifp
             .polygons
@@ -1174,7 +1194,23 @@ pub fn find_bottom_left_placement(
                         || point.1 >= max_y
                         || !point_in_polygon(point, polygon)
                 })
-    })
+    };
+
+    const BLOCK: usize = 512;
+    let mut rest: &mut [(f64, f64)] = &mut candidates;
+    while !rest.is_empty() {
+        let block = BLOCK.min(rest.len());
+        if block < rest.len() {
+            rest.select_nth_unstable_by(block - 1, in_packing_order);
+        }
+        let (head, tail) = rest.split_at_mut(block);
+        head.sort_unstable_by(in_packing_order);
+        if let Some(&point) = head.iter().find(|&&point| valid(point)) {
+            return Some(point);
+        }
+        rest = tail;
+    }
+    None
 }
 
 /// Appends every point where an edge of ring `a` properly crosses an edge of
@@ -1478,6 +1514,109 @@ impl Default for NfpCache {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+
+    /// The search before the grid ended past the last NFP and the candidates
+    /// were taken a block at a time: every candidate, the whole grid, one sort.
+    fn find_bottom_left_exhaustively(
+        ifp: &Nfp,
+        nfps: &[&Nfp],
+        sample_step: f64,
+        axis: PackingAxis,
+    ) -> Option<(f64, f64)> {
+        let mut candidates: Vec<(f64, f64)> = Vec::new();
+        for polygon in ifp
+            .polygons
+            .iter()
+            .chain(nfps.iter().flat_map(|n| &n.polygons))
+        {
+            candidates.extend(polygon.iter().copied());
+        }
+        let nfp_polygons: Vec<&Vec<(f64, f64)>> =
+            nfps.iter().flat_map(|nfp| nfp.polygons.iter()).collect();
+        for nfp in nfps {
+            for polygon in &nfp.polygons {
+                for ifp_polygon in &ifp.polygons {
+                    push_edge_crossings(ifp_polygon, polygon, &mut candidates);
+                }
+            }
+        }
+        for (i, a) in nfp_polygons.iter().enumerate() {
+            for b in &nfp_polygons[i + 1..] {
+                push_edge_crossings(a, b, &mut candidates);
+            }
+        }
+        let (min_x, min_y, max_x, max_y) = ifp_bounding_box(ifp);
+        let mut y = min_y;
+        while y <= max_y {
+            let mut x = min_x;
+            while x <= max_x {
+                candidates.push((x, y));
+                x += sample_step;
+            }
+            y += sample_step;
+        }
+        candidates.sort_by(|a, b| {
+            let (a, b) = (axis.key(*a), axis.key(*b));
+            a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
+        });
+        candidates.into_iter().find(|&point| {
+            ifp.polygons
+                .iter()
+                .any(|p| point_in_polygon(point, p) || point_on_polygon_boundary(point, p))
+                && nfp_polygons.iter().all(|polygon| {
+                    let (lo_x, lo_y, hi_x, hi_y) = bounding_box(polygon);
+                    point.0 <= lo_x
+                        || point.0 >= hi_x
+                        || point.1 <= lo_y
+                        || point.1 >= hi_y
+                        || !point_in_polygon(point, polygon)
+                })
+        })
+    }
+
+    /// Ending the grid past the last NFP and taking the candidates a block at
+    /// a time find the point the exhaustive search finds, on either axis, with
+    /// the sheet much longer than the layout (where the saving is).
+    #[test]
+    fn the_placement_search_finds_what_the_exhaustive_one_does() {
+        use rand::rngs::SmallRng;
+        use rand::{RngExt, SeedableRng};
+        let mut rng = SmallRng::seed_from_u64(5);
+        for case in 0..60 {
+            let axis = if case % 2 == 0 {
+                PackingAxis::X
+            } else {
+                PackingAxis::Y
+            };
+            let (long, short) = (300.0, 40.0);
+            let (w, h) = match axis {
+                PackingAxis::X => (long, short),
+                PackingAxis::Y => (short, long),
+            };
+            let ifp = Nfp::from_polygons(vec![vec![(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]]);
+            let nfps: Vec<Nfp> = (0..rng.random_range(0..7))
+                .map(|_| {
+                    let (x, y) = match axis {
+                        PackingAxis::X => {
+                            (rng.random_range(0.0..60.0), rng.random_range(0.0..30.0))
+                        }
+                        PackingAxis::Y => {
+                            (rng.random_range(0.0..30.0), rng.random_range(0.0..60.0))
+                        }
+                    };
+                    let (a, b) = (rng.random_range(5.0..25.0), rng.random_range(5.0..25.0));
+                    Nfp::from_polygons(vec![vec![(x, y), (x + a, y), (x + a, y + b), (x, y + b)]])
+                })
+                .collect();
+            let refs: Vec<&Nfp> = nfps.iter().collect();
+            let step = 2.5;
+            assert_eq!(
+                find_bottom_left_placement(&ifp, &refs, step, axis),
+                find_bottom_left_exhaustively(&ifp, &refs, step, axis),
+                "case {case}"
+            );
+        }
+    }
 
     fn rect(w: f64, h: f64) -> Vec<(f64, f64)> {
         vec![(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]

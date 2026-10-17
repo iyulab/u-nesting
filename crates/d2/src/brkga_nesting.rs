@@ -19,8 +19,8 @@ use crate::boundary::Boundary2D;
 use crate::clamp_placement_to_boundary;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
-    compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
-    verify_no_overlap_mirrored, Nfp, PackingAxis, PlacedGeometry,
+    compute_ifp_with_margin_and_mirror, find_bottom_left_placement, verify_no_overlap_mirrored,
+    Nfp, PackingAxis, PlacedGeometry,
 };
 use rand::Rng;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,8 +33,7 @@ use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
-    hole_nfps, inset_boundary, nesting_fitness, offset_nfp, seed_genes, take_best, InstanceInfo,
-    SearchState,
+    hole_nfps, inset_boundary, nesting_fitness, seed_genes, take_best, InstanceInfo, SearchState,
 };
 
 /// BRKGA problem definition for 2D nesting.
@@ -55,6 +54,10 @@ pub struct BrkgaNestingProblem {
     /// A layout the search starts from, already encoded as random keys.
     seed: Option<RandomKeyChromosome>,
     /// Cancellation flag.
+    /// No-fit polygons between the pieces, kept across the layouts the search
+    /// builds: they depend on the two shapes and their relative rotation, not on
+    /// where the pieces lie.
+    nfp_cache: crate::nfp::NfpCache,
     cancelled: Arc<AtomicBool>,
     /// Time limit and best layout, shared with the run.
     search: SearchState,
@@ -97,6 +100,7 @@ impl BrkgaNestingProblem {
             rotation_angles,
             any_allow_flip,
             seed: None,
+            nfp_cache: crate::nfp::NfpCache::with_capacity(20_000),
             cancelled,
             search: SearchState::default(),
         }
@@ -279,21 +283,14 @@ impl BrkgaNestingProblem {
             }
 
             // Compute NFPs with all placed geometries
-            let mut nfps: Vec<Nfp> = Vec::new();
-            for placed in &placed_geometries {
-                // Already-mirrored (if applicable) real-world polygon — do
-                // NOT mirror it again below, `mirror_stationary=false` always.
-                let placed_exterior = placed.translated_exterior();
-                let placed_geom = Geometry2D::new(format!("_placed_{}", placed.geometry.id()))
-                    .with_polygon(placed_exterior);
-
-                if let Ok(nfp) =
-                    compute_nfp_mirrored(&placed_geom, geom, rotation_angle, false, mirror)
-                {
-                    let expanded = offset_nfp(&nfp, spacing);
-                    nfps.push(expanded);
-                }
-            }
+            let mut nfps: Vec<Nfp> = crate::placement_utils::nfps_against_placed(
+                &self.nfp_cache,
+                &placed_geometries,
+                geom,
+                rotation_angle,
+                mirror,
+                spacing,
+            );
 
             // `spacing` separates pieces from each other, not from the boundary —
             // clearance to the edge is `margin`, already applied to the boundary.
