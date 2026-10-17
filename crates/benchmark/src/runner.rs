@@ -215,6 +215,12 @@ impl BenchmarkRunner {
                         .with_utilization(density)
                         .with_violations(violations)
                         .with_placements(placement_infos);
+                        if let Some(n) = solve_result
+                            .generations
+                            .or_else(|| solve_result.iterations.map(|i| i as u32))
+                        {
+                            run_result = run_result.with_iterations(n);
+                        }
 
                         // A gap is the distance to the literature for a valid,
                         // complete layout on one strip only: a second strip
