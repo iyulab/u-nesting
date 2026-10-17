@@ -532,6 +532,10 @@ impl Packer3D {
             // 0.1 accepts nearly every candidate and the search is a random walk.
             // Start where a tenth worse is accepted about one time in three and
             // cool to where a hundredth rarely is, over the iteration budget.
+            // Absolute, not calibrated: one box more or less moves the objective by
+            // about 4 while the tuning that matters moves it by tenths, and a scale
+            // measured on neighbours of the start reads the 4 -- a start ten times
+            // too hot (8 random sets of 25 boxes: utilisation 75.5 % against 70-73 %).
             .with_initial_temp(0.5)
             .with_final_temp(0.01)
             .with_cooling_rate(0.98)

@@ -19,6 +19,7 @@ use rand::prelude::*;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use u_metaheur::TemperatureScale;
 
 use crate::error::{check_above, check_at_least, check_range, Result};
 use crate::result::StopReason;
@@ -46,9 +47,17 @@ pub enum CoolingSchedule {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct SaConfig {
-    /// Initial temperature.
+    /// What the temperatures are measured in. The default measures the
+    /// objective's own scale first (see [`TemperatureScale::Calibrated`]), so one
+    /// configuration serves any unit of fitness;
+    /// [`with_initial_temp`](Self::with_initial_temp) sets an absolute
+    /// temperature, [`with_relative_temperature`](Self::with_relative_temperature)
+    /// a calibrated one.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub temperature_scale: TemperatureScale,
+    /// Initial temperature, in units of `temperature_scale`.
     pub initial_temp: f64,
-    /// Final (minimum) temperature.
+    /// Final (minimum) temperature, in the same unit.
     pub final_temp: f64,
     /// Cooling rate (alpha for Geometric, delta for Linear, beta for LundyMees).
     pub cooling_rate: f64,
@@ -73,7 +82,8 @@ pub struct SaConfig {
 impl Default for SaConfig {
     fn default() -> Self {
         Self {
-            initial_temp: 1000.0,
+            temperature_scale: TemperatureScale::default(),
+            initial_temp: 1.0,
             final_temp: 0.001,
             cooling_rate: 0.95,
             iterations_per_temp: 100,
@@ -94,9 +104,28 @@ impl SaConfig {
         Self::default()
     }
 
-    /// Sets the initial temperature.
+    /// Sets the initial temperature **in the unit of the fitness**
+    /// ([`TemperatureScale::Absolute`]).
     pub fn with_initial_temp(mut self, temp: f64) -> Self {
+        self.temperature_scale = TemperatureScale::Absolute;
         self.initial_temp = temp;
+        self
+    }
+
+    /// Sets the start and the floor as multiples of the fitness scale measured
+    /// over `samples` neighbours of the initial solution
+    /// ([`TemperatureScale::Calibrated`]). Each sample is a full evaluation, so a
+    /// problem whose evaluation is expensive wants few (the measurement stops at
+    /// the time limit).
+    pub fn with_relative_temperature(
+        mut self,
+        initial: f64,
+        final_temp: f64,
+        samples: usize,
+    ) -> Self {
+        self.temperature_scale = TemperatureScale::Calibrated { samples };
+        self.initial_temp = initial;
+        self.final_temp = final_temp;
         self
     }
 
@@ -127,6 +156,9 @@ impl SaConfig {
         check_range("final_temp", self.final_temp, 0.0, self.initial_temp)?;
         check_at_least("iterations_per_temp", self.iterations_per_temp as f64, 1.0)?;
         check_at_least("reheat_factor", self.reheat_factor, 1.0)?;
+        if let TemperatureScale::Calibrated { samples } = self.temperature_scale {
+            check_at_least("temperature_scale.samples", samples as f64, 1.0)?;
+        }
         Ok(())
     }
 
@@ -263,8 +295,11 @@ pub struct SaProgress {
 pub struct SaResult<S: SaSolution> {
     /// The best solution found.
     pub best: S,
-    /// Final temperature reached.
+    /// Final temperature reached, in the unit of the fitness.
     pub final_temperature: f64,
+    /// The factor the configured temperatures were multiplied by: the measured
+    /// fitness scale of a calibrated run, `1` for an absolute one.
+    pub temperature_unit: f64,
     /// Total iterations performed.
     pub iterations: u64,
     /// Total elapsed time.
@@ -352,15 +387,39 @@ impl<P: SaProblem> SaRunner<P> {
         let mut best = current.clone();
         let mut best_fitness = best.objective();
 
-        let mut temperature = self.config.initial_temp;
+        // Temperatures are configured in units of `scale` (1 when absolute); a
+        // calibrated run measures it on neighbours of the start, which are not
+        // iterations and stop at the time limit.
+        let operators = self.problem.available_operators();
+        let scale = match self.config.temperature_scale {
+            TemperatureScale::Absolute => 1.0,
+            TemperatureScale::Calibrated { samples } => {
+                let from = current.objective();
+                let mut worsenings = Vec::with_capacity(samples);
+                for _ in 0..samples {
+                    if expired(&start, self.config.time_limit)
+                        || self.cancelled.load(Ordering::Relaxed)
+                    {
+                        break;
+                    }
+                    let operator = operators[rng.random_range(0..operators.len())];
+                    let mut neighbor = self.problem.neighbor(&current, operator, rng);
+                    self.problem.evaluate(&mut neighbor);
+                    worsenings.push(from - neighbor.objective());
+                }
+                TemperatureScale::cost_scale(worsenings)
+            }
+        };
+        let initial_temp = self.config.initial_temp * scale;
+        let final_temp = self.config.final_temp * scale;
+        let mut temperature = initial_temp;
         let mut iteration = 0u64;
         let reached = |fitness: f64| self.config.target_fitness.is_some_and(|t| fitness >= t);
         let mut reheat_count = 0u32;
         let mut stagnation_count = 0u64;
 
-        let operators = self.problem.available_operators();
         let temp_delta = if matches!(self.config.cooling_schedule, CoolingSchedule::Linear) {
-            (self.config.initial_temp - self.config.final_temp)
+            (initial_temp - final_temp)
                 / (self.config.max_iterations.unwrap_or(10000) as f64
                     / self.config.iterations_per_temp as f64)
         } else {
@@ -377,7 +436,7 @@ impl<P: SaProblem> SaRunner<P> {
             if reached(best_fitness) {
                 break StopReason::TargetReached;
             }
-            if temperature <= self.config.final_temp {
+            if temperature <= final_temp {
                 break StopReason::Completed;
             }
             if self
@@ -471,13 +530,19 @@ impl<P: SaProblem> SaRunner<P> {
             // Reheating check
             if self.config.enable_reheating && stagnation_count >= self.config.reheat_threshold {
                 temperature *= self.config.reheat_factor;
-                temperature = temperature.min(self.config.initial_temp);
+                temperature = temperature.min(initial_temp);
                 stagnation_count = 0;
                 reheat_count += 1;
             }
 
             // Cool down
-            temperature = self.cool_down(temperature, temp_delta, accepted_count, total_count);
+            temperature = self.cool_down(
+                temperature,
+                temp_delta,
+                (final_temp, scale),
+                accepted_count,
+                total_count,
+            );
 
             // Reset adaptive counters
             accepted_count = 0;
@@ -499,6 +564,7 @@ impl<P: SaProblem> SaRunner<P> {
         SaResult {
             best,
             final_temperature: temperature,
+            temperature_unit: scale,
             iterations: iteration,
             elapsed: start.elapsed(),
             stop_reason,
@@ -508,10 +574,17 @@ impl<P: SaProblem> SaRunner<P> {
     }
 
     /// Apply cooling schedule.
-    fn cool_down(&self, current_temp: f64, delta: f64, accepted: usize, total: usize) -> f64 {
+    fn cool_down(
+        &self,
+        current_temp: f64,
+        delta: f64,
+        (final_temp, scale): (f64, f64),
+        accepted: usize,
+        total: usize,
+    ) -> f64 {
         match self.config.cooling_schedule {
             CoolingSchedule::Geometric => current_temp * self.config.cooling_rate,
-            CoolingSchedule::Linear => (current_temp - delta).max(self.config.final_temp),
+            CoolingSchedule::Linear => (current_temp - delta).max(final_temp),
             CoolingSchedule::Adaptive => {
                 // Adjust cooling rate based on acceptance rate
                 let acceptance_rate = if total > 0 {
@@ -533,7 +606,8 @@ impl<P: SaProblem> SaRunner<P> {
             }
             CoolingSchedule::LundyMees => {
                 // T_new = T / (1 + beta * T)
-                current_temp / (1.0 + self.config.cooling_rate * current_temp)
+                // `cooling_rate` has the unit of 1 / temperature, so per `scale`.
+                current_temp / (1.0 + self.config.cooling_rate / scale * current_temp)
             }
         }
     }
@@ -844,6 +918,73 @@ mod tests {
         // Should find something reasonably good (fewer inversions)
         assert!(result.best.objective() > -20.0);
         assert!(result.iterations > 0);
+    }
+
+    /// `SimpleMaxProblem` with every objective multiplied by `unit`.
+    struct ScaledMax {
+        inner: SimpleMaxProblem,
+        unit: f64,
+    }
+
+    impl SaProblem for ScaledMax {
+        type Solution = PermutationSolution;
+
+        fn initial_solution<R: Rng>(&self, rng: &mut R) -> Self::Solution {
+            self.inner.initial_solution(rng)
+        }
+
+        fn neighbor<R: Rng>(
+            &self,
+            solution: &Self::Solution,
+            operator: NeighborhoodOperator,
+            rng: &mut R,
+        ) -> Self::Solution {
+            self.inner.neighbor(solution, operator, rng)
+        }
+
+        fn evaluate(&self, solution: &mut Self::Solution) {
+            self.inner.evaluate(solution);
+            solution.set_objective(solution.objective() * self.unit);
+        }
+    }
+
+    /// A calibrated temperature is relative to the objective: the same
+    /// configuration on the same problem with every objective multiplied by a
+    /// power of two (exact in floating point) follows the same trajectory,
+    /// which an absolute temperature cannot do.
+    #[test]
+    fn a_calibrated_run_does_not_depend_on_the_unit_of_the_objective() {
+        use rand::rngs::StdRng;
+        let config = SaConfig::default()
+            .with_relative_temperature(1.0, 0.01, 20)
+            .with_iterations_per_temp(10)
+            .with_max_iterations(1500);
+        let run = |unit: f64| {
+            let problem = ScaledMax {
+                inner: SimpleMaxProblem { size: 12 },
+                unit,
+            };
+            let runner = SaRunner::new(config.clone(), problem).expect("valid config");
+            runner.run_with_rng(&mut StdRng::seed_from_u64(9))
+        };
+        let (small, large) = (run(1.0), run(1024.0));
+        assert_eq!(small.best.sequence, large.best.sequence);
+        assert_eq!(small.iterations, large.iterations);
+        assert_eq!(small.best.objective() * 1024.0, large.best.objective());
+        assert_eq!(small.temperature_unit * 1024.0, large.temperature_unit);
+    }
+
+    /// An absolute temperature is used as configured.
+    #[test]
+    fn an_absolute_temperature_is_in_the_unit_of_the_objective() {
+        let config = SaConfig::default()
+            .with_initial_temp(10.0)
+            .with_final_temp(0.5)
+            .with_max_iterations(200);
+        let runner = SaRunner::new(config, SimpleMaxProblem { size: 6 }).expect("valid config");
+        let result = runner.run();
+        assert_eq!(result.temperature_unit, 1.0);
+        assert!(result.final_temperature <= 10.0);
     }
 
     #[test]

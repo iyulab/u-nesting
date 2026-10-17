@@ -339,11 +339,12 @@ impl Nester2D {
                 .with_scores(33.0, 9.0, 13.0)
                 .with_reaction_factor(0.15) // Slightly higher for faster adaptation
                 // The fitness is `1 - density` (0 to 1) plus 1000 per unplaced piece, so
-                // a layout a few percent longer differs by hundredths: a temperature of
-                // 100 would accept every candidate and the search would be a random
-                // walk. Start where 5 % worse than a typical layout is accepted half
-                // the time and cool to where a hundredth is rarely accepted.
-                .with_temperature(0.03, 0.995, 0.001)
+                // a layout a few percent longer differs by hundredths: a fixed
+                // temperature of 100 would accept every candidate. Temperatures are
+                // multiples of the typical worsening, measured on a few candidates
+                // (each is a full repair): start where it is accepted one time in
+                // three, cool to where it almost never is.
+                .with_relative_temperature(1.0, 0.995, 0.03, 5)
         }
     }
 
@@ -769,12 +770,12 @@ impl Nester2D {
 
         let sa_config = SaConfig::default()
             // The objective is `100 x placed share + 10 x density`, so a layout a
-            // few percent longer is worse by a few tenths: a temperature of 50 down
-            // to 1 would accept every candidate and the search would be a random
-            // walk. Start where a tenth worse is accepted about one time in
-            // three and cool to where a hundredth rarely is.
-            .with_initial_temp(0.5)
-            .with_final_temp(0.01)
+            // few percent longer is worse by a few tenths: a fixed temperature of 50
+            // down to 1 would accept every candidate. Temperatures are multiples of
+            // the typical worsening, measured on a few neighbours of the start (each
+            // is a full placement): start where it is accepted one time in three,
+            // cool to where it almost never is.
+            .with_relative_temperature(1.0, 0.03, 5)
             .with_cooling_rate(0.92)
             .with_iterations_per_temp(20)
             .with_max_iterations(self.iteration_budget(500))

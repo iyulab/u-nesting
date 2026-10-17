@@ -44,6 +44,7 @@ use crate::timing::Timer;
 use std::fmt::Debug;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use u_metaheur::TemperatureScale;
 
 /// Configuration for the ALNS algorithm.
 #[derive(Debug, Clone)]
@@ -64,11 +65,18 @@ pub struct AlnsConfig {
     pub reaction_factor: f64,
     /// Minimum operator weight
     pub min_weight: f64,
-    /// Initial temperature for SA acceptance
+    /// What the temperatures are measured in. The default measures the
+    /// fitness's own scale first (see [`TemperatureScale::Calibrated`]), so one
+    /// configuration serves any unit of fitness;
+    /// [`with_temperature`](Self::with_temperature) sets an absolute
+    /// temperature, [`with_relative_temperature`](Self::with_relative_temperature)
+    /// a calibrated one.
+    pub temperature_scale: TemperatureScale,
+    /// Initial temperature for SA acceptance, in units of `temperature_scale`
     pub initial_temperature: f64,
     /// Cooling rate for SA acceptance (0-1)
     pub cooling_rate: f64,
-    /// Final temperature threshold
+    /// Final temperature threshold, in the same unit
     pub final_temperature: f64,
     /// Random seed for reproducibility (None = random)
     pub seed: Option<u64>,
@@ -85,9 +93,10 @@ impl Default for AlnsConfig {
             score_accepted: 3.0,
             reaction_factor: 0.1,
             min_weight: 0.1,
-            initial_temperature: 100.0,
+            temperature_scale: TemperatureScale::default(),
+            initial_temperature: 1.0,
             cooling_rate: 0.9995,
-            final_temperature: 0.01,
+            final_temperature: 1e-3,
             seed: None,
         }
     }
@@ -131,8 +140,29 @@ impl AlnsConfig {
         self
     }
 
-    /// Set temperature parameters for SA acceptance.
+    /// Set temperature parameters for SA acceptance **in the unit of the
+    /// fitness** ([`TemperatureScale::Absolute`]).
     pub fn with_temperature(mut self, initial: f64, cooling_rate: f64, final_temp: f64) -> Self {
+        self.temperature_scale = TemperatureScale::Absolute;
+        self.initial_temperature = initial;
+        self.cooling_rate = cooling_rate;
+        self.final_temperature = final_temp;
+        self
+    }
+
+    /// Set the temperatures as multiples of the fitness scale measured over
+    /// `samples` destroy/repair candidates drawn from the initial solution
+    /// ([`TemperatureScale::Calibrated`]). Each sample is a full repair, so a
+    /// problem whose repair is expensive wants few (the measurement stops at the
+    /// time limit).
+    pub fn with_relative_temperature(
+        mut self,
+        initial: f64,
+        cooling_rate: f64,
+        final_temp: f64,
+        samples: usize,
+    ) -> Self {
+        self.temperature_scale = TemperatureScale::Calibrated { samples };
         self.initial_temperature = initial;
         self.cooling_rate = cooling_rate;
         self.final_temperature = final_temp;
@@ -145,15 +175,25 @@ impl AlnsConfig {
     /// # Errors
     /// `ConfigError` naming the first field out of range: `reaction_factor`
     /// outside `[0, 1]`, `cooling_rate` outside `[0.9, 1]`, `initial_temperature`
-    /// below 0.01, `final_temperature` below 0.001, `min_weight` negative,
-    /// `segment_size` below 1.
+    /// below 0.01, `final_temperature` below 0.001 (not positive, when
+    /// calibrated -- a multiple of the measured scale), `min_weight` negative,
+    /// `segment_size` below 1, a calibrated scale over no samples.
     pub fn validate(&self) -> crate::error::Result<()> {
         use crate::error::{check_at_least, check_range};
         check_at_least("segment_size", self.segment_size as f64, 1.0)?;
         check_range("reaction_factor", self.reaction_factor, 0.0, 1.0)?;
         check_range("cooling_rate", self.cooling_rate, 0.9, 1.0)?;
-        check_at_least("initial_temperature", self.initial_temperature, 0.01)?;
-        check_at_least("final_temperature", self.final_temperature, 0.001)?;
+        match self.temperature_scale {
+            TemperatureScale::Absolute => {
+                check_at_least("initial_temperature", self.initial_temperature, 0.01)?;
+                check_at_least("final_temperature", self.final_temperature, 0.001)?;
+            }
+            TemperatureScale::Calibrated { samples } => {
+                crate::error::check_above("initial_temperature", self.initial_temperature, 0.0)?;
+                crate::error::check_above("final_temperature", self.final_temperature, 0.0)?;
+                check_at_least("temperature_scale.samples", samples as f64, 1.0)?;
+            }
+        }
         check_at_least("min_weight", self.min_weight, 0.0)?;
         Ok(())
     }
@@ -304,8 +344,11 @@ pub struct AlnsResult<S> {
     pub stop_reason: StopReason,
     /// Number of improvements found
     pub improvements: usize,
-    /// Final temperature
+    /// Final temperature, in the unit of the fitness
     pub final_temperature: f64,
+    /// The factor the configured temperatures were multiplied by: the measured
+    /// fitness scale of a calibrated run, `1` for an absolute one
+    pub temperature_unit: f64,
     /// Final operator weights
     pub destroy_weights: Vec<(DestroyOperatorId, f64)>,
     /// Final repair operator weights
@@ -433,8 +476,36 @@ impl AlnsRunner {
             .map(|&op| (op, OperatorStats::new(1.0)))
             .collect();
 
-        // Initialize temperature
-        let mut temperature = self.config.initial_temperature;
+        // Temperatures are configured in units of `scale` (1 when absolute). A
+        // calibrated run measures it on candidates drawn from the start -- not
+        // applied, not iterations, and cut off at the time limit.
+        let scale = match self.config.temperature_scale {
+            TemperatureScale::Absolute => 1.0,
+            TemperatureScale::Calibrated { samples } => {
+                let from = current.fitness();
+                let mut worsenings = Vec::with_capacity(samples);
+                for _ in 0..samples {
+                    if self.cancelled.load(Ordering::Relaxed)
+                        || (self.config.time_limit_ms > 0
+                            && start_time.elapsed().as_millis() as u64 >= self.config.time_limit_ms)
+                    {
+                        break;
+                    }
+                    let destroy_op =
+                        destroy_stats[self.select_operator_by_weight(&destroy_stats, &mut rng)].0;
+                    let repair_op =
+                        repair_stats[self.select_operator_by_weight(&repair_stats, &mut rng)].0;
+                    let mut candidate = problem.clone_solution(&current);
+                    let degree = rng.random_range(0.1..=0.4);
+                    let destroyed = problem.destroy(&mut candidate, destroy_op, degree, &mut rng);
+                    problem.repair(&mut candidate, &destroyed, repair_op, &mut rng);
+                    worsenings.push(candidate.fitness() - from);
+                }
+                TemperatureScale::cost_scale(worsenings)
+            }
+        };
+        let final_temperature = self.config.final_temperature * scale;
+        let mut temperature = self.config.initial_temperature * scale;
 
         // Statistics
         let mut iteration = 0;
@@ -518,7 +589,7 @@ impl AlnsRunner {
 
             // Update temperature
             temperature *= self.config.cooling_rate;
-            temperature = temperature.max(self.config.final_temperature);
+            temperature = temperature.max(final_temperature);
 
             // Check if segment is complete
             if iteration > 0 && iteration % self.config.segment_size == 0 {
@@ -589,6 +660,7 @@ impl AlnsRunner {
             stop_reason,
             improvements,
             final_temperature: temperature,
+            temperature_unit: scale,
             destroy_weights: destroy_stats
                 .iter()
                 .map(|(op, stats)| (*op, stats.weight))

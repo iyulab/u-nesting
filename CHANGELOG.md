@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Depends on u-metaheur 0.14.
+
+### Added
+
+- `SaConfig::temperature_scale` and `AlnsConfig::temperature_scale` (core): what a
+  configured temperature is measured in. `Calibrated` (the default) makes the start
+  and the floor multiples of the objective's own scale -- the median amount by which
+  a neighbour (a destroy/repair candidate, for ALNS) is worse than the start, measured
+  on a few of them before the run, cut off at the time limit -- so one configuration
+  serves any unit of fitness. `with_relative_temperature` sets it; `with_initial_temp`
+  and `with_temperature` still set an absolute temperature. `SaResult` and
+  `AlnsResult` carry `temperature_unit`, the factor that was applied.
+
+### Changed
+
+- **Breaking**: the default temperatures of the core `SaConfig` and `AlnsConfig` are
+  calibrated multiples (start 1, floor 1e-3) instead of 1000 / 0.001 and 100 / 0.01
+  in the unit of the fitness.
+- 2D simulated annealing and ALNS take their temperatures from that scale (start
+  where a typical worsening is accepted one time in three, cool to 0.03 of it)
+  instead of constants tuned to this objective. Over three ESICUP instances, three
+  runs each at 10 s, the mean length is the same as with the tuned constants within
+  the spread of the runs (SA 65.9 / 86.3 / 10708 against 66.5 / 86.1 / 10694, ALNS
+  69.2 / 85.9 / 10691 against 70.3 / 84.9 / 10484 on shapes1 / marques / albano).
+  The 3D simulated annealing keeps its absolute temperature: one box more or less
+  moves its objective by about 4 while the tuning that matters moves it by tenths,
+  and a scale measured on neighbours of the start reads the 4 (utilisation over eight
+  random sets of 25 boxes: 75.5 % with the constant, 70-73 % calibrated).
+
 ## [0.27.0] - 2026-10-17
 
 `UNesting` and the PyPI package are 0.27.0. Depends on u-metaheur 0.13.
