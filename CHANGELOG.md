@@ -33,7 +33,8 @@ Depends on u-metaheur 0.14.
   placed longest side first, a third order for the adaptive choice to draw from. With the
   fix above, over three ESICUP instances, three runs each at 10 s, the mean length of the
   ALNS search falls from 69.2 / 85.9 / 10691 to 69.3 / 84.2 / 10503 on shapes1 / marques /
-  albano. (A best-fit repair that placed whichever piece fits earliest next was tried and
+  albano; over the twelve ESICUP instances (30 s, one run each) the mean gap is 18.3 % for
+  ALNS (was 19.8) and 19.0 % for SA (was 19.3). (A best-fit repair that placed whichever piece fits earliest next was tried and
   was worse on all three, 71.7 / 86.3 / 10702: it searches every remaining piece at every
   step, so it also does a quadratic number of placements.)
 
