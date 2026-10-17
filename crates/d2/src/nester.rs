@@ -936,6 +936,7 @@ impl Nester2D {
 
     /// What is left of the caller's limit after the exact attempt (the usual
     /// search budget when there is no limit).
+    #[cfg(feature = "milp")]
     fn fallback_budget(&self, started: Timer) -> u64 {
         match self.config.time_limit_ms {
             0 => self.search_budget_ms(),

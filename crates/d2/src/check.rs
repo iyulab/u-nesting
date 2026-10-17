@@ -348,7 +348,7 @@ pub fn check_layout(
             if a.sheet != b.sheet || apart(a, b, rules.spacing + tolerance) {
                 continue;
             }
-            match separation(a, b) {
+            match separation(a, b, tolerance) {
                 None => out.push(LayoutViolation::Overlap {
                     placement: i,
                     other: j,
@@ -436,15 +436,21 @@ fn apart(a: &Placed, b: &Placed, gap: f64) -> bool {
         || b.max.1 + gap < a.min.1
 }
 
+/// The distance between two points.
+fn dist(a: (f64, f64), b: (f64, f64)) -> f64 {
+    (a.0 - b.0).hypot(a.1 - b.1)
+}
+
 /// The distance between two pieces' material, or `None` when they overlap.
 ///
 /// They overlap when their material (exterior minus holes) shares area --
 /// decided by the area of the intersection, so pieces that only touch (along
-/// an edge or at a point) do not. Otherwise the distance between the pieces is
+/// an edge or at a point) do not -- nor do pieces whose intersection is no
+/// thicker than `tolerance` along their contact. Otherwise the distance between the pieces is
 /// the least distance between any ring of one and any ring of the other: a
 /// piece beside another is measured to its exterior, a piece in another's hole
 /// to that hole's edge.
-fn separation(a: &Placed, b: &Placed) -> Option<f64> {
+fn separation(a: &Placed, b: &Placed, tolerance: f64) -> Option<f64> {
     use i_overlay::core::fill_rule::FillRule;
     use i_overlay::core::overlay_rule::OverlayRule;
     use i_overlay::float::single::SingleFloatOverlay;
@@ -471,8 +477,18 @@ fn separation(a: &Placed, b: &Placed) -> Option<f64> {
         })
         .sum::<f64>()
         .abs();
-    // Snapping to the overlay's integer grid leaves at most slivers of this order.
-    if common > area(&a.rings).min(area(&b.rings)) * 1e-9 {
+    // Snapping to the overlay's integer grid leaves slivers along a contact:
+    // a depth of order `tolerance` over a length of at most the shorter piece's
+    // outline. Pieces in exact contact at offsets no binary fraction represents
+    // come out with such a sliver, and are touching, not overlapping.
+    let outline = |p: &Placed| -> f64 {
+        p.rings.first().map_or(0.0, |r| {
+            (0..r.len()).map(|i| dist(r[i], r[(i + 1) % r.len()])).sum()
+        })
+    };
+    let sliver =
+        (tolerance * outline(a).min(outline(b))).max(area(&a.rings).min(area(&b.rings)) * 1e-9);
+    if common > sliver {
         return None;
     }
     Some(
@@ -595,6 +611,57 @@ mod tests {
         // Abutting is fine at spacing 0.
         let touching = [at("a", 0, 0.0, 0.0), at("a", 1, 10.0, 0.0)];
         assert!(check_layout(&g, &b, &rules(0.0, 0.0), &touching, &[]).is_empty());
+    }
+
+    #[test]
+    fn pieces_touching_along_a_slanted_edge_off_the_grid_do_not_overlap() {
+        // Two pieces an NFP placement leaves exactly in contact along parallel
+        // slanted edges, at offsets no binary fraction represents: the contact
+        // is real, any "overlap" is the overlay's snapping.
+        let a = Geometry2D::new("a").with_polygon(vec![
+            (0.0, 0.0),
+            (4.0, 2.0),
+            (6.0, 10.0),
+            (4.0, 11.0),
+            (-4.0, 11.0),
+            (-6.0, 10.0),
+            (-4.0, 2.0),
+        ]);
+        let b = Geometry2D::new("b").with_polygon(vec![
+            (0.0, 0.0),
+            (3.0, -2.0),
+            (8.0, 0.0),
+            (8.0, 8.0),
+            (2.0, 8.0),
+        ]);
+        let boundary = Boundary2D::rectangle(300.0, 40.0);
+        let p = [
+            Placement::new_2d(
+                "a".to_string(),
+                0,
+                243.62777777777777,
+                3.4888888888889005,
+                0.0,
+            ),
+            Placement::new_2d("b".to_string(), 0, 246.75555555555553, 2.0, 0.0),
+        ];
+        let (a2, b2) = (a.clone(), b.clone());
+        let v = check_layout(&[a, b], &boundary, &rules(0.0, 0.0), &p, &[]);
+        assert!(v.is_empty(), "{v:?}");
+
+        // Pushed 0.01 into its neighbour it is an overlap, not contact.
+        let pushed = [
+            p[0].clone(),
+            Placement::new_2d("b".to_string(), 0, 246.74555555555553, 2.0, 0.0),
+        ];
+        let v = check_layout(&[a2, b2], &boundary, &rules(0.0, 0.0), &pushed, &[]);
+        assert_eq!(
+            v,
+            [LayoutViolation::Overlap {
+                placement: 0,
+                other: 1
+            }]
+        );
     }
 
     #[test]

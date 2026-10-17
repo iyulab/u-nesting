@@ -72,6 +72,20 @@ pub(crate) fn mirror_polygon(vertices: &[(f64, f64)]) -> Vec<(f64, f64)> {
     vertices.iter().rev().map(|&(x, y)| (-x, y)).collect()
 }
 
+/// Drops the repeated closing vertex of an explicitly closed ring.
+///
+/// GeoJSON, WKT, DXF and the ESICUP benchmark files all write a ring with its
+/// first vertex repeated at the end. Read as an open ring that repeat is a
+/// zero-length edge touching the first edge, which the simplicity check reports
+/// as a self-intersection. A ring of at most three points is left alone: three
+/// points with the last equal to the first are degenerate, not a closed triangle.
+pub(crate) fn open_ring(mut vertices: Vec<(f64, f64)>) -> Vec<(f64, f64)> {
+    if vertices.len() > 3 && vertices.first() == vertices.last() {
+        vertices.pop();
+    }
+    vertices
+}
+
 /// Returns true when the polygon ring is **simple**: no pair of non-adjacent
 /// edges intersects. Adjacent edges (sharing a vertex) are exempt, as is the
 /// closing wrap-around pair. Fewer than 3 vertices is vacuously not simple.

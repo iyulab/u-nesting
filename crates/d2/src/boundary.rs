@@ -34,10 +34,11 @@ pub struct Boundary2D {
 }
 
 impl Boundary2D {
-    /// Creates a new boundary from polygon vertices.
+    /// Creates a new boundary from polygon vertices, open or explicitly closed
+    /// (first vertex repeated at the end).
     pub fn new(vertices: Vec<(f64, f64)>) -> Self {
         Self {
-            exterior: vertices,
+            exterior: crate::polygon_ops::open_ring(vertices),
             holes: Vec::new(),
             width: None,
             height: None,
@@ -72,7 +73,7 @@ impl Boundary2D {
 
     /// Adds an interior obstacle/hole.
     pub fn with_hole(mut self, vertices: Vec<(f64, f64)>) -> Self {
-        self.holes.push(vertices);
+        self.holes.push(crate::polygon_ops::open_ring(vertices));
         self.cached_area = None;
         self
     }
@@ -381,5 +382,18 @@ mod tests {
             flat.validate().expect_err("no area").code(),
             "invalid_boundary"
         );
+    }
+
+    #[test]
+    fn test_closed_boundary_ring_is_opened() {
+        let b = Boundary2D::new(vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 5.0),
+            (0.0, 5.0),
+            (0.0, 0.0),
+        ]);
+        assert!(b.validate().is_ok());
+        assert_eq!(b.exterior().len(), 4);
     }
 }

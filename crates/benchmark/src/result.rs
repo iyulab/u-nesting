@@ -43,6 +43,9 @@ pub struct RunResult {
     pub best_known: Option<f64>,
     /// Gap from best known (percentage)
     pub gap_percent: Option<f64>,
+    /// Rules the layout breaks according to the public checker (0 = valid)
+    #[serde(default)]
+    pub violations: usize,
     /// Placement coordinates (optional, for visualization)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub placements: Option<Vec<PlacementInfo>>,
@@ -81,6 +84,7 @@ impl RunResult {
             iterations: None,
             best_known: None,
             gap_percent: None,
+            violations: 0,
             placements: None,
         }
     }
@@ -88,6 +92,12 @@ impl RunResult {
     /// Sets the actual material utilization from SolveResult.
     pub fn with_utilization(mut self, utilization: f64) -> Self {
         self.utilization = utilization;
+        self
+    }
+
+    /// Sets how many rules the checker found the layout breaking.
+    pub fn with_violations(mut self, violations: usize) -> Self {
+        self.violations = violations;
         self
     }
 
@@ -164,14 +174,14 @@ impl BenchmarkResult {
         // Write header
         writeln!(
             file,
-            "dataset,instance,strategy,strip_length,pieces_placed,total_pieces,utilization,time_ms,iterations,best_known,gap_percent"
+            "dataset,instance,strategy,strip_length,pieces_placed,total_pieces,utilization,time_ms,iterations,best_known,gap_percent,violations"
         )?;
 
         // Write data
         for run in &self.runs {
             writeln!(
                 file,
-                "{},{},{},{:.2},{},{},{:.4},{},{},{},{}",
+                "{},{},{},{:.2},{},{},{:.4},{},{},{},{},{}",
                 run.dataset,
                 run.instance,
                 run.strategy,
@@ -185,6 +195,7 @@ impl BenchmarkResult {
                     .map_or(String::new(), |b| format!("{:.2}", b)),
                 run.gap_percent
                     .map_or(String::new(), |g| format!("{:.2}", g)),
+                run.violations,
             )?;
         }
 
@@ -197,8 +208,8 @@ impl BenchmarkResult {
         println!("BENCHMARK RESULTS");
         println!("{:=<100}", "");
         println!(
-            "{:<15} {:<15} {:<20} {:>12} {:>10} {:>10} {:>10}",
-            "Dataset", "Instance", "Strategy", "Length", "Util%", "Time(ms)", "Gap%"
+            "{:<15} {:<15} {:<20} {:>12} {:>10} {:>10} {:>10} {:>5}",
+            "Dataset", "Instance", "Strategy", "Length", "Util%", "Time(ms)", "Gap%", "Viol"
         );
         println!("{:-<100}", "");
 
@@ -207,14 +218,15 @@ impl BenchmarkResult {
                 .gap_percent
                 .map_or("-".to_string(), |g| format!("{:.1}", g));
             println!(
-                "{:<15} {:<15} {:<20} {:>12.2} {:>10.1} {:>10} {:>10}",
+                "{:<15} {:<15} {:<20} {:>12.2} {:>10.1} {:>10} {:>10} {:>5}",
                 run.dataset,
                 run.instance,
                 run.strategy,
                 run.strip_length,
                 run.utilization * 100.0,
                 run.time_ms,
-                gap_str
+                gap_str,
+                run.violations
             );
         }
 

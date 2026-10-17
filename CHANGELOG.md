@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A polygon written with its first vertex repeated at the end (GeoJSON, WKT,
+  DXF, the ESICUP files) was refused as self-intersecting: the repeat became a
+  zero-length edge touching the first edge. `Geometry2D::with_polygon`,
+  `with_hole` and `Boundary2D::new`, `with_hole` now take the ring open or
+  explicitly closed and store it open.
+- `check_layout` / `check_2d` reported an `overlap` for two pieces that only
+  touch, when the contact runs along slanted edges at coordinates no binary
+  fraction represents (pieces an NFP placement leaves in exact contact): the
+  overlay's snapping left a sliver above the area threshold. An intersection no
+  thicker than the checker's length tolerance along the shorter piece's
+  outline is contact now; a real overlap of any practical depth is still found.
+
 ## [0.25.0] - 2026-10-17
 
 `UNesting` and the PyPI package are 0.25.0. Depends on u-metaheur 0.13.

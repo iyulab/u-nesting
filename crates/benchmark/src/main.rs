@@ -3,8 +3,8 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use u_nesting_benchmark::{
-    create_phase0_scenarios, BenchmarkConfig, BenchmarkRunner, DatasetParser, ScenarioCategory,
-    ScenarioRunner, ScenarioRunnerConfig,
+    create_phase0_scenarios, BenchmarkConfig, BenchmarkRunner, DatasetManager, DatasetParser,
+    ScenarioCategory, ScenarioRunner, ScenarioRunnerConfig,
 };
 use u_nesting_core::Strategy;
 
@@ -217,7 +217,10 @@ fn main() -> anyhow::Result<()> {
             let instance_name = instance.unwrap_or_else(|| dataset.to_lowercase());
 
             println!("Downloading dataset: {}/{}", dataset, instance_name);
-            let ds = parser.download_and_parse(&dataset, &instance_name)?;
+            let ds = DatasetManager::with_reference(
+                parser.download_and_parse(&dataset, &instance_name)?,
+                &instance_name,
+            );
 
             let strategies: Vec<Strategy> = strategies.into_iter().map(Into::into).collect();
 
@@ -269,6 +272,7 @@ fn main() -> anyhow::Result<()> {
                 println!("\nDownloading {}/{}...", dataset, instance);
                 match parser.download_and_parse(dataset, instance) {
                     Ok(ds) => {
+                        let ds = DatasetManager::with_reference(ds, instance);
                         let results = runner.run_dataset(&ds);
                         for run in results.runs {
                             all_results.add_run(run);
@@ -314,6 +318,10 @@ fn main() -> anyhow::Result<()> {
         } => {
             let parser = DatasetParser::new();
             let ds = parser.parse_file(&file)?;
+            let ds = {
+                let name = ds.name.to_lowercase();
+                DatasetManager::with_reference(ds, &name)
+            };
 
             let strategies: Vec<Strategy> = strategies.into_iter().map(Into::into).collect();
 

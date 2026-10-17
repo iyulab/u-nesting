@@ -242,7 +242,7 @@ impl DatasetManager {
     /// Sets the dataset's best-known strip length from the instance's
     /// best-known density, so a run's `gap_percent` measures against the
     /// literature. It used to be left unset: no ESICUP run ever had a gap.
-    fn with_reference(mut ds: Dataset, instance: &str) -> Dataset {
+    pub fn with_reference(mut ds: Dataset, instance: &str) -> Dataset {
         if ds.best_known.is_none() {
             ds.best_known =
                 Self::best_known_density(instance).and_then(|d| ds.length_at_density(d));

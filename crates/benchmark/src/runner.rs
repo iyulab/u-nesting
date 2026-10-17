@@ -4,6 +4,7 @@ use crate::dataset::{Dataset, ExpandedItem, Shape};
 use crate::result::{BenchmarkResult, RunResult};
 use instant::Instant;
 use u_nesting_core::{Config, Strategy};
+use u_nesting_d2::check::{check_layout, LayoutRules};
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 
 /// Configuration for benchmark runs.
@@ -153,8 +154,37 @@ impl BenchmarkRunner {
 
                 match result {
                     Ok(solve_result) => {
-                        // Calculate actual strip length (max x of all placements)
+                        // The layout is judged by the public checker before it is
+                        // measured: a length means nothing for a layout that
+                        // overlaps, leaves its sheet or drops a piece.
+                        // The solve lays sheets side by side; the checker reads
+                        // each sheet in its own frame.
+                        let mut local = solve_result.clone();
+                        local.to_boundary_local(initial_width);
+                        let found = check_layout(
+                            &geometries,
+                            &boundary,
+                            &LayoutRules {
+                                spacing: 0.0,
+                                margin: 0.0,
+                                multi_sheet: true,
+                            },
+                            &local.placements,
+                            &local.unplaced,
+                        );
+                        let violations = found.len();
+                        if self.config.show_progress {
+                            for v in found.iter().take(3) {
+                                println!("    violation: {v:?}");
+                            }
+                        }
                         let strip_length = self.calculate_strip_length(&solve_result, &geometries);
+                        // ESICUP density: piece area over the strip it occupies.
+                        let density = if strip_length > 0.0 && dataset.strip_height > 0.0 {
+                            dataset.total_area() / (strip_length * dataset.strip_height)
+                        } else {
+                            0.0
+                        };
 
                         // Convert placements to PlacementInfo
                         // Note: Do NOT normalize positions - the algorithms return positions
@@ -182,21 +212,32 @@ impl BenchmarkRunner {
                             geometries.len(),
                             elapsed,
                         )
-                        .with_utilization(solve_result.utilization)
+                        .with_utilization(density)
+                        .with_violations(violations)
                         .with_placements(placement_infos);
 
-                        if let Some(best) = dataset.best_known {
+                        // A gap is the distance to the literature for a valid,
+                        // complete layout on one strip only: a second strip
+                        // means the estimated width was too short to measure a
+                        // length by.
+                        if let (Some(best), 0, true, 1) = (
+                            dataset.best_known,
+                            violations,
+                            solve_result.unplaced.is_empty(),
+                            solve_result.boundaries_used,
+                        ) {
                             run_result = run_result.with_best_known(best);
                         }
 
                         if self.config.show_progress {
                             println!(
-                                "    Run {}: length={:.2}, placed={}/{}, strips={}, time={}ms",
+                                "    Run {}: length={:.2}, placed={}/{}, strips={}, violations={}, time={}ms",
                                 run_idx + 1,
                                 strip_length,
                                 solve_result.placements.len(),
                                 geometries.len(),
                                 solve_result.boundaries_used,
+                                violations,
                                 elapsed
                             );
                         }
@@ -285,7 +326,10 @@ impl BenchmarkRunner {
         theoretical_min * 3.0
     }
 
-    /// Calculates the actual strip length from placements.
+    /// The strip length: the furthest x any vertex of any placed piece reaches
+    /// (a strip starts at x = 0), from the pieces' real outlines at their
+    /// placed rotation. Sheets are local, so with more than one sheet this is
+    /// the longest of them.
     fn calculate_strip_length(
         &self,
         result: &u_nesting_core::SolveResult<f64>,
@@ -294,48 +338,21 @@ impl BenchmarkRunner {
         use std::collections::HashMap;
         use u_nesting_core::geometry::Geometry;
 
-        // Build a map from geometry_id to index
-        let id_to_idx: HashMap<&str, usize> = geometries
+        let by_id: HashMap<&str, &Geometry2D> =
+            geometries.iter().map(|g| (g.id().as_str(), g)).collect();
+
+        result
+            .placements
             .iter()
-            .enumerate()
-            .map(|(i, g)| (g.id().as_str(), i))
-            .collect();
-
-        let mut max_x = f64::NEG_INFINITY;
-        let mut min_x = f64::INFINITY;
-
-        for placement in &result.placements {
-            if let Some(&geom_idx) = id_to_idx.get(placement.geometry_id.as_str()) {
-                let geom = &geometries[geom_idx];
-                let (geom_min, geom_max) = geom.aabb();
-                let width = geom_max[0] - geom_min[0];
-                let height = geom_max[1] - geom_min[1];
-
-                // Get rotation angle from the placement
-                let rotation_angle = placement.rotation.first().copied().unwrap_or(0.0);
-
-                // Account for rotation (simplified - assumes 90 degree rotations)
-                let (w, _h) = if (rotation_angle - std::f64::consts::FRAC_PI_2).abs() < 0.1
-                    || (rotation_angle - 3.0 * std::f64::consts::FRAC_PI_2).abs() < 0.1
-                {
-                    (height, width)
-                } else {
-                    (width, height)
-                };
-
-                let left_edge = placement.position[0];
-                let right_edge = placement.position[0] + w;
-                min_x = min_x.min(left_edge);
-                max_x = max_x.max(right_edge);
-            }
-        }
-
-        // Strip length is the total width occupied (max - min)
-        if max_x > f64::NEG_INFINITY && min_x < f64::INFINITY {
-            max_x - min_x
-        } else {
-            0.0
-        }
+            .filter_map(|p| {
+                let geom = by_id.get(p.geometry_id.as_str())?;
+                let rotation = p.rotation.first().copied().unwrap_or(0.0);
+                geom.transformed_exterior(p.position[0], p.position[1], rotation)
+                    .into_iter()
+                    .map(|(x, _)| x)
+                    .reduce(f64::max)
+            })
+            .fold(0.0, f64::max)
     }
 }
 

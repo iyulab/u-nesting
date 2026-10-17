@@ -68,16 +68,17 @@ impl Geometry2D {
         }
     }
 
-    /// Sets the polygon from a list of (x, y) vertices.
+    /// Sets the polygon from a list of (x, y) vertices. The ring may be given
+    /// open or explicitly closed (first vertex repeated at the end).
     pub fn with_polygon(mut self, vertices: Vec<(f64, f64)>) -> Self {
-        self.exterior = vertices;
+        self.exterior = crate::polygon_ops::open_ring(vertices);
         self.clear_cache();
         self
     }
 
-    /// Adds an interior hole.
+    /// Adds an interior hole, open or explicitly closed like the exterior.
     pub fn with_hole(mut self, vertices: Vec<(f64, f64)>) -> Self {
-        self.holes.push(vertices);
+        self.holes.push(crate::polygon_ops::open_ring(vertices));
         self.clear_cache();
         self
     }
@@ -557,6 +558,35 @@ impl Geometry2D {
 mod tests {
     use super::*;
     use approx::assert_relative_eq;
+
+    #[test]
+    fn test_explicitly_closed_ring_is_the_same_polygon() {
+        // An L piece written the way GeoJSON/WKT/DXF write it: first vertex
+        // repeated at the end. It must read as the same polygon, not as a
+        // self-intersecting one.
+        let open = vec![
+            (0.0, 0.0),
+            (2.0, 0.0),
+            (2.0, 3.0),
+            (12.0, 3.0),
+            (12.0, 5.0),
+            (0.0, 5.0),
+        ];
+        let mut closed = open.clone();
+        closed.push(open[0]);
+        let a = Geometry2D::new("open").with_polygon(open.clone());
+        let b = Geometry2D::new("closed").with_polygon(closed);
+        assert!(b.validate().is_ok());
+        assert_eq!(b.exterior(), a.exterior());
+        assert_relative_eq!(b.measure(), a.measure());
+    }
+
+    #[test]
+    fn test_closed_hole_is_opened() {
+        let hole = vec![(2.0, 2.0), (4.0, 2.0), (4.0, 4.0), (2.0, 4.0), (2.0, 2.0)];
+        let g = Geometry2D::rectangle("R", 10.0, 10.0).with_hole(hole);
+        assert_eq!(g.holes()[0].len(), 4);
+    }
 
     #[test]
     fn test_rectangle_area() {
