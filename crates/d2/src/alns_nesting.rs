@@ -14,6 +14,8 @@
 //! - **Greedy**: Largest item first, each at its bottom-left position
 //! - **Random**: The removed items in random order, each at its bottom-left
 //!   position
+//! - **Longest**: The item with the longest side first, each at its
+//!   bottom-left position
 
 use crate::boundary::Boundary2D;
 use crate::clamp_placement_to_boundary;
@@ -334,35 +336,80 @@ impl AlnsNestingProblem {
         best_placement
     }
 
-    /// Place items using BLF heuristic.
-    fn place_items_blf(&self, items: &[usize], solution: &mut AlnsNestingSolution) {
-        let margin = self.config.margin;
-        let boundary_polygon = inset_boundary(&self.boundary, margin);
-        let sample_step = self.compute_sample_step();
-
-        let mut placed_geometries: Vec<PlacedGeometry> = Vec::new();
-        for item in &solution.placed {
-            let info = &self.instances[item.instance_idx];
-            let geom = &self.geometries[info.geometry_idx];
-            placed_geometries.push(PlacedGeometry {
-                geometry: geom.clone(),
-                position: (item.x, item.y),
-                rotation: item.rotation,
-                mirrored: item.mirrored,
-            });
-        }
-
-        // Sort items by area (largest first)
-        let mut sorted_items = items.to_vec();
-        sorted_items.sort_by(|&a, &b| {
+    /// The items largest first (stable, so equal areas keep their order).
+    fn by_area_desc(&self, items: &[usize]) -> Vec<usize> {
+        let mut sorted = items.to_vec();
+        sorted.sort_by(|&a, &b| {
             let area_a = self.geometry_areas[self.instances[a].geometry_idx];
             let area_b = self.geometry_areas[self.instances[b].geometry_idx];
             area_b
                 .partial_cmp(&area_a)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        sorted
+    }
 
-        for &instance_idx in &sorted_items {
+    /// The items with the longest side first (stable).
+    fn by_longest_side_desc(&self, items: &[usize]) -> Vec<usize> {
+        let side = |i: usize| {
+            let geom = &self.geometries[self.instances[i].geometry_idx];
+            let (lo, hi) = geom.aabb_at_rotation_mirrored(0.0, false);
+            (hi[0] - lo[0]).max(hi[1] - lo[1])
+        };
+        let mut sorted = items.to_vec();
+        sorted.sort_by(|&a, &b| {
+            side(b)
+                .partial_cmp(&side(a))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        sorted
+    }
+
+    /// The pieces already in `solution`, as the placement search sees them.
+    fn placed_geometries(&self, solution: &AlnsNestingSolution) -> Vec<PlacedGeometry> {
+        solution
+            .placed
+            .iter()
+            .map(|item| {
+                let geom = &self.geometries[self.instances[item.instance_idx].geometry_idx];
+                PlacedGeometry {
+                    geometry: geom.clone(),
+                    position: (item.x, item.y),
+                    rotation: item.rotation,
+                    mirrored: item.mirrored,
+                }
+            })
+            .collect()
+    }
+
+    /// Records `placement` of `instance_idx` in the solution and the search view.
+    fn commit_placement(
+        &self,
+        solution: &mut AlnsNestingSolution,
+        placed_geometries: &mut Vec<PlacedGeometry>,
+        instance_idx: usize,
+        placement: PlacedItem,
+    ) {
+        let geom = &self.geometries[self.instances[instance_idx].geometry_idx];
+        solution.placed_area += self.geometry_areas[self.instances[instance_idx].geometry_idx];
+        placed_geometries.push(PlacedGeometry {
+            geometry: geom.clone(),
+            position: (placement.x, placement.y),
+            rotation: placement.rotation,
+            mirrored: placement.mirrored,
+        });
+        solution.placed.push(placement);
+        self.refresh_extent(solution);
+        solution.unplaced.retain(|&idx| idx != instance_idx);
+    }
+
+    /// Place items using BLF heuristic, in the order given.
+    fn place_items_blf(&self, items: &[usize], solution: &mut AlnsNestingSolution) {
+        let boundary_polygon = inset_boundary(&self.boundary, self.config.margin);
+        let sample_step = self.compute_sample_step();
+        let mut placed_geometries = self.placed_geometries(solution);
+
+        for &instance_idx in items {
             // Check cancellation and timeout
             if self.cancelled.load(Ordering::Relaxed) || self.is_timed_out() {
                 break;
@@ -374,22 +421,7 @@ impl AlnsNestingProblem {
                 &boundary_polygon,
                 sample_step,
             ) {
-                let info = &self.instances[instance_idx];
-                let area = self.geometry_areas[info.geometry_idx];
-
-                solution.placed_area += area;
-
-                let geom = &self.geometries[info.geometry_idx];
-                placed_geometries.push(PlacedGeometry {
-                    geometry: geom.clone(),
-                    position: (placement.x, placement.y),
-                    rotation: placement.rotation,
-                    mirrored: placement.mirrored,
-                });
-
-                solution.placed.push(placement);
-                self.refresh_extent(solution);
-                solution.unplaced.retain(|&idx| idx != instance_idx);
+                self.commit_placement(solution, &mut placed_geometries, instance_idx, placement);
             }
         }
     }
@@ -420,7 +452,8 @@ impl AlnsProblem for AlnsNestingProblem {
         solution.cross_extent = crate::placement_utils::strip_frame(&self.boundary).2;
 
         let all_items: Vec<usize> = (0..self.instances.len()).collect();
-        self.place_items_blf(&all_items, &mut solution);
+        let by_area = self.by_area_desc(&all_items);
+        self.place_items_blf(&by_area, &mut solution);
 
         solution
     }
@@ -438,7 +471,11 @@ impl AlnsProblem for AlnsNestingProblem {
     }
 
     fn repair_operators(&self) -> Vec<RepairOperatorId> {
-        vec![RepairOperatorId::Greedy, RepairOperatorId::Random]
+        vec![
+            RepairOperatorId::Greedy,
+            RepairOperatorId::Random,
+            RepairOperatorId::Longest,
+        ]
     }
 
     fn destroy(
@@ -544,7 +581,8 @@ impl AlnsProblem for AlnsNestingProblem {
         match operator {
             RepairOperatorId::Greedy => {
                 // Largest first, each at its bottom-left position.
-                self.place_items_blf(&items_to_place, solution);
+                let by_area = self.by_area_desc(&items_to_place);
+                self.place_items_blf(&by_area, solution);
             }
             RepairOperatorId::Random => {
                 // Random order placement
@@ -552,8 +590,13 @@ impl AlnsProblem for AlnsNestingProblem {
                 shuffled.shuffle(rng);
                 self.place_items_blf(&shuffled, solution);
             }
+            RepairOperatorId::Longest => {
+                let by_length = self.by_longest_side_desc(&items_to_place);
+                self.place_items_blf(&by_length, solution);
+            }
             RepairOperatorId::Custom(_) => {
-                self.place_items_blf(&items_to_place, solution);
+                let by_area = self.by_area_desc(&items_to_place);
+                self.place_items_blf(&by_area, solution);
             }
         }
 
@@ -890,6 +933,39 @@ mod tests {
 
         assert!(operators.contains(&RepairOperatorId::Greedy));
         assert!(operators.contains(&RepairOperatorId::Random));
+        assert!(operators.contains(&RepairOperatorId::Longest));
+    }
+
+    /// The repair operators place in the order they name: the random one used
+    /// to be sorted back into area order (so it was the greedy one), and the
+    /// longest-side one orders by the longest side.
+    #[test]
+    fn the_repair_operators_place_in_their_own_order() {
+        let geometries = vec![
+            Geometry2D::rectangle("wide", 40.0, 5.0).with_quantity(1), // area 200, side 40
+            Geometry2D::rectangle("square", 15.0, 15.0).with_quantity(1), // area 225, side 15
+            Geometry2D::rectangle("small", 8.0, 8.0).with_quantity(1), // area 64, side 8
+        ];
+        let problem = AlnsNestingProblem::new(
+            geometries,
+            create_test_boundary(),
+            Config::default(),
+            Arc::new(AtomicBool::new(false)),
+            60000,
+        );
+        let all = [0usize, 1, 2];
+        assert_eq!(problem.by_area_desc(&all), vec![1, 0, 2]);
+        assert_eq!(problem.by_longest_side_desc(&all), vec![0, 1, 2]);
+
+        // `place_items_blf` takes the order it is given: the first one listed
+        // is placed first, so it takes the bottom-left corner.
+        let first_placed = |order: &[usize]| {
+            let mut solution = AlnsNestingSolution::new(3, 10_000.0);
+            problem.place_items_blf(order, &mut solution);
+            solution.placed[0].instance_idx
+        };
+        assert_eq!(first_placed(&[2, 0, 1]), 2);
+        assert_eq!(first_placed(&[1, 2, 0]), 1);
     }
 
     /// Chiral L-shape — see `nfp.rs`'s `chiral_l` fixture for why this

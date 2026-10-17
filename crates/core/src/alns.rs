@@ -282,6 +282,8 @@ pub enum RepairOperatorId {
     Greedy,
     /// Random repair: items in random order
     Random,
+    /// Longest-first repair: the item with the longest side first
+    Longest,
     /// Custom operator by index
     Custom(usize),
 }
