@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of the seed layout, the mean gap to the best known length over the
   eleven ESICUP strip instances that have one falls from 31.3 to 18.9 % for GA, 26.9 to 16.7 % for
   BRKGA, 30.6 to 21.0 % for SA, 29.5 to 21.8 % for ALNS and 26.8 to 20.3 % for
-  GDRR.
+  GDRR. Crossings are searched for only up to the first valid vertex along the
+  length axis, among the edges inside the overlap of the two polygons' boxes:
+  the same points are found, 25–30 % sooner on a 64-piece layout.
 - A non-convex no-fit polygon is built from convex parts (the triangulation's
   triangles merged across the diagonals that keep them convex) and the parts are
   united pairwise, not one after another: for a 32-vertex piece against another,

@@ -1171,30 +1171,8 @@ pub fn find_bottom_left_placement(
     // The feasible region is the IFP minus the open NFPs, a polygon region, and
     // the least point of a polygon region in a lexicographic order is one of
     // its corners: an IFP vertex, an NFP vertex, or a crossing of two edges.
-    let mut candidates: Vec<(f64, f64)> = Vec::new();
-    for polygon in &ifp.polygons {
-        candidates.extend(polygon.iter().copied());
-    }
-    for nfp in nfps {
-        for polygon in &nfp.polygons {
-            candidates.extend(polygon.iter().copied());
-        }
-    }
-    for nfp in nfps {
-        for polygon in &nfp.polygons {
-            for ifp_polygon in &ifp.polygons {
-                push_edge_crossings(ifp_polygon, polygon, &mut candidates);
-            }
-        }
-    }
     let nfp_polygons: Vec<&Vec<(f64, f64)>> =
         nfps.iter().flat_map(|nfp| nfp.polygons.iter()).collect();
-    for (i, a) in nfp_polygons.iter().enumerate() {
-        for b in &nfp_polygons[i + 1..] {
-            push_edge_crossings(a, b, &mut candidates);
-        }
-    }
-
     let in_packing_order = |a: &(f64, f64), b: &(f64, f64)| {
         let (a, b) = (axis.key(*a), axis.key(*b));
         a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
@@ -1227,10 +1205,49 @@ pub fn find_bottom_left_placement(
                 })
     };
 
-    candidates.retain(|p| p.0.is_finite() && p.1.is_finite());
-    candidates.sort_unstable_by(in_packing_order);
-    if let Some(&point) = candidates.iter().find(|&&point| valid(point)) {
-        return Some(point);
+    // The vertices first: the first valid one bounds the search. A crossing can
+    // only beat it by lying no further along the length axis, and finding the
+    // crossings (every pair of overlapping edges) is most of the work, so only
+    // the part of the plane up to the bound is searched for them.
+    let mut corners: Vec<(f64, f64)> = ifp
+        .polygons
+        .iter()
+        .chain(nfp_polygons.iter().copied())
+        .flatten()
+        .copied()
+        .filter(|p| p.0.is_finite() && p.1.is_finite())
+        .collect();
+    corners.sort_unstable_by(in_packing_order);
+    let first_vertex = corners.iter().copied().find(|&point| valid(point));
+
+    let mut crossings: Vec<(f64, f64)> = Vec::new();
+    let reach_limit = first_vertex.map(|point| axis.key(point).0);
+    for nfp in nfps {
+        for polygon in &nfp.polygons {
+            for ifp_polygon in &ifp.polygons {
+                push_edge_crossings(ifp_polygon, polygon, axis, reach_limit, &mut crossings);
+            }
+        }
+    }
+    for (i, a) in nfp_polygons.iter().enumerate() {
+        for b in &nfp_polygons[i + 1..] {
+            push_edge_crossings(a, b, axis, reach_limit, &mut crossings);
+        }
+    }
+    crossings.retain(|p| p.0.is_finite() && p.1.is_finite());
+    crossings.sort_unstable_by(in_packing_order);
+    let first_crossing = crossings.iter().copied().find(|&point| valid(point));
+
+    match (first_vertex, first_crossing) {
+        (Some(vertex), Some(crossing)) => {
+            return Some(if in_packing_order(&crossing, &vertex).is_lt() {
+                crossing
+            } else {
+                vertex
+            });
+        }
+        (Some(point), None) | (None, Some(point)) => return Some(point),
+        (None, None) => {}
     }
 
     // No corner qualified (a degenerate region the corner tests miss): fall back
@@ -1288,16 +1305,44 @@ pub fn find_bottom_left_placement(
 
 /// Appends every point where an edge of ring `a` properly crosses an edge of
 /// ring `b`. Rings whose bounding boxes are disjoint are skipped outright.
-fn push_edge_crossings(a: &[(f64, f64)], b: &[(f64, f64)], out: &mut Vec<(f64, f64)>) {
+fn push_edge_crossings(
+    a: &[(f64, f64)],
+    b: &[(f64, f64)],
+    axis: PackingAxis,
+    reach_limit: Option<f64>,
+    out: &mut Vec<(f64, f64)>,
+) {
     let (a_min_x, a_min_y, a_max_x, a_max_y) = bounding_box(a);
     let (b_min_x, b_min_y, b_max_x, b_max_y) = bounding_box(b);
-    if a_max_x < b_min_x || b_max_x < a_min_x || a_max_y < b_min_y || b_max_y < a_min_y {
+    // Only edges inside the boxes' overlap can cross, and only those not past
+    // the limit along the length axis can cross before it.
+    let (lo_x, lo_y) = (a_min_x.max(b_min_x), a_min_y.max(b_min_y));
+    let (mut hi_x, mut hi_y) = (a_max_x.min(b_max_x), a_max_y.min(b_max_y));
+    if let Some(limit) = reach_limit {
+        match axis {
+            PackingAxis::X => hi_x = hi_x.min(limit),
+            PackingAxis::Y => hi_y = hi_y.min(limit),
+        }
+    }
+    if lo_x > hi_x || lo_y > hi_y {
         return;
     }
-    for i in 0..a.len() {
+    let near = |polygon: &[(f64, f64)]| -> Vec<usize> {
+        (0..polygon.len())
+            .filter(|&i| {
+                let (p, p2) = (polygon[i], polygon[(i + 1) % polygon.len()]);
+                p.0.max(p2.0) >= lo_x
+                    && p.0.min(p2.0) <= hi_x
+                    && p.1.max(p2.1) >= lo_y
+                    && p.1.min(p2.1) <= hi_y
+            })
+            .collect()
+    };
+    let (a_edges, b_edges) = (near(a), near(b));
+    for &i in &a_edges {
         let (p, p2) = (a[i], a[(i + 1) % a.len()]);
         let (rx, ry) = (p2.0 - p.0, p2.1 - p.1);
-        for j in 0..b.len() {
+        for &j in &b_edges {
             let (q, q2) = (b[j], b[(j + 1) % b.len()]);
             let (sx, sy) = (q2.0 - q.0, q2.1 - q.1);
             let denom = rx * sy - ry * sx;
@@ -1609,13 +1654,13 @@ mod tests {
         for nfp in nfps {
             for polygon in &nfp.polygons {
                 for ifp_polygon in &ifp.polygons {
-                    push_edge_crossings(ifp_polygon, polygon, &mut candidates);
+                    push_edge_crossings(ifp_polygon, polygon, axis, None, &mut candidates);
                 }
             }
         }
         for (i, a) in nfp_polygons.iter().enumerate() {
             for b in &nfp_polygons[i + 1..] {
-                push_edge_crossings(a, b, &mut candidates);
+                push_edge_crossings(a, b, axis, None, &mut candidates);
             }
         }
         let (min_x, min_y, max_x, max_y) = ifp_bounding_box(ifp);
