@@ -227,7 +227,7 @@ not covered here):
   including slanted edges of a polygon boundary and the edges of holes.
 - Parts are placed inside the boundary polygon, never over a hole.
 - Layouts advance along the boundary's longer side (the strip's length) and
-  fill across the shorter one.
+  fill across the shorter one; on a square boundary the length is `y`.
 - **`time_limit_ms`** bounds the whole solve: the search strategies return the
   best layout found within it, plus the time of the bottom-left pass they are
   compared against.

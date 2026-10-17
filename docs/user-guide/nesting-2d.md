@@ -107,6 +107,12 @@ side of 0 or below is refused (`parameter_out_of_range`, `boundary.width`).
 There is one sheet; `config.multi_sheet` spreads what does not fit onto further
 sheets of the same size (see [Multi-Sheet Nesting](#multi-sheet-nesting)).
 
+The solvers pack along the boundary's **longer side** and use as little of it as
+they can, filling across the shorter one; on a boundary as wide as it is tall
+the length is `y`. To minimise a strip's length in `x`, make the boundary wider
+than it is tall -- a `400 x 500` boundary is packed along `y` however the
+layout is read afterwards.
+
 ## Configuration Options
 
 | Option | Type | Default | Description |
