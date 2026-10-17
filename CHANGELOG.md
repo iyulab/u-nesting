@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-10-17
+
+`UNesting` and the PyPI package are 0.27.0. Depends on u-metaheur 0.13.
+
 ### Changed
 
 - The bottom-left placement search tests the corners of the feasible region

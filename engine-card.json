@@ -4,7 +4,7 @@
   "engine": {
     "id": "u-nesting",
     "summary": "2D nesting of polygons on sheets and 3D packing of boxes in a container, by constructive fills and metaheuristic searches, with checkers that say whether a layout keeps its problem's rules.",
-    "version": "0.26.0",
+    "version": "0.27.0",
     "license": "MIT",
     "repository": "https://github.com/iyulab/U-Nesting"
   },
