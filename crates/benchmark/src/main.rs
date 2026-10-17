@@ -44,6 +44,11 @@ enum Commands {
         #[arg(short, long, default_value = "1")]
         runs: usize,
 
+        /// Let the time limit end every run, not each strategy's own
+        /// generation / iteration budget (equal time for every strategy)
+        #[arg(long)]
+        clock: bool,
+
         /// Output file for results (JSON)
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -208,6 +213,7 @@ fn main() -> anyhow::Result<()> {
             strategies,
             time_limit,
             runs,
+            clock,
             output,
             csv,
         } => {
@@ -224,10 +230,13 @@ fn main() -> anyhow::Result<()> {
 
             let strategies: Vec<Strategy> = strategies.into_iter().map(Into::into).collect();
 
-            let config = BenchmarkConfig::new()
+            let mut config = BenchmarkConfig::new()
                 .with_strategies(strategies)
                 .with_time_limit(time_limit * 1000)
                 .with_runs_per_config(runs);
+            if clock {
+                config = config.with_clock_bound();
+            }
 
             let runner = BenchmarkRunner::new(config);
             let results = runner.run_dataset(&ds);

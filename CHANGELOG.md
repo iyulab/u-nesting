@@ -22,11 +22,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   GDRR. Crossings are searched for only up to the first valid vertex along the
   length axis, among the edges inside the overlap of the two polygons' boxes:
   the same points are found, 25–30 % sooner on a 64-piece layout.
+- The acceptance temperature of SA and ALNS is on the scale of the objective.
+  Both started at 50–100 and cooled to 0.1–1 against objective differences of a
+  few hundredths, so they accepted nearly every candidate and walked at random,
+  keeping only the best layout seen. They now start where a layout a few percent
+  worse is accepted about half the time and cool to where a hundredth rarely is.
+  Over six ESICUP instances, three runs each at 30 s, the mean gap falls from
+  24.3 to 20.1 % for ALNS and from 20.2 to 18.8 % for SA.
 - A non-convex no-fit polygon is built from convex parts (the triangulation's
   triangles merged across the diagonals that keep them convex) and the parts are
   united pairwise, not one after another: for a 32-vertex piece against another,
   900 triangle pairs become 324 convex pairs and the union takes 5 ms where it
   took 14 ms.
+
+### Added
+
+- `bench-runner run --clock` lets the time limit, not each strategy's own
+  generation and iteration budget, end a run, so strategies compare at equal time.
 
 ## [0.26.0] - 2026-10-17
 

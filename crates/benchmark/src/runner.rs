@@ -22,6 +22,8 @@ pub struct BenchmarkConfig {
     pub population_size: Option<usize>,
     /// GA/BRKGA generation budget; `None` leaves it to each strategy.
     pub max_generations: Option<u32>,
+    /// SA/GDRR/ALNS iteration budget; `None` leaves it to each strategy.
+    pub max_iterations: Option<u64>,
 }
 
 impl Default for BenchmarkConfig {
@@ -37,6 +39,7 @@ impl Default for BenchmarkConfig {
             show_progress: true,
             population_size: None,
             max_generations: None,
+            max_iterations: None,
         }
     }
 }
@@ -59,6 +62,15 @@ impl BenchmarkConfig {
         self
     }
 
+    /// Lets the time limit, not each strategy's own generation and iteration
+    /// budget, end a run: every strategy gets the whole clock, so strategies
+    /// compare at equal time.
+    pub fn with_clock_bound(mut self) -> Self {
+        self.max_generations = Some(u32::MAX);
+        self.max_iterations = Some(u64::MAX);
+        self
+    }
+
     /// Sets the number of runs per configuration.
     pub fn with_runs_per_config(mut self, n: usize) -> Self {
         self.runs_per_config = n;
@@ -74,6 +86,7 @@ impl BenchmarkConfig {
             show_progress: true,
             population_size: None,
             max_generations: None,
+            max_iterations: None,
         }
     }
 
@@ -92,6 +105,7 @@ impl BenchmarkConfig {
             show_progress: true,
             population_size: None,
             max_generations: None,
+            max_iterations: None,
         }
     }
 }
@@ -144,6 +158,7 @@ impl BenchmarkRunner {
                 let mut solver_config = solver_config;
                 solver_config.population_size = self.config.population_size;
                 solver_config.max_generations = self.config.max_generations;
+                solver_config.max_iterations = self.config.max_iterations;
 
                 let nester = Nester2D::new(solver_config);
 
