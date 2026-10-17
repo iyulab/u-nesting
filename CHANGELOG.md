@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0] - 2026-10-17
+
+`UNesting` and the PyPI package are 0.25.0. Depends on u-metaheur 0.13.
+
 ### Changed
 
 - **Breaking** The ALNS and GDRR operator sets name what they do. GDRR's three
