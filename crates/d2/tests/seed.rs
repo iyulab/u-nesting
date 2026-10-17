@@ -95,14 +95,32 @@ fn the_same_seed_gives_the_same_layout() {
 /// `config.seed` is a unit test of the nester.)
 #[test]
 fn ruin_and_recreate_searches_draw_from_the_seed() {
-    // More pieces than fit, of many sizes, so a ruin has choices that matter.
+    // Pieces of three shapes in many sizes, each turning four ways, on a sheet
+    // they roughly fill: the layout the greedy start gives can be improved
+    // several ways, so a ruin has choices that matter. (Rectangles do not do:
+    // the greedy start is the best layout the search finds, whatever the seed.)
     let pieces: Vec<Geometry2D> = (0..10)
         .map(|i| {
-            let (w, h) = (12.0 + 3.0 * i as f64, 30.0 - 2.0 * i as f64);
-            Geometry2D::rectangle(format!("P{i}"), w, h).with_rotations_deg(vec![0.0, 90.0])
+            let k = i as f64;
+            let (w, h) = (10.0 + (k * 7.0) % 17.0, 12.0 + (k * 5.0) % 13.0);
+            let outline = match i % 3 {
+                0 => vec![(0.0, 0.0), (w, 0.0), (0.0, h)],
+                1 => vec![
+                    (0.0, 0.0),
+                    (w, 0.0),
+                    (w, h * 0.4),
+                    (w * 0.4, h * 0.4),
+                    (w * 0.4, h),
+                    (0.0, h),
+                ],
+                _ => vec![(0.0, 0.0), (w, 0.0), (w * 0.8, h), (w * 0.2, h)],
+            };
+            Geometry2D::new(format!("P{i}"))
+                .with_polygon(outline)
+                .with_rotations_deg(vec![0.0, 90.0, 180.0, 270.0])
         })
         .collect();
-    let boundary = Boundary2D::rectangle(60.0, 50.0);
+    let boundary = Boundary2D::rectangle(70.0, 50.0);
     let config = Config::default();
     let gdrr = |seed: u64| {
         let run = GdrrConfig::new()

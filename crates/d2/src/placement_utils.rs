@@ -331,7 +331,7 @@ pub fn strip_frame(boundary: &Boundary2D) -> (crate::nfp::PackingAxis, f64, f64)
 
 /// How densely a layout fills the strip it uses: the area of the placed pieces
 /// over the strip's cross extent times the length the pieces reach along the
-/// boundary's length axis ([`PackingAxis::of`]), counted from the boundary's
+/// boundary's length axis ([`crate::nfp::PackingAxis::of`]), counted from the boundary's
 /// start edge. `0.0` when nothing is placed.
 ///
 /// The area over the whole boundary is the same for every layout that places
