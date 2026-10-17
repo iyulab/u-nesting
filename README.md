@@ -370,6 +370,32 @@ SolveResult {
 | 100 | Mixed | 2s | 88% |
 | 500 | Complex | 15s | 85% |
 
+### Strip packing on the ESICUP instances
+
+The twelve 2D irregular strip-packing instances of the ESICUP collection
+(`albano`, `dagli`, `fu`, `jakobs1`, `jakobs2`, `mao`, `marques`, `shapes0`,
+`shapes1`, `shirts`, `swim`, `trousers`), 30 s per strategy, one run each,
+`spacing` and `margin` 0. Every layout is judged by `check_layout` before it is
+measured (no violations in any run). The gap is the strip length against the
+best known density of the literature (Sparrow, arXiv:2509.13329), mean over the
+twelve:
+
+| Strategy | Mean gap |
+|----------|----------|
+| BLF | 81.7 % |
+| NFP | 37.5 % (11 — on `swim` it needs a second strip in 30 s) |
+| GA | 31.3 % |
+| SA | 30.6 % |
+| ALNS | 29.5 % |
+| BRKGA | 26.9 % |
+| GDRR | 26.8 % |
+
+The two instances with the most vertices, `swim` and `albano`, take a single
+NFP layout longer than the 30 s allows the searches to improve on, so they end
+on the bottom-left layout; with more time they improve like the others. The
+instances are not in this repository; `bench-runner run -d MARQUES -i marques
+-s ga -t 30` (`crates/benchmark`) downloads one and runs it.
+
 ### 3D Benchmarks (Extreme Point)
 
 | Geometries | Complexity | Time | Utilization |
