@@ -29,7 +29,8 @@ use u_nesting_core::solver::{Config, ProgressCallback, ProgressInfo};
 use u_nesting_core::{Placement, SolveResult};
 
 use crate::placement_utils::{
-    hole_nfps, inset_boundary, nesting_fitness, seed_genes, take_best, InstanceInfo, SearchState,
+    hole_nfps, inset_boundary, layout_density, nesting_fitness, seed_genes, take_best,
+    InstanceInfo, SearchState,
 };
 
 /// SA problem definition for 2D nesting.
@@ -346,7 +347,8 @@ impl SaProblem for SaNestingProblem {
 
     fn evaluate(&self, solution: &mut Self::Solution) {
         let (placements, utilization, placed_count) = self.decode(solution);
-        let fitness = nesting_fitness(placed_count, self.instances.len(), utilization);
+        let density = layout_density(&self.geometries, &placements, &self.boundary);
+        let fitness = nesting_fitness(placed_count, self.instances.len(), density);
         self.search.offer(fitness, &placements, utilization);
         solution.set_objective(fitness);
     }

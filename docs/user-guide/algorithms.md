@@ -121,7 +121,7 @@ Classic genetic algorithm that evolves a population of placement sequences.
 
 **Algorithm**:
 1. Initialize random population
-2. Evaluate fitness (utilization, waste)
+2. Evaluate fitness: pieces placed first, then how densely they fill the strip they use (their area over the strip's width times the length they reach), so of two layouts that place everything the shorter one scores higher
 3. Select parents via tournament
 4. Apply crossover (PMX for permutation)
 5. Apply mutation (swap, rotate)

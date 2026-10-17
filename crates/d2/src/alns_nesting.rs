@@ -66,8 +66,11 @@ pub struct AlnsNestingSolution {
     pub placed_area: f64,
     /// Boundary area.
     pub boundary_area: f64,
-    /// Maximum Y coordinate used (strip height).
-    pub max_y: f64,
+    /// How far the placed pieces reach along the boundary's length axis, from
+    /// the boundary's start edge.
+    pub used_length: f64,
+    /// The boundary's extent across its length axis.
+    pub cross_extent: f64,
 }
 
 impl AlnsNestingSolution {
@@ -79,23 +82,27 @@ impl AlnsNestingSolution {
             total_instances,
             placed_area: 0.0,
             boundary_area,
-            max_y: 0.0,
+            used_length: 0.0,
+            cross_extent: 0.0,
         }
     }
 }
 
 impl AlnsSolution for AlnsNestingSolution {
     fn fitness(&self) -> f64 {
-        // Fitness combines unplaced penalty + utilization + height
+        // Fitness combines:
+        // 1. Penalty for unplaced items (high weight)
+        // 2. How loosely the placed pieces fill the strip they use: with the
+        //    same pieces placed, the shorter layout scores lower. (The area
+        //    over the whole boundary is the same for every such layout.)
         let unplaced_penalty = self.unplaced.len() as f64 * 1000.0;
-        let utilization_penalty = if self.placed_area > 0.0 {
-            1.0 - (self.placed_area / self.boundary_area)
+        let used = self.used_length * self.cross_extent;
+        let density = if self.placed_area > 0.0 && used > 0.0 {
+            (self.placed_area / used).min(1.0)
         } else {
-            1.0
+            0.0
         };
-        let height_penalty = self.max_y / 1000.0;
-
-        unplaced_penalty + utilization_penalty + height_penalty
+        unplaced_penalty + (1.0 - density)
     }
 
     fn placed_count(&self) -> usize {
@@ -134,6 +141,26 @@ pub struct AlnsNestingProblem {
 }
 
 impl AlnsNestingProblem {
+    /// Sets how far the placed pieces of `solution` reach along the boundary's
+    /// length axis, from the boundary's start edge.
+    fn refresh_extent(&self, solution: &mut AlnsNestingSolution) {
+        let (axis, start, _) = crate::placement_utils::strip_frame(&self.boundary);
+        let k = match axis {
+            crate::nfp::PackingAxis::X => 0,
+            crate::nfp::PackingAxis::Y => 1,
+        };
+        solution.used_length = solution
+            .placed
+            .iter()
+            .map(|item| {
+                let geom = &self.geometries[self.instances[item.instance_idx].geometry_idx];
+                let (_, hi) = geom.aabb_at_rotation_mirrored(item.rotation, item.mirrored);
+                [item.x, item.y][k] + hi[k]
+            })
+            .fold(start, f64::max)
+            - start;
+    }
+
     /// Creates a new ALNS nesting problem.
     pub fn new(
         geometries: Vec<Geometry2D>,
@@ -351,7 +378,6 @@ impl AlnsNestingProblem {
                 let area = self.geometry_areas[info.geometry_idx];
 
                 solution.placed_area += area;
-                solution.max_y = solution.max_y.max(placement.y);
 
                 let geom = &self.geometries[info.geometry_idx];
                 placed_geometries.push(PlacedGeometry {
@@ -362,6 +388,7 @@ impl AlnsNestingProblem {
                 });
 
                 solution.placed.push(placement);
+                self.refresh_extent(solution);
                 solution.unplaced.retain(|&idx| idx != instance_idx);
             }
         }
@@ -380,8 +407,7 @@ impl AlnsNestingProblem {
             solution.unplaced.push(item.instance_idx);
         }
 
-        // Recalculate max_y
-        solution.max_y = solution.placed.iter().map(|p| p.y).fold(0.0, f64::max);
+        self.refresh_extent(solution);
     }
 }
 
@@ -391,6 +417,7 @@ impl AlnsProblem for AlnsNestingProblem {
     fn create_initial_solution(&mut self) -> AlnsNestingSolution {
         let boundary_area = self.boundary.measure();
         let mut solution = AlnsNestingSolution::new(self.instances.len(), boundary_area);
+        solution.cross_extent = crate::placement_utils::strip_frame(&self.boundary).2;
 
         let all_items: Vec<usize> = (0..self.instances.len()).collect();
         self.place_items_blf(&all_items, &mut solution);
@@ -669,6 +696,23 @@ mod tests {
     }
 
     #[test]
+    fn a_shorter_layout_of_the_same_pieces_scores_lower() {
+        let mut solution = AlnsNestingSolution::new(2, 60000.0);
+        solution.unplaced.clear();
+        solution.placed_area = 400.0;
+        solution.cross_extent = 20.0;
+        solution.used_length = 20.0;
+        let short = solution.fitness();
+        solution.used_length = 50.0;
+        let long = solution.fitness();
+        assert!(short < long, "{short} {long}");
+        // A piece left out outweighs any layout length.
+        solution.unplaced.push(0);
+        solution.used_length = 20.0;
+        assert!(solution.fitness() > long + 900.0);
+    }
+
+    #[test]
     fn test_alns_nesting_solution_fitness() {
         let solution = AlnsNestingSolution {
             placed: vec![
@@ -693,7 +737,8 @@ mod tests {
             total_instances: 3,
             placed_area: 3000.0,
             boundary_area: 60000.0,
-            max_y: 50.0,
+            used_length: 50.0,
+            cross_extent: 100.0,
         };
 
         let fitness = solution.fitness();

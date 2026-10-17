@@ -318,6 +318,54 @@ pub fn seed_genes(
     (rotations, mirrors)
 }
 
+/// The frame a strip is measured in: the boundary's length axis, where the strip
+/// starts along it, and its extent across it.
+pub fn strip_frame(boundary: &Boundary2D) -> (crate::nfp::PackingAxis, f64, f64) {
+    let axis = crate::nfp::PackingAxis::of(boundary);
+    let (b_min, b_max) = boundary.aabb();
+    match axis {
+        crate::nfp::PackingAxis::X => (axis, b_min[0], b_max[1] - b_min[1]),
+        crate::nfp::PackingAxis::Y => (axis, b_min[1], b_max[0] - b_min[0]),
+    }
+}
+
+/// How densely a layout fills the strip it uses: the area of the placed pieces
+/// over the strip's cross extent times the length the pieces reach along the
+/// boundary's length axis ([`PackingAxis::of`]), counted from the boundary's
+/// start edge. `0.0` when nothing is placed.
+///
+/// The area over the whole boundary is the same for every layout that places
+/// the same pieces, so it cannot tell a short layout from a long one; this can,
+/// and it is the density a strip is measured by.
+pub fn layout_density(
+    geometries: &[Geometry2D],
+    placements: &[Placement<f64>],
+    boundary: &Boundary2D,
+) -> f64 {
+    let (axis, start, cross) = strip_frame(boundary);
+    let by_id: std::collections::HashMap<&str, &Geometry2D> =
+        geometries.iter().map(|g| (g.id().as_str(), g)).collect();
+    let (mut area, mut end) = (0.0, f64::NEG_INFINITY);
+    for p in placements {
+        let Some(geom) = by_id.get(p.geometry_id.as_str()) else {
+            continue;
+        };
+        let rotation = p.rotation.first().copied().unwrap_or(0.0);
+        let (_, hi) = geom.aabb_at_rotation_mirrored(rotation, p.mirrored);
+        let k = match axis {
+            crate::nfp::PackingAxis::X => 0,
+            crate::nfp::PackingAxis::Y => 1,
+        };
+        area += geom.measure();
+        end = end.max(p.position.get(k).copied().unwrap_or(0.0) + hi[k]);
+    }
+    let length = end - start;
+    if area <= 0.0 || length <= 0.0 || cross <= 0.0 {
+        return 0.0;
+    }
+    (area / (length * cross)).min(1.0)
+}
+
 /// Computes the nesting fitness score from placement results.
 ///
 /// The fitness function prioritizes placement count (weight 100) over
@@ -341,6 +389,25 @@ pub fn nesting_fitness(placed_count: usize, total_count: usize, utilization: f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn density_tells_a_short_layout_from_a_long_one() {
+        // Two 10 x 10 squares on a 100 x 20 strip: side by side they use 20 of
+        // its length, one behind the other 50 of it. The area over the whole
+        // boundary is the same for both.
+        let g = [Geometry2D::rectangle("s", 10.0, 10.0).with_quantity(2)];
+        let strip = Boundary2D::rectangle(100.0, 20.0);
+        let at = |i: usize, x: f64, y: f64| Placement::new_2d("s".to_string(), i, x, y, 0.0);
+        let short = [at(0, 0.0, 0.0), at(1, 0.0, 10.0)];
+        let long = [at(0, 0.0, 0.0), at(1, 40.0, 0.0)];
+        assert!((layout_density(&g, &short, &strip) - 200.0 / (10.0 * 20.0)).abs() < 1e-12);
+        assert!((layout_density(&g, &long, &strip) - 200.0 / (50.0 * 20.0)).abs() < 1e-12);
+        assert_eq!(layout_density(&g, &[], &strip), 0.0);
+        // On a tall strip the length is y.
+        let tall = Boundary2D::rectangle(20.0, 100.0);
+        let stacked = [at(0, 0.0, 0.0), at(1, 10.0, 0.0)];
+        assert!((layout_density(&g, &stacked, &tall) - 1.0).abs() < 1e-12);
+    }
 
     #[test]
     fn test_polygon_centroid_empty() {

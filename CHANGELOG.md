@@ -22,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Breaking** The search strategies (GA, SA, BRKGA, GDRR, ALNS) could not tell
+  a short layout from a long one. Their score was the share of the pieces
+  placed plus the pieces' area over the area of the whole boundary, which is
+  the same for every layout that places the same pieces, so a search over
+  complete layouts had nothing to climb and ended on the layout it started
+  from (GDRR and ALNS measured the origin of the highest piece on the y axis
+  whichever axis the layout advances along). The score is now the share placed
+  plus the density of the strip the layout uses: the pieces' area over the
+  strip's width times the length they reach along the boundary's longer side.
+  On the ESICUP `marques` instance in 20 s the strip length falls from 106 to
+  87 (GA), 88 (SA), 85 (BRKGA), 87 (GDRR) and 86 (ALNS). `max_y` of
+  `GdrrNestingSolution` and `AlnsNestingSolution` is replaced by `used_length`
+  and `cross_extent`.
+
 - A polygon written with its first vertex repeated at the end (GeoJSON, WKT,
   DXF, the ESICUP files) was refused as self-intersecting: the repeat became a
   zero-length edge touching the first edge. `Geometry2D::with_polygon`,
