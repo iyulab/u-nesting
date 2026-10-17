@@ -316,14 +316,20 @@ impl BenchmarkRunner {
             .collect()
     }
 
-    /// Estimates initial width based on total area.
+    /// The width of the boundary a strip instance is solved on.
+    ///
+    /// The solvers minimise a boundary's longer side (`PackingAxis::of`), so the
+    /// boundary must be longer in x than in y: a boundary no longer than the
+    /// strip is tall would be packed along y, and the x extent measured here
+    /// would be the whole width whatever the layout. Five times the area bound
+    /// (a density of 20 %, below any layout worth measuring) keeps the run on
+    /// one strip; twice the height keeps x the long axis.
     fn estimate_initial_width(&self, geometries: &[Geometry2D], strip_height: f64) -> f64 {
         use u_nesting_core::geometry::Geometry;
 
         let total_area: f64 = geometries.iter().map(|g| g.measure()).sum();
-        // Use 2x the theoretical minimum as initial width
-        let theoretical_min = total_area / strip_height;
-        theoretical_min * 3.0
+        let area_bound = total_area / strip_height;
+        (area_bound * 5.0).max(strip_height * 2.0)
     }
 
     /// The strip length: the furthest x any vertex of any placed piece reaches
