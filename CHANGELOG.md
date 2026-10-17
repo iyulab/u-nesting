@@ -22,15 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `with_temperature` still set an absolute temperature. `SaResult` and
   `AlnsResult` carry `temperature_unit`, the factor that was applied.
 
-### Fixed
-
-- The ALNS "random" repair placed the removed pieces in area order. It shuffled them and
-  then sorted them back inside the placement, so it was the greedy repair under another
-  name and the search had one repair, not two. The placement now takes the order it is
-  given.
-
-### Added
-
 - ALNS repair by longest side first (`RepairOperatorId::Longest`): the removed pieces are
   placed longest side first, a third order for the adaptive choice to draw from. With the
   fix above, over three ESICUP instances, three runs each at 10 s, the mean length of the
@@ -39,6 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ALNS (was 19.8) and 19.0 % for SA (was 19.3). (A best-fit repair that placed whichever piece fits earliest next was tried and
   was worse on all three, 71.7 / 86.3 / 10702: it searches every remaining piece at every
   step, so it also does a quadratic number of placements.)
+
+### Fixed
+
+- The ALNS "random" repair placed the removed pieces in area order. It shuffled them and
+  then sorted them back inside the placement, so it was the greedy repair under another
+  name and the search had one repair, not two. The placement now takes the order it is
+  given.
 
 ### Changed
 
