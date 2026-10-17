@@ -383,16 +383,14 @@ twelve:
 | Strategy | Mean gap |
 |----------|----------|
 | BLF | 81.7 % |
-| NFP | 37.5 % (11 — on `swim` it needs a second strip in 30 s) |
-| GA | 31.3 % |
-| SA | 30.6 % |
-| ALNS | 29.5 % |
-| BRKGA | 26.9 % |
-| GDRR | 26.8 % |
+| NFP | 38.2 % |
+| ALNS | 23.1 % |
+| SA | 22.5 % |
+| GDRR | 19.5 % |
+| GA | 18.6 % |
+| BRKGA | 16.5 % |
 
-On the two instances with the most vertices, `swim` and `albano`, one NFP layout
-takes seconds, and in 30 s the searches end on the bottom-left layout. The
-instances are not in this repository; `bench-runner run -d MARQUES -i marques
+The instances are not in this repository; `bench-runner run -d MARQUES -i marques
 -s ga -t 30` (`crates/benchmark`) downloads one and runs it.
 
 ### 3D Benchmarks (Extreme Point)
