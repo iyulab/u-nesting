@@ -17,8 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   polygon) never improved the answer. A 24-piece layout whose candidates took
   680 ms each takes under 1 ms; with the 30 s budget now spent on the search
   instead of the seed layout, the mean gap to the best known length over the
-  eleven ESICUP strip instances that have one falls from 31.3 to 18.9 % for GA, 26.9 to 16.7 % for
-  BRKGA, 30.6 to 21.0 % for SA, 29.5 to 21.8 % for ALNS and 26.8 to 20.3 % for
+  twelve ESICUP strip instances falls (one 30 s run each) from 31.3 to 20.4 %
+  for GA, 26.9 to 17.7 % for BRKGA, 30.6 to 19.3 % for SA, 29.5 to 19.8 % for
+  ALNS and 26.8 to 19.8 % for
   GDRR. Crossings are searched for only up to the first valid vertex along the
   length axis, among the edges inside the overlap of the two polygons' boxes:
   the same points are found, 25–30 % sooner on a 64-piece layout.
@@ -27,8 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   few hundredths, so they accepted nearly every candidate and walked at random,
   keeping only the best layout seen. They now start where a layout a few percent
   worse is accepted about half the time and cool to where a hundredth rarely is.
-  Over six ESICUP instances, three runs each at 30 s, the mean gap falls from
-  24.3 to 20.1 % for ALNS and from 20.2 to 18.8 % for SA.
+  Over six ESICUP instances, three runs each at 30 s, the mean gap of that change
+  alone falls from 24.3 to 20.1 % for ALNS and from 20.2 to 18.8 % for SA.
 - A non-convex no-fit polygon is built from convex parts (the triangulation's
   triangles merged across the diagonals that keep them convex) and the parts are
   united pairwise, not one after another: for a 32-vertex piece against another,

@@ -384,11 +384,16 @@ twelve:
 |----------|----------|
 | BLF | 81.7 % |
 | NFP | 38.2 % |
-| ALNS | 23.1 % |
-| SA | 22.5 % |
-| GDRR | 19.5 % |
-| GA | 18.6 % |
-| BRKGA | 16.5 % |
+| GDRR | 19.8 % |
+| ALNS | 19.8 % |
+| SA | 19.3 % |
+| GA | 20.4 % |
+| BRKGA | 17.7 % |
+
+A single run differs from the next by a point or two, so the order of the five
+searches is within the noise; they stop at their own iteration or generation
+budget when that comes before 30 s (`bench-runner run --clock` lets the time
+limit end them instead).
 
 The instances are not in this repository; `bench-runner run -d MARQUES -i marques
 -s ga -t 30` (`crates/benchmark`) downloads one and runs it.
