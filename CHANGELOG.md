@@ -7,7 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Depends on u-metaheur 0.14.
+## [0.28.0] - 2026-10-18
+
+`UNesting` and the PyPI package are 0.28.0. Depends on u-metaheur 0.14.
 
 ### Added
 
