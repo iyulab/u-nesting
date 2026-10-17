@@ -390,9 +390,8 @@ twelve:
 | BRKGA | 26.9 % |
 | GDRR | 26.8 % |
 
-The two instances with the most vertices, `swim` and `albano`, take a single
-NFP layout longer than the 30 s allows the searches to improve on, so they end
-on the bottom-left layout; with more time they improve like the others. The
+On the two instances with the most vertices, `swim` and `albano`, one NFP layout
+takes seconds, and in 30 s the searches end on the bottom-left layout. The
 instances are not in this repository; `bench-runner run -d MARQUES -i marques
 -s ga -t 30` (`crates/benchmark`) downloads one and runs it.
 
