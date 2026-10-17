@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The bottom-left placement search tests the corners of the feasible region
+  first — the vertices of the inner-fit and no-fit polygons and the points where
+  their edges cross — and falls back to the sampling grid only when none of them
+  qualifies. The least point of a polygon region in packing order is one of its
+  corners, so the grid (tens of thousands of points, most inside a no-fit
+  polygon) never improved the answer. A 24-piece layout whose candidates took
+  680 ms each takes under 1 ms; with the 30 s budget now spent on the search
+  instead of the seed layout, the mean gap to the best known length over the
+  eleven ESICUP strip instances that have one falls from 31.3 to 18.9 % for GA, 26.9 to 16.7 % for
+  BRKGA, 30.6 to 21.0 % for SA, 29.5 to 21.8 % for ALNS and 26.8 to 20.3 % for
+  GDRR.
+- A non-convex no-fit polygon is built from convex parts (the triangulation's
+  triangles merged across the diagonals that keep them convex) and the parts are
+  united pairwise, not one after another: for a 32-vertex piece against another,
+  900 triangle pairs become 324 convex pairs and the union takes 5 ms where it
+  took 14 ms.
+
 ## [0.26.0] - 2026-10-17
 
 `UNesting` and the PyPI package are 0.26.0. Depends on u-metaheur 0.13.

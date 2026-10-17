@@ -680,14 +680,14 @@ fn compute_minkowski_sum_convex(poly_a: &[(f64, f64)], poly_b: &[(f64, f64)]) ->
 /// Computes NFP for non-convex polygons using convex decomposition + union.
 ///
 /// The algorithm:
-/// 1. Decompose both polygons into convex parts (using triangulation)
+/// 1. Decompose both polygons into convex parts (triangulation merged into convex pieces)
 /// 2. Compute pairwise Minkowski sums of convex parts
 /// 3. Union all partial results using `i_overlay`
 fn compute_nfp_general(
     stat_exterior: &[(f64, f64)],
     rotated_orbiting: &[(f64, f64)],
 ) -> Result<Nfp> {
-    // Triangulate both polygons into convex parts
+    // Decompose both polygons into convex parts
     let stat_triangles = triangulate_polygon(stat_exterior);
     let orb_triangles = triangulate_polygon(rotated_orbiting);
 
@@ -753,7 +753,8 @@ fn compute_nfp_general(
     union_polygons(&partial_nfps)
 }
 
-/// Triangulates a polygon into convex parts (ear clipping algorithm).
+/// Decomposes a polygon into convex parts: ear-clipping triangulation, then
+/// Hertel–Mehlhorn merging of the triangles.
 fn triangulate_polygon(polygon: &[(f64, f64)]) -> Vec<Vec<(f64, f64)>> {
     if polygon.len() < 3 {
         return Vec::new();
@@ -796,7 +797,71 @@ fn triangulate_polygon(polygon: &[(f64, f64)]) -> Vec<Vec<(f64, f64)>> {
         triangles.push(vertices);
     }
 
-    triangles
+    merge_into_convex_parts(triangles)
+}
+
+/// Index of the directed edge `a -> b` in a polygon, as the position of `a`.
+fn directed_edge_position(polygon: &[(f64, f64)], a: (f64, f64), b: (f64, f64)) -> Option<usize> {
+    let n = polygon.len();
+    (0..n).find(|&i| polygon[i] == a && polygon[(i + 1) % n] == b)
+}
+
+/// Merges two counter-clockwise polygons across their shared edge, dropping
+/// the collinear vertices the removed diagonal leaves behind. Returns `None`
+/// when the polygons share no edge or the union is not strictly convex.
+fn merge_across_shared_edge(p: &[(f64, f64)], q: &[(f64, f64)]) -> Option<Vec<(f64, f64)>> {
+    let (n, m) = (p.len(), q.len());
+    for i in 0..n {
+        let (a, b) = (p[i], p[(i + 1) % n]);
+        let Some(j) = directed_edge_position(q, b, a) else {
+            continue;
+        };
+        // p walked from b around to a, then q from the vertex after a back to the one before b.
+        let mut merged: Vec<(f64, f64)> = (0..n).map(|k| p[(i + 1 + k) % n]).collect();
+        merged.extend((0..m - 2).map(|k| q[(j + 2 + k) % m]));
+        let k = merged.len();
+        let keep: Vec<(f64, f64)> = (0..k)
+            .filter(|&t| {
+                !matches!(
+                    orient2d_filtered(merged[(t + k - 1) % k], merged[t], merged[(t + 1) % k]),
+                    Orientation::Collinear
+                )
+            })
+            .map(|t| merged[t])
+            .collect();
+        let k = keep.len();
+        let convex = k >= 3
+            && (0..k).all(|t| {
+                orient2d_filtered(keep[(t + k - 1) % k], keep[t], keep[(t + 1) % k]).is_ccw()
+            });
+        return convex.then_some(keep);
+    }
+    None
+}
+
+/// Hertel–Mehlhorn: greedily removes the diagonals of a triangulation whose
+/// removal keeps the pieces convex. The result has at most four times the
+/// minimum number of convex pieces, so the pairwise Minkowski sums that follow
+/// shrink from `triangles²` to roughly `parts²`.
+fn merge_into_convex_parts(mut parts: Vec<Vec<(f64, f64)>>) -> Vec<Vec<(f64, f64)>> {
+    let mut i = 0;
+    while i < parts.len() {
+        let mut merged_any = false;
+        let mut j = i + 1;
+        while j < parts.len() {
+            if let Some(joined) = merge_across_shared_edge(&parts[i], &parts[j]) {
+                parts[i] = joined;
+                parts.swap_remove(j);
+                merged_any = true;
+            } else {
+                j += 1;
+            }
+        }
+        if !merged_any {
+            i += 1;
+        }
+    }
+    parts
 }
 
 /// Checks if a point is strictly inside a triangle using robust predicates.
@@ -855,31 +920,42 @@ fn union_polygons(polygons: &[Vec<(f64, f64)>]) -> Result<Nfp> {
         return Ok(Nfp::from_polygon(polygons[0].clone()));
     }
 
-    // Start with the first polygon
-    let mut result: Vec<Vec<[f64; 2]>> = vec![polygons[0].iter().map(|&(x, y)| [x, y]).collect()];
-
-    // Union with each subsequent polygon
-    for polygon in &polygons[1..] {
-        let clip: Vec<[f64; 2]> = polygon.iter().map(|&(x, y)| [x, y]).collect();
-
-        // Perform union using i_overlay
-        let shapes = result.overlay(&[clip], OverlayRule::Union, FillRule::NonZero);
-
-        // Convert shapes back to our format
-        result = Vec::new();
-        for shape in shapes {
-            for contour in shape {
-                if contour.len() >= 3 {
-                    result.push(contour);
+    // Balanced pairwise union: every step overlays two outlines of similar
+    // size. Unioning one part at a time re-processes the whole accumulated
+    // outline per part (quadratic); one overlay over all parts intersects every
+    // overlapping pair of edges (the parts of an NFP overlap heavily).
+    let mut level: Vec<Vec<Vec<[f64; 2]>>> = polygons
+        .iter()
+        .map(|polygon| vec![polygon.iter().map(|&(x, y)| [x, y]).collect()])
+        .collect();
+    while level.len() > 1 {
+        let mut next = Vec::with_capacity(level.len().div_ceil(2));
+        let mut it = level.into_iter();
+        while let Some(left) = it.next() {
+            let Some(right) = it.next() else {
+                next.push(left);
+                break;
+            };
+            let shapes = left.overlay(&right, OverlayRule::Union, FillRule::NonZero);
+            let merged: Vec<Vec<[f64; 2]>> = shapes
+                .into_iter()
+                .flatten()
+                .filter(|contour| contour.len() >= 3)
+                .collect();
+            // A failed union keeps the larger side rather than dropping both.
+            next.push(if merged.is_empty() {
+                if left.len() >= right.len() {
+                    left
+                } else {
+                    right
                 }
-            }
+            } else {
+                merged
+            });
         }
-
-        if result.is_empty() {
-            // Union failed, continue with remaining polygons
-            continue;
-        }
+        level = next;
     }
+    let result: Vec<Vec<[f64; 2]>> = level.pop().unwrap_or_default();
 
     // Convert back to our Nfp format
     let nfp_polygons: Vec<Vec<(f64, f64)>> = result
@@ -1092,25 +1168,18 @@ pub fn find_bottom_left_placement(
         return None;
     }
 
-    // First, try the vertices of the IFP (often optimal positions)
+    // The feasible region is the IFP minus the open NFPs, a polygon region, and
+    // the least point of a polygon region in a lexicographic order is one of
+    // its corners: an IFP vertex, an NFP vertex, or a crossing of two edges.
     let mut candidates: Vec<(f64, f64)> = Vec::new();
-
     for polygon in &ifp.polygons {
         candidates.extend(polygon.iter().copied());
     }
-
-    // Also collect NFP vertices as potential optimal positions
     for nfp in nfps {
         for polygon in &nfp.polygons {
             candidates.extend(polygon.iter().copied());
         }
     }
-
-    // Where an NFP edge crosses an IFP edge or another NFP edge is a corner of
-    // the feasible region — the position where a piece touches both. Without
-    // these, a piece that must sit against a boundary edge and a placed piece
-    // at once can only land on the next grid point, leaving a gap up to
-    // `sample_step` wider than required.
     for nfp in nfps {
         for polygon in &nfp.polygons {
             for ifp_polygon in &ifp.polygons {
@@ -1126,44 +1195,6 @@ pub fn find_bottom_left_placement(
         }
     }
 
-    // Find the bounding box of the IFP for grid sampling
-    let (min_x, min_y, max_x, max_y) = ifp_bounding_box(ifp);
-
-    // Add grid sample points, line by line along the length axis. Past the
-    // furthest point of any NFP every point is clear of them all, and the first
-    // such line answers for the rest (the same points, further along): the
-    // grid ends there instead of running to the far end of the sheet.
-    let reach = nfps
-        .iter()
-        .flat_map(|nfp| nfp.polygons.iter().flatten())
-        .map(|&point| axis.key(point).0)
-        .fold(f64::NEG_INFINITY, f64::max);
-    let ((along_min, along_max), (across_min, across_max)) = match axis {
-        PackingAxis::X => ((min_x, max_x), (min_y, max_y)),
-        PackingAxis::Y => ((min_y, max_y), (min_x, max_x)),
-    };
-    let mut along = along_min;
-    while along <= along_max {
-        let mut across = across_min;
-        while across <= across_max {
-            candidates.push(match axis {
-                PackingAxis::X => (along, across),
-                PackingAxis::Y => (across, along),
-            });
-            across += sample_step;
-        }
-        if along > reach {
-            break;
-        }
-        along += sample_step;
-    }
-
-    // The first valid candidate in packing order is the answer: least along the
-    // length axis, then least across it. The candidates are taken in that order
-    // a block at a time -- the answer is almost always among the first few
-    // hundred of some tens of thousands, so sorting them all is most of the
-    // cost of the search.
-    candidates.retain(|p| p.0.is_finite() && p.1.is_finite());
     let in_packing_order = |a: &(f64, f64), b: &(f64, f64)| {
         let (a, b) = (axis.key(*a), axis.key(*b));
         a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1))
@@ -1196,8 +1227,50 @@ pub fn find_bottom_left_placement(
                 })
     };
 
+    candidates.retain(|p| p.0.is_finite() && p.1.is_finite());
+    candidates.sort_unstable_by(in_packing_order);
+    if let Some(&point) = candidates.iter().find(|&&point| valid(point)) {
+        return Some(point);
+    }
+
+    // No corner qualified (a degenerate region the corner tests miss): fall back
+    // to sampling a grid over the IFP, line by line along the length axis. Past
+    // the furthest point of any NFP every point is clear of them all, and the
+    // first such line answers for the rest, so the grid ends there instead of
+    // running to the far end of the sheet.
+    let (min_x, min_y, max_x, max_y) = ifp_bounding_box(ifp);
+    let reach = nfps
+        .iter()
+        .flat_map(|nfp| nfp.polygons.iter().flatten())
+        .map(|&point| axis.key(point).0)
+        .fold(f64::NEG_INFINITY, f64::max);
+    let ((along_min, along_max), (across_min, across_max)) = match axis {
+        PackingAxis::X => ((min_x, max_x), (min_y, max_y)),
+        PackingAxis::Y => ((min_y, max_y), (min_x, max_x)),
+    };
+    let mut grid: Vec<(f64, f64)> = Vec::new();
+    let mut along = along_min;
+    while along <= along_max {
+        let mut across = across_min;
+        while across <= across_max {
+            grid.push(match axis {
+                PackingAxis::X => (along, across),
+                PackingAxis::Y => (across, along),
+            });
+            across += sample_step;
+        }
+        if along > reach {
+            break;
+        }
+        along += sample_step;
+    }
+
+    // The first valid grid point in packing order is the answer. The points are
+    // taken in that order a block at a time -- the answer is almost always among
+    // the first few hundred of some tens of thousands, so sorting them all is
+    // most of the cost of the search.
     const BLOCK: usize = 512;
-    let mut rest: &mut [(f64, f64)] = &mut candidates;
+    let mut rest: &mut [(f64, f64)] = &mut grid;
     while !rest.is_empty() {
         let block = BLOCK.min(rest.len());
         if block < rest.len() {
@@ -1624,6 +1697,51 @@ mod tests {
 
     fn triangle() -> Vec<(f64, f64)> {
         vec![(0.0, 0.0), (10.0, 0.0), (5.0, 10.0)]
+    }
+
+    /// The convex parts partition the polygon: each is convex, together they
+    /// cover exactly its area, and there are fewer than the `n - 2` triangles.
+    #[test]
+    fn convex_decomposition_partitions_a_concave_polygon_into_fewer_parts() {
+        // A comb: a base bar with four teeth, 12 vertices.
+        let comb = vec![
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (17.0, 10.0),
+            (17.0, 4.0),
+            (13.0, 4.0),
+            (13.0, 10.0),
+            (7.0, 10.0),
+            (7.0, 4.0),
+            (3.0, 4.0),
+            (3.0, 10.0),
+            (0.0, 10.0),
+        ];
+        let parts = triangulate_polygon(&comb);
+        assert!(parts.len() < comb.len() - 2, "{} parts", parts.len());
+        assert!(parts.iter().all(|part| is_polygon_convex(part)));
+        let covered: f64 = parts.iter().map(|part| signed_area(part)).sum();
+        assert_relative_eq!(covered, signed_area(&ensure_ccw(&comb)), epsilon = 1e-9);
+    }
+
+    /// Merging never joins pieces whose union is not convex: a polygon with two
+    /// reflex corners keeps at least the parts that cover them.
+    #[test]
+    fn convex_decomposition_keeps_reflex_corners_apart() {
+        let l_shape = vec![
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 5.0),
+            (5.0, 5.0),
+            (5.0, 10.0),
+            (0.0, 10.0),
+        ];
+        let parts = triangulate_polygon(&l_shape);
+        assert!((2..=3).contains(&parts.len()), "{} parts", parts.len());
+        assert!(parts.iter().all(|part| is_polygon_convex(part)));
+        let covered: f64 = parts.iter().map(|part| signed_area(part)).sum();
+        assert_relative_eq!(covered, 75.0, epsilon = 1e-9);
     }
 
     #[test]
