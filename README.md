@@ -382,13 +382,13 @@ twelve:
 
 | Strategy | Mean gap |
 |----------|----------|
-| BLF | 81.7 % |
-| NFP | 38.2 % |
-| GDRR | 19.8 % |
-| ALNS | 19.8 % |
-| SA | 19.3 % |
-| GA | 20.4 % |
 | BRKGA | 17.7 % |
+| SA | 19.3 % |
+| ALNS | 19.8 % |
+| GDRR | 19.8 % |
+| GA | 20.4 % |
+| NFP | 38.2 % |
+| BLF | 81.7 % |
 
 A single run differs from the next by a point or two, so the order of the five
 searches is within the noise; they stop at their own iteration or generation
