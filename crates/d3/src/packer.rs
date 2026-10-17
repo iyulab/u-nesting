@@ -527,9 +527,14 @@ impl Packer3D {
         let started = Timer::now();
         let fill = self.layer_fill(geometries, boundary, progress);
         let mut sa_config = SaConfig::default()
-            .with_initial_temp(100.0)
-            .with_final_temp(0.1)
-            .with_cooling_rate(0.95)
+            // The objective is `100 x placed share + 10 x utilisation`, so a layout a
+            // few percent worse differs by a few tenths: a temperature of 100 down to
+            // 0.1 accepts nearly every candidate and the search is a random walk.
+            // Start where a tenth worse is accepted about one time in three and
+            // cool to where a hundredth rarely is, over the iteration budget.
+            .with_initial_temp(0.5)
+            .with_final_temp(0.01)
+            .with_cooling_rate(0.98)
             .with_iterations_per_temp(50)
             .with_max_iterations(self.config.max_iterations.unwrap_or(10000));
         sa_config.time_limit = self.search_time_limit(&started);

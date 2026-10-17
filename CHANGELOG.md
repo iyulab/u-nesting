@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   worse is accepted about half the time and cool to where a hundredth rarely is.
   Over six ESICUP instances, three runs each at 30 s, the mean gap of that change
   alone falls from 24.3 to 20.1 % for ALNS and from 20.2 to 18.8 % for SA.
+- The 3D simulated annealing has the same temperature fix: it started at 100 and
+  cooled to 0.1 against objective differences of a few tenths, so it accepted
+  nearly every candidate. On eight random sets of 25 boxes (20 s limit) the mean
+  volume utilisation rises from 62.7 to 67.3 %.
 - A non-convex no-fit polygon is built from convex parts (the triangulation's
   triangles merged across the diagonals that keep them convex) and the parts are
   united pairwise, not one after another: for a 32-vertex piece against another,
