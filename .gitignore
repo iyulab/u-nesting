@@ -50,6 +50,7 @@ temp_*.json
 !benches/**/*.json
 !docs/json-schema/*.json
 !engine-card.json
+!schemas/wasm.schema.json
 !scripts/engine-card/*.json
 !benchmark/scenarios/*.json
 !demo/*.html

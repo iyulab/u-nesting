@@ -1,0 +1,1881 @@
+{
+  "$defs": {
+    "Boundary2DRequest": {
+      "additionalProperties": false,
+      "description": "2D boundary request.",
+      "properties": {
+        "height": {
+          "description": "Height for rectangular boundary.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "polygon": {
+          "description": "Polygon vertices for arbitrary boundary.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "width": {
+          "description": "Width for rectangular boundary.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Boundary3DRequest": {
+      "additionalProperties": false,
+      "description": "3D boundary request.",
+      "properties": {
+        "dimensions": {
+          "description": "Dimensions [width, depth, height].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "gravity": {
+          "default": false,
+          "description": "Enable gravity constraints.",
+          "type": "boolean"
+        },
+        "max_mass": {
+          "description": "Maximum mass (optional).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stability": {
+          "default": false,
+          "description": "Enable stability constraints.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "dimensions"
+      ],
+      "type": "object"
+    },
+    "Check2DRequest": {
+      "additionalProperties": false,
+      "description": "A 2D layout to check: the `solve_2d` request it answers, unchanged, and a\nsuccessful `solve_2d` response -- one the engine returned, or one written\nelsewhere in the same shape. Only its `placements` and `unplaced` are\njudged.",
+      "properties": {
+        "problem": {
+          "$ref": "#/$defs/Request2D",
+          "description": "The problem, as `solve_2d` takes it."
+        },
+        "solve_result": {
+          "$ref": "#/$defs/SolveResponse",
+          "description": "The layout, as `solve_2d` returns it."
+        }
+      },
+      "required": [
+        "problem",
+        "solve_result"
+      ],
+      "type": "object"
+    },
+    "Check3DRequest": {
+      "additionalProperties": false,
+      "description": "A 3D packing to check: the `solve_3d` request it answers, unchanged, and a\nsuccessful `solve_3d` response. Only its `placements` and `unplaced` are\njudged.",
+      "properties": {
+        "problem": {
+          "$ref": "#/$defs/Request3D",
+          "description": "The problem, as `solve_3d` takes it."
+        },
+        "solve_result": {
+          "$ref": "#/$defs/Pack3DResponse",
+          "description": "The packing, as `solve_3d` returns it."
+        }
+      },
+      "required": [
+        "problem",
+        "solve_result"
+      ],
+      "type": "object"
+    },
+    "CheckResponse": {
+      "additionalProperties": false,
+      "description": "Whether a layout or packing keeps every rule of its problem, and each rule\nit breaks; or, with `success: false`, why the request was refused.",
+      "properties": {
+        "code": {
+          "description": "The refusal's stable reason, when `success` is `false`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefusalDetails"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The values behind the refusal."
+        },
+        "error": {
+          "description": "The refusal's message, when `success` is `false`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "feasible": {
+          "description": "No violations (and the check ran).",
+          "type": "boolean"
+        },
+        "success": {
+          "description": "Whether the check ran; `false` with `error` / `code` / `details` when the\nrequest was refused.",
+          "type": "boolean"
+        },
+        "version": {
+          "description": "API version.",
+          "type": "string"
+        },
+        "violations": {
+          "description": "Every rule the layout breaks.",
+          "items": {
+            "$ref": "#/$defs/LayoutViolationResponse"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "version",
+        "success",
+        "feasible",
+        "violations"
+      ],
+      "type": "object"
+    },
+    "ConfigRequest": {
+      "additionalProperties": false,
+      "description": "Configuration request.",
+      "properties": {
+        "crossover_rate": {
+          "description": "GA crossover rate.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "margin": {
+          "description": "Margin from boundary edges.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_generations": {
+          "default": null,
+          "description": "GA/BRKGA generation budget: a whole number from 0 to 4294967295.\nOmitted, each strategy uses the budget it is tuned for (see\n`Config::max_generations`).",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_iterations": {
+          "default": null,
+          "description": "SA/GDRR/ALNS iteration budget: a whole number, at least 1. Omitted,\neach strategy uses the budget it is tuned for (see\n`Config::max_iterations`).",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "multi_sheet": {
+          "description": "Distribute overflow across multiple sheets (2D only).\n\nWhen `true`, parts that do not fit on a single sheet spill onto additional\nsheets instead of becoming unplaced. `sheets_used` then reports the sheet\ncount and each placement's `sheet_index` selects its sheet; placement\ncoordinates are sheet-local (relative to each sheet's origin). Defaults to\n`false` (single-sheet solve).",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "mutation_rate": {
+          "description": "GA mutation rate.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "population_size": {
+          "default": null,
+          "description": "GA/BRKGA population size: a whole number, at least 2. Omitted, each\nstrategy uses the size it is tuned for (see `Config::population_size`).",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "seed": {
+          "default": null,
+          "description": "Optional RNG seed for reproducible stochastic runs (GA, BRKGA, SA,\nGDRR, ALNS): a whole number from 0 to 18446744073709551615. A seeded\nrun that ends on its own budget, not on the time limit, is reproduced\nexactly (see `Config::seed`).",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "spacing": {
+          "description": "Spacing between geometries.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "strategy": {
+          "description": "Optimization strategy, by name (case-insensitive); the strategies\noffered in each dimension are listed by `available_strategies`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "target_utilization": {
+          "description": "Target utilization (0.0 - 1.0): ga, brkga and sa stop once every piece\nis placed at this utilization or more. Refused (`invalid_option`)\nunder any other strategy.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "time_limit_ms": {
+          "default": null,
+          "description": "Time limit in milliseconds: a whole number, at least 0 (0 = no limit).",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "CutStepResponse": {
+      "additionalProperties": false,
+      "description": "A single step in the cutting sequence.",
+      "properties": {
+        "contour_id": {
+          "description": "Contour ID.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "contour_type": {
+          "description": "Contour type: \"exterior\" or \"interior\".",
+          "type": "string"
+        },
+        "cut_direction": {
+          "description": "Cutting direction: \"ccw\" or \"cw\".",
+          "type": "string"
+        },
+        "cut_distance": {
+          "description": "Cutting distance (contour perimeter).",
+          "format": "double",
+          "type": "number"
+        },
+        "geometry_id": {
+          "description": "Source geometry ID.",
+          "type": "string"
+        },
+        "instance": {
+          "description": "Instance index of the placed geometry.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pierce_point": {
+          "description": "Piercing point [x, y].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "rapid_distance": {
+          "description": "Rapid move distance.",
+          "format": "double",
+          "type": "number"
+        },
+        "rapid_from": {
+          "description": "Starting point of rapid move [x, y] (null for first step).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "contour_id",
+        "geometry_id",
+        "instance",
+        "contour_type",
+        "pierce_point",
+        "cut_direction",
+        "rapid_distance",
+        "cut_distance"
+      ],
+      "type": "object"
+    },
+    "CuttingConfigRequest": {
+      "additionalProperties": false,
+      "description": "Cutting path configuration request.",
+      "properties": {
+        "cut_speed": {
+          "description": "Machine cutting speed (units/s). For time estimation only.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "exterior_direction": {
+          "description": "Default cut direction for exterior contours: \"ccw\", \"cw\", or \"auto\".",
+          "enum": [
+            "ccw",
+            "cw",
+            "auto",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "home_position": {
+          "description": "Home position [x, y] for the cutting head.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "interior_direction": {
+          "description": "Default cut direction for interior contours: \"ccw\", \"cw\", or \"auto\".",
+          "enum": [
+            "ccw",
+            "cw",
+            "auto",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kerf_width": {
+          "description": "Kerf width (cutting tool width). Set to 0.0 to disable kerf compensation.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "max_2opt_iterations": {
+          "default": null,
+          "description": "Maximum number of 2-opt improvement iterations: a whole number, at\nleast 0.",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pierce_candidates": {
+          "default": null,
+          "description": "Number of candidate pierce points per contour: a whole number, at\nleast 1.",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "pierce_weight": {
+          "description": "Weight factor for pierce count in cost function.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "rapid_speed": {
+          "description": "Machine rapid traverse speed (units/s). For time estimation only.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "time_limit_ms": {
+          "default": null,
+          "description": "Wall-clock budget (ms) for the 2-opt improvement phase. `0` = unlimited.\nPrevents the sequencing pass from blocking the caller (e.g. the browser\nmain thread) on large inputs. Defaults to 5000 when omitted.",
+          "format": "int128",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "tolerance": {
+          "description": "Tolerance for geometric comparisons.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "CuttingRequest": {
+      "additionalProperties": false,
+      "description": "Request for cutting path optimization.",
+      "properties": {
+        "cutting_config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CuttingConfigRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cutting path configuration (optional; defaults will be used if absent)."
+        },
+        "geometries": {
+          "description": "Original geometry definitions (same format as nesting request).",
+          "items": {
+            "$ref": "#/$defs/Geometry2DRequest"
+          },
+          "type": "array"
+        },
+        "solve_result": {
+          "$ref": "#/$defs/SolveResponse",
+          "description": "Solve result from a previous nesting operation."
+        }
+      },
+      "required": [
+        "geometries",
+        "solve_result"
+      ],
+      "type": "object"
+    },
+    "CuttingResponse": {
+      "additionalProperties": false,
+      "description": "Response for cutting path optimization.",
+      "properties": {
+        "code": {
+          "default": null,
+          "description": "Stable name of the reason a request was refused\n(`parameter_out_of_range`, `invalid_geometry`, `duplicate_id`, ...);\n`null` on success. Branch on this, not on `error`, whose wording may\nchange.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "computation_time_ms": {
+          "description": "Computation time in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefusalDetails"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The values behind `code` -- the setting, the geometry id, the\npositions; `null` on success."
+        },
+        "efficiency": {
+          "description": "Cutting efficiency (cut_distance / total_distance).",
+          "format": "double",
+          "type": "number"
+        },
+        "error": {
+          "description": "Error message if failed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "estimated_time_seconds": {
+          "description": "Estimated total time in seconds: the rapid distance at `rapid_speed`\nplus the cut distance at `cut_speed` (0 when nothing is cut, and on\nerror responses).",
+          "format": "double",
+          "type": "number"
+        },
+        "sequence": {
+          "default": [],
+          "description": "Ordered sequence of cutting steps.",
+          "items": {
+            "$ref": "#/$defs/CutStepResponse"
+          },
+          "type": "array"
+        },
+        "skipped_contours": {
+          "default": [],
+          "description": "Contours of placed parts that the plan cannot cut, and why. A part\nlisted here is not fully cut by `sequence`.",
+          "items": {
+            "$ref": "#/$defs/SkippedContourResponse"
+          },
+          "type": "array"
+        },
+        "success": {
+          "description": "Whether the operation succeeded.",
+          "type": "boolean"
+        },
+        "total_cut_distance": {
+          "description": "Total cutting distance.",
+          "format": "double",
+          "type": "number"
+        },
+        "total_pierces": {
+          "description": "Total number of pierce operations.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "total_rapid_distance": {
+          "description": "Total non-cutting (rapid traverse) distance.",
+          "format": "double",
+          "type": "number"
+        },
+        "version": {
+          "description": "API version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "success",
+        "total_cut_distance",
+        "total_rapid_distance",
+        "total_pierces",
+        "estimated_time_seconds",
+        "efficiency",
+        "computation_time_ms"
+      ],
+      "type": "object"
+    },
+    "Dimension": {
+      "description": "The two problem families a strategy runs on: 2D nesting and 3D packing.\nOn the wire (a request's `mode`, the strategy catalog) `\"2d\"` / `\"3d\"`.",
+      "oneOf": [
+        {
+          "const": "2d",
+          "description": "2D nesting of parts on sheets.",
+          "type": "string"
+        },
+        {
+          "const": "3d",
+          "description": "3D packing of boxes into bins.",
+          "type": "string"
+        }
+      ]
+    },
+    "Geometry2DRequest": {
+      "additionalProperties": false,
+      "description": "2D geometry request.",
+      "properties": {
+        "allow_flip": {
+          "default": false,
+          "description": "Allow flipping.",
+          "type": "boolean"
+        },
+        "holes": {
+          "default": null,
+          "description": "Interior holes (optional).",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "Unique identifier.",
+          "type": "string"
+        },
+        "polygon": {
+          "description": "Exterior vertices as [[x, y], ...]: a closed polyline (curves\nflattened to vertices before submitting).",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "quantity": {
+          "default": 1,
+          "description": "Quantity to place: a whole number, at least 1.",
+          "format": "int128",
+          "type": "integer"
+        },
+        "rotations": {
+          "default": null,
+          "description": "Allowed rotation angles in degrees.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "polygon"
+      ],
+      "type": "object"
+    },
+    "Geometry3DRequest": {
+      "additionalProperties": false,
+      "description": "3D geometry request.",
+      "properties": {
+        "dimensions": {
+          "description": "Dimensions [width, depth, height].",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 3,
+          "minItems": 3,
+          "type": "array"
+        },
+        "id": {
+          "description": "Unique identifier.",
+          "type": "string"
+        },
+        "mass": {
+          "description": "Mass (optional).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "orientation": {
+          "default": null,
+          "description": "Orientation constraint.",
+          "enum": [
+            "any",
+            "upright",
+            "fixed",
+            null
+          ],
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "quantity": {
+          "default": 1,
+          "description": "Quantity to place: a whole number, at least 1.",
+          "format": "int128",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "dimensions"
+      ],
+      "type": "object"
+    },
+    "LayoutViolationResponse": {
+      "description": "One way a layout (2D) or packing (3D) breaks its problem. `placement` and\n`other` are indices into the response's `placements`; `id` is a geometry\nid; a rotation is in degrees and an orientation is its label (`\"xzy\"`), as\nthe response gives them.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The placement names a geometry the problem does not have.",
+          "properties": {
+            "code": {
+              "const": "unknown_geometry",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The copy index is not below the geometry's quantity.",
+          "properties": {
+            "code": {
+              "const": "instance_out_of_range",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "instance": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "quantity": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id",
+            "instance",
+            "quantity"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A copy is placed a second time.",
+          "properties": {
+            "code": {
+              "const": "instance_repeated",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "instance": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id",
+            "instance"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The rotation is not one the geometry allows.",
+          "properties": {
+            "code": {
+              "const": "rotation_not_allowed",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rotation": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id",
+            "rotation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Flipped, but the geometry does not allow flipping (2D).",
+          "properties": {
+            "code": {
+              "const": "flip_not_allowed",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An orientation the geometry's `orientation` constraint does not allow\n(3D).",
+          "properties": {
+            "code": {
+              "const": "orientation_not_allowed",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "orientation": {
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id",
+            "orientation"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "In a bin after the first: 3D packs one container.",
+          "properties": {
+            "bin": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "code": {
+              "const": "bin_not_allowed",
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "bin"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The packed boxes weigh more than the container's `max_mass` (3D).",
+          "properties": {
+            "code": {
+              "const": "mass_exceeded",
+              "type": "string"
+            },
+            "mass": {
+              "format": "double",
+              "type": "number"
+            },
+            "max_mass": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "code",
+            "mass",
+            "max_mass"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A box is not supported as `gravity` or `stability` requires (3D).",
+          "properties": {
+            "code": {
+              "const": "unsupported",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "On a sheet after the first without `multi_sheet`.",
+          "properties": {
+            "code": {
+              "const": "sheet_not_allowed",
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "sheet": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "sheet"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "The piece leaves the boundary or comes closer to its edge than `margin`.",
+          "properties": {
+            "code": {
+              "const": "outside_boundary",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Two pieces on one sheet overlap.",
+          "properties": {
+            "code": {
+              "const": "overlap",
+              "type": "string"
+            },
+            "other": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "other"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Two pieces on one sheet are closer than `spacing`.",
+          "properties": {
+            "code": {
+              "const": "too_close",
+              "type": "string"
+            },
+            "distance": {
+              "format": "double",
+              "type": "number"
+            },
+            "other": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "placement": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "spacing": {
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "code",
+            "placement",
+            "other",
+            "distance",
+            "spacing"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Copies are left unplaced but the geometry is not in `unplaced`.",
+          "properties": {
+            "code": {
+              "const": "missing_from_unplaced",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "id"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "In `unplaced` but every copy is placed, listed twice, or unknown.",
+          "properties": {
+            "code": {
+              "const": "wrongly_unplaced",
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Pack3DResponse": {
+      "additionalProperties": false,
+      "description": "3D packing response.\n\nDistinct from [`SolveResponse`] (used for 2D) because the 3D wire contract\ndiffers: bins instead of sheets, and placements carry depth (`z`) and an\n`orientation` label. Mirrors the C# `PackingResult` binding\n(bindings/csharp/UNesting/Models/Geometry3D.cs).",
+      "properties": {
+        "all_placed": {
+          "default": false,
+          "description": "Whether every requested instance was placed. Prefer this over `success`\nto detect partial packing. `false` on error responses.",
+          "type": "boolean"
+        },
+        "bins_used": {
+          "description": "Number of bins used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "code": {
+          "default": null,
+          "description": "Stable name of the reason a request was refused\n(`parameter_out_of_range`, `invalid_geometry`, `duplicate_id`, ...);\n`null` on success. Branch on this, not on `error`, whose wording may\nchange.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefusalDetails"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The values behind `code` -- the setting, the geometry id, the\npositions; `null` on success."
+        },
+        "elapsed_ms": {
+          "description": "Computation time in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error": {
+          "description": "Error message if failed.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "placements": {
+          "default": [],
+          "description": "Placements.",
+          "items": {
+            "$ref": "#/$defs/Placement3DResponse"
+          },
+          "type": "array"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "optimal",
+                "target_reached",
+                "iteration_limit",
+                "no_improvement",
+                "time_limit",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why the run stopped: `completed` (the method ran to its own end),\n`optimal` (an exact method proved it), `target_reached` (every piece\nplaced at `target_utilization` or more), `iteration_limit` (the\ngeneration or iteration budget), `no_improvement` (the search stalled),\n`time_limit` (`time_limit_ms` ran out -- the layout is the best found\nby then) or `cancelled`. `null` on a refusal."
+        },
+        "success": {
+          "description": "Whether the operation succeeded.",
+          "type": "boolean"
+        },
+        "total_requested": {
+          "default": 0,
+          "description": "Total number of geometry **instances** requested (Σ of every geometry's\nquantity). `placements` is instance-level while `unplaced` lists unique\ngeometry IDs (deduplicated); use `total_requested - placements.len()` to\nget the instance-level unplaced count. `0` on error responses.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unplaced": {
+          "default": [],
+          "description": "IDs of unplaced geometries (deduplicated). See `unplaced_count` for the\ninstance-level count.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unplaced_count": {
+          "default": 0,
+          "description": "Instance-level count of geometry instances that could not be placed\n(`total_requested - placements.len()`). Satisfies the invariant\n`placements.len() + unplaced_count == total_requested`. `0` on error.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "utilization": {
+          "description": "Volume utilization ratio.",
+          "format": "double",
+          "type": "number"
+        },
+        "version": {
+          "description": "API version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "success",
+        "bins_used",
+        "utilization",
+        "elapsed_ms"
+      ],
+      "type": "object"
+    },
+    "Placement3DResponse": {
+      "additionalProperties": false,
+      "description": "3D placement response.\n\nMirrors the C# `Placement3D` binding: carries `z` and a string\n`orientation` label (e.g. `\"xyz\"`), and uses `bin_index` (not `sheet_index`).",
+      "properties": {
+        "bin_index": {
+          "description": "Bin index (0-based).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "Geometry ID.",
+          "type": "string"
+        },
+        "instance": {
+          "description": "Instance index (0-based) when multiple copies of the same geometry are placed.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "orientation": {
+          "description": "Orientation label as an axis permutation, e.g. `\"xyz\"`, `\"xzy\"`.",
+          "type": "string"
+        },
+        "x": {
+          "description": "X position.",
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y position.",
+          "format": "double",
+          "type": "number"
+        },
+        "z": {
+          "description": "Z position, along the height axis (the third of `dimensions`).",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "instance",
+        "bin_index",
+        "x",
+        "y",
+        "z",
+        "orientation"
+      ],
+      "type": "object"
+    },
+    "PlacementResponse": {
+      "additionalProperties": false,
+      "description": "Placement response.",
+      "properties": {
+        "flipped": {
+          "description": "Whether the geometry was flipped/mirrored.",
+          "type": "boolean"
+        },
+        "id": {
+          "description": "Geometry ID.",
+          "type": "string"
+        },
+        "instance": {
+          "description": "Instance index (0-based) when multiple copies of the same geometry are placed.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rotation": {
+          "description": "Rotation angle in degrees.",
+          "format": "double",
+          "type": "number"
+        },
+        "sheet_index": {
+          "description": "Sheet/bin index (0-based).",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "description": "X position.",
+          "format": "double",
+          "type": "number"
+        },
+        "y": {
+          "description": "Y position.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "required": [
+        "id",
+        "instance",
+        "x",
+        "y",
+        "rotation",
+        "sheet_index",
+        "flipped"
+      ],
+      "type": "object"
+    },
+    "RefusalDetails": {
+      "additionalProperties": false,
+      "description": "The values behind a refusal's `code`. Only the ones the reason has are\npresent.",
+      "properties": {
+        "exclusive_max": {
+          "description": "Open upper bound of the accepted range: the value must be below it.\nNever present together with `max`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "exclusive_min": {
+          "description": "Open lower bound of the accepted range: the value must be above it.\nNever present together with `min`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "expected": {
+          "description": "The names an unknown option could have been.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "first": {
+          "description": "For `duplicate_id`, the position where the id appeared first; `index`\nis where it appeared again.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "got": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefusalValue"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The value given: a number for a range, a name for an unknown option."
+        },
+        "id": {
+          "description": "The geometry the refusal is about.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "description": "The position of the offending entry.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max": {
+          "description": "Closed upper bound of the accepted range: the value may equal it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "description": "Closed lower bound of the accepted range: the value may equal it.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "parameter": {
+          "description": "The setting or request part at fault (`spacing`, `strategy`,\n`geometries`, `max_mass`, ...).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RefusalValue": {
+      "anyOf": [
+        {
+          "description": "A number outside its range.",
+          "format": "double",
+          "type": "number"
+        },
+        {
+          "description": "A name nobody knows.",
+          "type": "string"
+        }
+      ],
+      "description": "A refused value as it was given."
+    },
+    "Request2D": {
+      "additionalProperties": false,
+      "description": "Request for 2D nesting.\n\nAll geometry is pre-flattened polylines (vertex arrays): curves (arcs,\nBéziers) are flattened to vertices with a tolerance before submitting.\nCoordinates are unitless — the caller chooses the unit (e.g. mm), and every\nlength in a request is in that one unit.",
+      "properties": {
+        "boundary": {
+          "$ref": "#/$defs/Boundary2DRequest",
+          "description": "Boundary definition."
+        },
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Configuration."
+        },
+        "geometries": {
+          "description": "Geometries to place.",
+          "items": {
+            "$ref": "#/$defs/Geometry2DRequest"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Dimension"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Mode discriminator used by the auto-detect `solve` entry point.\nAccepted (and validated) here so a dispatched request round-trips\nunder the strict unknown-field policy.",
+          "enum": [
+            "2d",
+            "3d",
+            null
+          ]
+        },
+        "version": {
+          "default": null,
+          "description": "API version.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "geometries",
+        "boundary"
+      ],
+      "type": "object"
+    },
+    "Request3D": {
+      "additionalProperties": false,
+      "description": "Request for 3D bin packing.\n\nBoxes and the container are axis-aligned; lengths and masses are unitless\n— the caller chooses the units and uses them throughout a request.",
+      "properties": {
+        "boundary": {
+          "$ref": "#/$defs/Boundary3DRequest",
+          "description": "Boundary definition."
+        },
+        "config": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConfigRequest"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Configuration."
+        },
+        "geometries": {
+          "description": "Geometries to place.",
+          "items": {
+            "$ref": "#/$defs/Geometry3DRequest"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Dimension"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Mode discriminator used by the auto-detect `solve` entry point.\nAccepted (and validated) here so a dispatched request round-trips\nunder the strict unknown-field policy.",
+          "enum": [
+            "2d",
+            "3d",
+            null
+          ]
+        },
+        "version": {
+          "default": null,
+          "description": "API version.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "geometries",
+        "boundary"
+      ],
+      "type": "object"
+    },
+    "SkippedContourResponse": {
+      "additionalProperties": false,
+      "description": "A contour left out of the cutting sequence.",
+      "properties": {
+        "contour_id": {
+          "description": "Contour ID.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "contour_type": {
+          "description": "Contour type: \"exterior\" or \"interior\".",
+          "type": "string"
+        },
+        "geometry_id": {
+          "description": "Source geometry ID.",
+          "type": "string"
+        },
+        "instance": {
+          "description": "Instance index of the placed geometry.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "offset": {
+          "description": "The offset applied when `reason` is `\"kerf_collapsed\"`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "reason": {
+          "description": "Why it was left out: `\"kerf_collapsed\"` -- offsetting by half the kerf\nwidth left nothing (the contour is smaller than the tool).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "contour_id",
+        "geometry_id",
+        "instance",
+        "contour_type",
+        "reason"
+      ],
+      "type": "object"
+    },
+    "SolveResponse": {
+      "additionalProperties": false,
+      "description": "Response for solve operations — `solve_2d`'s. The 3D response\n(`Pack3DResponse`) has the same shape with `bins_used` for `sheets_used`,\nand each placement carries `z` and an orientation.",
+      "properties": {
+        "all_placed": {
+          "default": false,
+          "description": "Whether every requested instance was placed\n(`placements.len() == total_requested`). Prefer this over `success` to\ndetect partial packing: `success` only means the solve completed without\nerror, **not** that all pieces fit. `false` on error responses.",
+          "type": "boolean"
+        },
+        "code": {
+          "default": null,
+          "description": "Stable name of the reason a request was refused\n(`parameter_out_of_range`, `invalid_geometry`, `duplicate_id`, ...);\n`null` on success. Branch on this, not on `error`, whose wording may\nchange.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "details": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RefusalDetails"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The values behind `code` -- the setting, the geometry id, the\npositions; `null` on success."
+        },
+        "elapsed_ms": {
+          "description": "Computation time in milliseconds.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "error": {
+          "description": "Readable refusal text; `null` on success. Branch on `code`, not on\nthis text.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "placements": {
+          "default": [],
+          "description": "Placements.",
+          "items": {
+            "$ref": "#/$defs/PlacementResponse"
+          },
+          "type": "array"
+        },
+        "sheets_used": {
+          "description": "Number of sheets/bins used.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stop_reason": {
+          "anyOf": [
+            {
+              "enum": [
+                "completed",
+                "optimal",
+                "target_reached",
+                "iteration_limit",
+                "no_improvement",
+                "time_limit",
+                "cancelled"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Why the run stopped: `completed` (the method ran to its own end),\n`optimal` (an exact method proved it), `target_reached` (every piece\nplaced at `target_utilization` or more), `iteration_limit` (the\ngeneration or iteration budget), `no_improvement` (the search stalled),\n`time_limit` (`time_limit_ms` ran out -- the layout is the best found\nby then) or `cancelled`. `null` on a refusal."
+        },
+        "success": {
+          "description": "Whether the operation succeeded.",
+          "type": "boolean"
+        },
+        "total_requested": {
+          "default": 0,
+          "description": "Total number of geometry **instances** requested (Σ of every geometry's\nquantity). `placements` is instance-level while `unplaced` lists unique\ngeometry IDs (deduplicated); use `total_requested - placements.len()` to\nget the instance-level unplaced count. `0` on error responses.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "unplaced": {
+          "default": [],
+          "description": "IDs of unplaced geometries (deduplicated). Tells *which* geometries have\nat least one unplaced instance; see `unplaced_count` for *how many*.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unplaced_count": {
+          "default": 0,
+          "description": "Instance-level count of geometry instances that could not be placed\n(`total_requested - placements.len()`). Satisfies the invariant\n`placements.len() + unplaced_count == total_requested`. Unlike `unplaced`\n(deduplicated IDs), this never undercounts a multi-quantity geometry.\n`0` on error responses.",
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "used_bounding_box": {
+          "default": [
+            0.0,
+            0.0
+          ],
+          "description": "Axis-aligned bounding box `[width, height]` of the placed pieces' actual\nfootprint. Boundary-padding independent, unlike `utilization` (which\ndivides by the full boundary and shrinks as boundary height grows). For an\nopen-ended roll the larger axis is the material length consumed.\n\nPopulated for **single-sheet** solves (the common open-roll / fabric case),\nwhere all placements share one boundary-local frame. In **multi-sheet**\nsolves the placements are re-localized per sheet, so a single footprint is\nill-defined and this stays `[0.0, 0.0]`. Also `[0.0, 0.0]` when nothing was\nplaced or on error.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "used_utilization": {
+          "default": 0.0,
+          "description": "Utilization against the used bounding box\n(`placed_area / (used_width * used_height)`) rather than the full boundary.\nA **packing-density** metric: the denominator shrinks on **both** axes to\nthe placed footprint, so it answers \"how tightly are the pieces packed\nwithin their own extent?\" independent of boundary padding.\n\nThis is **not** a fixed-width stock-efficiency metric. For fixed-width\nmaterial (fabric rolls, coil, sheet stock) the boundary width is real\nconsumed stock, not padding — collapsing the width axis over-reports how\nmuch material was saved. Fixed-width consumers should compute\n`placed_area / (boundary_width * used_bounding_box[1])` instead\n(`used_bounding_box[1]` is the consumed length and is boundary-independent).\n\n`0.0` when nothing placed, on error, or in multi-sheet solves\n(see `used_bounding_box`).",
+          "format": "double",
+          "type": "number"
+        },
+        "utilization": {
+          "description": "Utilization ratio.",
+          "format": "double",
+          "type": "number"
+        },
+        "version": {
+          "description": "API version.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "success",
+        "sheets_used",
+        "utilization",
+        "elapsed_ms"
+      ],
+      "type": "object"
+    },
+    "StrategyCatalog": {
+      "additionalProperties": false,
+      "description": "The strategies each dimension offers in this build, and the settings each\nreads -- generated from the same table the refusal of an unread setting is\n([`Strategy::reads_setting`]), so the two cannot disagree. On the wire:\n`{\"2d\": [{\"name\": \"blf\", \"reads\": [\"spacing\", ...]}, ...], \"3d\": [...]}`.",
+      "properties": {
+        "2d": {
+          "description": "The 2D nesting strategies.",
+          "items": {
+            "$ref": "#/$defs/StrategyInfo"
+          },
+          "type": "array"
+        },
+        "3d": {
+          "description": "The 3D packing strategies.",
+          "items": {
+            "$ref": "#/$defs/StrategyInfo"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "2d",
+        "3d"
+      ],
+      "type": "object"
+    },
+    "StrategyInfo": {
+      "additionalProperties": false,
+      "description": "One strategy as [`StrategyCatalog`] describes it.",
+      "properties": {
+        "name": {
+          "description": "The strategy's short name, as a request's `config.strategy` takes it.",
+          "type": "string"
+        },
+        "reads": {
+          "description": "The `config` settings the strategy reads, in `ConfigRequest::KEYS`\norder. A request naming any other setting with this strategy is\nrefused (`invalid_option`).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "reads"
+      ],
+      "type": "object"
+    },
+    "available_strategies.input": {
+      "additionalProperties": false,
+      "description": "The arguments of available_strategies(), by name; the WebAssembly function takes them in that order.",
+      "properties": {},
+      "required": [],
+      "type": "object"
+    },
+    "available_strategies.output": {
+      "$ref": "#/$defs/StrategyCatalog"
+    },
+    "check_2d.input": {
+      "additionalProperties": false,
+      "description": "The arguments of check_2d(request), by name; the WebAssembly function takes them in that order.",
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/Check2DRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "check_2d.output": {
+      "$ref": "#/$defs/CheckResponse"
+    },
+    "check_3d.input": {
+      "additionalProperties": false,
+      "description": "The arguments of check_3d(request), by name; the WebAssembly function takes them in that order.",
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/Check3DRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "check_3d.output": {
+      "$ref": "#/$defs/CheckResponse"
+    },
+    "optimize_cutting_path.input": {
+      "additionalProperties": false,
+      "description": "The arguments of optimize_cutting_path(request), by name; the WebAssembly function takes them in that order.",
+      "properties": {
+        "request": {
+          "$ref": "#/$defs/CuttingRequest"
+        }
+      },
+      "required": [
+        "request"
+      ],
+      "type": "object"
+    },
+    "optimize_cutting_path.output": {
+      "$ref": "#/$defs/CuttingResponse"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "u-nesting WebAssembly operations"
+}
