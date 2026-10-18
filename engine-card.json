@@ -9,26 +9,17 @@
     "repository": "https://github.com/iyulab/U-Nesting"
   },
   "surfaces": [
-    { "kind": "crate", "name": "u-nesting", "package_version": "0.24.0", "engine_version": "0.24.0" },
-    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.24.0", "engine_version": "0.24.0", "wasm": true, "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build." },
-    { "kind": "pypi", "name": "u-nesting", "package_version": "0.24.0", "engine_version": "0.24.0" },
-    { "kind": "nuget", "name": "UNesting", "package_version": "0.24.0", "engine_version": "0.24.0", "note": "C ABI wrapper; versioned with the crate." }
+    { "kind": "crate", "name": "u-nesting", "package_version": "0.28.0", "engine_version": "0.28.0", "error_shape": "Err(Error), whose code() is the code and whose variant holds the fields." },
+    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.28.0", "engine_version": "0.28.0", "wasm": true, "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build.", "error_shape": "A thrown Error whose code property is the code, with the fields as its other properties." },
+    { "kind": "pypi", "name": "u-nesting", "package_version": "0.28.0", "engine_version": "0.28.0", "error_shape": "Nothing raised: the response dict has success False, the code and a details dict holding the fields." },
+    { "kind": "nuget", "name": "UNesting", "package_version": "0.28.0", "engine_version": "0.28.0", "note": "C ABI wrapper; versioned with the crate.", "error_shape": "A NestingException whose ErrorCode is the code, Parameter and Index the fields of those names, and Details the rest." }
   ],
   "errors": {
-    "shape": "A refused request answers with success false, a stable 'code' and a 'details' object holding the fields listed for that code (JSON over the C ABI, a dict in Python, nothing raised); WebAssembly throws an Error carrying the same code with the details fields as its properties; the .NET binding raises NestingException carrying the same code and details.",
-    "codes": [
-      { "code": "parameter_out_of_range", "fields": ["exclusive_max", "exclusive_min", "got", "id", "max", "min", "parameter"], "meaning": "A setting outside its range; min/max are closed bounds, exclusive_min/exclusive_max open ones." },
-      { "code": "empty_input", "fields": ["parameter"], "meaning": "A list with nothing in it: no geometries." },
-      { "code": "invalid_option", "fields": ["parameter"], "meaning": "A setting that cannot be used here: a strategy this build or dimension does not offer, or a setting the chosen strategy does not read." },
-      { "code": "unknown_option", "fields": ["expected", "got", "parameter"], "meaning": "A name the engine does not know: a strategy, an orientation, a cut direction." },
-      { "code": "malformed_input", "fields": ["parameter"], "meaning": "Not JSON, a missing or unknown key, or a value of the wrong type." },
-      { "code": "value_not_finite", "fields": ["id", "index", "parameter"], "meaning": "A NaN or infinity where a number belongs; only a binding whose values can carry one sends it." },
-      { "code": "cancelled", "fields": [], "meaning": "The caller stopped the run." },
-      { "code": "invalid_geometry", "fields": ["id"], "meaning": "A polygon with fewer than 3 vertices, self-intersecting or degenerate." },
-      { "code": "duplicate_id", "fields": ["first", "id", "index", "parameter"], "meaning": "Two geometries share an id." },
-      { "code": "invalid_boundary", "fields": ["parameter"], "meaning": "A boundary the engine cannot place into." },
-      { "code": "internal", "fields": [], "meaning": "A failure inside the engine, not caused by the request." }
-    ]
+    "shape": "A refusal carries a stable snake_case 'code' and the fields listed for that code; how it arrives depends on the surface (error_shape).",
+    "source": {
+      "catalog": "CodeCatalog::of_engine in crates/core/src/api_types.rs, read off one example of every refusal and checker violation; published as codes() in WebAssembly and Python, unesting_codes() over the C ABI and Codes on .NET. What each code means is tabled in npm/README.md, which a test holds equal to the catalog.",
+      "test": "crates/core/src/api_types.rs::the_engine_card_names_only_catalogued_refusals"
+    }
   },
   "operations": [
     {
@@ -42,7 +33,37 @@
       "effects": { "filesystem": "none", "network": "none", "clock": "deadline", "randomness": "unseeded", "note": "The searches (ga, brkga, sa, gdrr, alns) draw from config.seed when it is given and from fresh entropy when it is not; blf and nfp use no randomness." },
       "determinism": {
         "kind": "nondeterministic",
-        "note": "Depends on the request. blf and nfp are deterministic. A search given config.seed and time_limit_ms 0 ends on its own generation or iteration budget and repeats exactly; with a time limit it is time-bounded (how far it gets depends on machine speed); without a seed it is nondeterministic. stop_reason says which limit ended the run."
+        "note": "The worst case, for a search without config.seed. stop_reason says which limit ended a run.",
+        "cases": [
+          {
+            "when": "strategy blf or nfp, with time_limit_ms 0 (no time limit)",
+            "kind": "deterministic",
+            "randomness": "none",
+            "clock": "none",
+            "test": "crates/d2/tests/seed.rs::the_constructive_fills_repeat_without_a_time_limit"
+          },
+          {
+            "when": "a search (ga, brkga, sa) given config.seed, with time_limit_ms 0: it ends on its own generation budget",
+            "kind": "seeded",
+            "randomness": "seeded",
+            "clock": "none",
+            "test": "crates/d2/tests/seed.rs::the_same_seed_gives_the_same_layout"
+          },
+          {
+            "when": "strategy blf or nfp, with a time limit (time_limit_ms above 0)",
+            "kind": "time_bounded",
+            "randomness": "none",
+            "clock": "deadline",
+            "note": "A fill stops before its next piece once the limit runs out, so how many pieces it places depends on machine speed; one that finishes in time gives the layout it gives without a limit."
+          },
+          {
+            "when": "a search given config.seed, with a time limit (time_limit_ms above 0)",
+            "kind": "time_bounded",
+            "randomness": "seeded",
+            "clock": "deadline",
+            "note": "How far the search gets before the limit depends on machine speed; with the same seed it visits the same candidates in the same order."
+          }
+        ]
       },
       "output_provenance": { "fields": ["stop_reason", "generations", "iterations"], "note": "Whether the layout is a finished construction, the best a search found before a budget or the deadline, or a cancelled run's." },
       "validation": {

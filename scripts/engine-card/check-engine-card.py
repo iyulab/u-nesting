@@ -129,6 +129,33 @@ def check_contract_schema(root, ref, where, counter):
 
 # --- rules a schema does not express --------------------------------------------------------
 
+# How far a result can drift between two calls with the same input; an operation's own kind is
+# its worst case, so no condition may be worse than it.
+# Marks a card whose error codes are produced by the implementation (errors.source) rather than listed.
+FROM_CATALOG = object()
+
+_RANK = {"deterministic": 0, "seeded": 1, "host_dependent": 2, "time_bounded": 2, "nondeterministic": 3}
+
+
+def check_determinism(kind, rnd, clock, det, where, root, counters):
+    if kind == "deterministic" and (rnd != "none" or clock != "none"):
+        fail(where, "'deterministic' needs randomness 'none' and clock 'none'")
+    if kind == "seeded" and (rnd != "seeded" or clock != "none"):
+        fail(where, "'seeded' needs randomness 'seeded' and clock 'none'")
+    if rnd == "unseeded" and kind != "nondeterministic":
+        fail(where, "unseeded randomness makes the operation 'nondeterministic'")
+    if clock == "deadline" and kind not in ("time_bounded", "nondeterministic"):
+        fail(where, "a deadline makes the result depend on machine speed: 'time_bounded'")
+    if kind == "time_bounded" and clock != "deadline":
+        fail(where, "'time_bounded' needs effects.clock 'deadline'")
+    if kind in ("deterministic", "seeded"):
+        if "test" not in det:
+            fail(where, f"'{kind}' must point at the test that shows it (test)")
+        else:
+            check_file(root, det["test"], f"{where}.test", counters["files"])
+    elif kind in ("host_dependent", "time_bounded") and not det.get("note"):
+        fail(where, f"'{kind}' must say what the result depends on (note)")
+
 
 def check_operation(op, where, root, codes, counters):
     hints, effects, det = op.get("hints", {}), op.get("effects", {}), op.get("determinism", {})
@@ -136,9 +163,12 @@ def check_operation(op, where, root, codes, counters):
 
     # Contracts are bound to the implementation, not described beside it.
     for side in ("input", "output"):
-        ref = op.get(side, {}).get("schema")
+        contract = op.get(side, {})
+        ref = contract.get("schema")
         if isinstance(ref, str):
             check_contract_schema(root, ref, f"{where}.{side}.schema", counters["files"])
+        if isinstance(contract.get("freshness_test"), str):
+            check_file(root, contract["freshness_test"], f"{where}.{side}.freshness_test", counters["files"])
     if isinstance(op.get("contract_test"), str):
         check_file(root, op["contract_test"], f"{where}.contract_test", counters["files"])
 
@@ -147,6 +177,8 @@ def check_operation(op, where, root, codes, counters):
         if codes is None:
             fail(f"{where}.errors", "lists codes but the card has no top-level 'errors' declaration")
             break
+        if codes is FROM_CATALOG:
+            break  # the catalog is the list; its own test checks the codes, not this script
         if code not in codes:
             fail(f"{where}.errors", f"'{code}' is not declared in the top-level 'errors.codes'")
 
@@ -161,25 +193,16 @@ def check_operation(op, where, root, codes, counters):
     if effects.get("network") == "none" and "network_off" in effects:
         fail(f"{where}.effects", "network_off given for an operation that never uses the network")
 
-    # Determinism follows from randomness and the clock.
+    # Determinism follows from randomness and the clock — for the operation as a whole (its worst
+    # case) and for each input condition that narrows it.
     counters["rules"][0] += 1
-    if kind == "deterministic" and (rnd != "none" or clock != "none"):
-        fail(f"{where}.determinism", "'deterministic' needs randomness 'none' and clock 'none'")
-    if kind == "seeded" and (rnd != "seeded" or clock != "none"):
-        fail(f"{where}.determinism", "'seeded' needs randomness 'seeded' and clock 'none'")
-    if rnd == "unseeded" and kind != "nondeterministic":
-        fail(f"{where}.determinism", "unseeded randomness makes the operation 'nondeterministic'")
-    if clock == "deadline" and kind not in ("time_bounded", "nondeterministic"):
-        fail(f"{where}.determinism", "a deadline makes the result depend on machine speed: 'time_bounded'")
-    if kind == "time_bounded" and clock != "deadline":
-        fail(f"{where}.determinism", "'time_bounded' needs effects.clock 'deadline'")
-    if kind in ("deterministic", "seeded"):
-        if "test" not in det:
-            fail(f"{where}.determinism", f"'{kind}' must point at the test that shows it (test)")
-        else:
-            check_file(root, det["test"], f"{where}.determinism.test", counters["files"])
-    elif kind in ("host_dependent", "time_bounded") and not det.get("note"):
-        fail(f"{where}.determinism", f"'{kind}' must say what the result depends on (note)")
+    check_determinism(kind, rnd, clock, det, f"{where}.determinism", root, counters)
+    for i, case in enumerate(det.get("cases", [])):
+        cw = f"{where}.determinism.cases[{i}]"
+        case_kind = case.get("kind")
+        check_determinism(case_kind, case.get("randomness", rnd), case.get("clock", clock), case, cw, root, counters)
+        if _RANK.get(case_kind, 0) > _RANK.get(kind, 0):
+            fail(cw, f"'{case_kind}' is worse than the operation-level '{kind}', which must be the worst case")
 
     # Validation: declared empty, or each claim tied to a reference and a test.
     val = op.get("validation", {})
@@ -228,9 +251,17 @@ def check_card(card_path, schema, root):
 
     codes = None
     if "errors" in card:
-        codes = [c["code"] for c in card["errors"]["codes"]]
-        for dup in sorted({c for c in codes if codes.count(c) > 1}):
-            fail(f"{where}.errors", f"code '{dup}' is declared twice")
+        declared = card["errors"]
+        if "codes" not in declared and "source" not in declared:
+            fail(f"{where}.errors", "must list the codes or point at the catalog that produces them (source)")
+        if "source" in declared:
+            check_file(root, declared["source"]["test"], f"{where}.errors.source.test", counters["files"])
+        if "codes" in declared:
+            codes = [c["code"] for c in declared["codes"]]
+            for dup in sorted({c for c in codes if codes.count(c) > 1}):
+                fail(f"{where}.errors", f"code '{dup}' is declared twice")
+        else:
+            codes = FROM_CATALOG
 
     ids = [op["id"] for op in card["operations"]]
     for dup in sorted({i for i in ids if ids.count(i) > 1}):
@@ -249,7 +280,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     errors.clear()
 
-    schema =json.loads(Path(args.schema).read_text(encoding="utf-8"))
+    schema = json.loads(Path(args.schema).read_text(encoding="utf-8"))
     total = {"cards": 0, "files": 0, "rules": 0}
     for card in args.cards:
         card_path = Path(card)

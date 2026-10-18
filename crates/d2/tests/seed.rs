@@ -55,8 +55,31 @@ fn mixed() -> (Vec<Geometry2D>, Boundary2D) {
     )
 }
 
-/// The whole solve, for the searches whose budget a request sets: a
-/// generation budget the run ends on, inside a time limit it never reaches.
+/// The constructive fills draw nothing at random: without a time limit the
+/// same request gives the same layout, with no seed.
+#[test]
+fn the_constructive_fills_repeat_without_a_time_limit() {
+    let (pieces, boundary) = mixed();
+    for strategy in [Strategy::BottomLeftFill, Strategy::NfpGuided] {
+        let solve = || {
+            Nester2D::new(Config::default().with_strategy(strategy).with_time_limit(0))
+                .solve(&pieces, &boundary)
+                .expect("solve")
+        };
+        let first = solve();
+        assert!(!first.placements.is_empty(), "{strategy:?}");
+        for run in 1..RUNS {
+            assert_eq!(
+                layout(&solve()),
+                layout(&first),
+                "{strategy:?}: run {run} differs from run 0"
+            );
+        }
+    }
+}
+
+/// The whole solve, for the searches whose budget a request sets: a seeded
+/// run without a time limit (0) ends on its generation budget.
 #[test]
 fn the_same_seed_gives_the_same_layout() {
     let (pieces, boundary) = mixed();
@@ -69,7 +92,7 @@ fn the_same_seed_gives_the_same_layout() {
             Nester2D::new(
                 Config::default()
                     .with_strategy(strategy)
-                    .with_time_limit(600_000)
+                    .with_time_limit(0)
                     .with_population_size(6)
                     .with_max_generations(3)
                     .with_seed(11),

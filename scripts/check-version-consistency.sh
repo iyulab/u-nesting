@@ -7,6 +7,7 @@
 #   - the C# binding (UNesting.csproj <Version>)
 #   - the Python binding (crates/python/pyproject.toml — must inherit via
 #     `dynamic = ["version"]`, or pin the workspace version explicitly)
+#   - the engine card (engine-card.json — engine and surface versions)
 #
 # The npm package version is produced by wasm-pack from crates/wasm/Cargo.toml,
 # which uses `version.workspace = true`, so it is always consistent and needs no
@@ -80,6 +81,20 @@ if [[ -f "${changelog}" ]]; then
     echo "::error file=${changelog}::no '## [${ws_version}]' heading — add the entry for this release in the same commit as the version bump (move it out of '## [Unreleased]')"
     status=1
   fi
+fi
+
+# 5) The engine card names the engine version and each surface's package and
+#    engine versions; every surface here is versioned with the workspace. Its
+#    surfaces once sat four releases behind while engine.version was kept up.
+card="engine-card.json"
+if [[ -f "${card}" ]]; then
+  while IFS= read -r field; do
+    ver="$(sed -E 's/.*: "([^"]+)"/\1/' <<<"${field}")"
+    if [[ "${ver}" != "${ws_version}" ]]; then
+      echo "::error file=${card}::${field}, expected ${ws_version}"
+      status=1
+    fi
+  done < <(grep -oE '"(version|package_version|engine_version)": "[^"]+"' "${card}")
 fi
 
 if [[ "${status}" -ne 0 ]]; then

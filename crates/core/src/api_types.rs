@@ -1712,6 +1712,31 @@ mod code_catalog_tests {
         assert_eq!(close.checkers, ["check_2d", "check_3d"]);
     }
 
+    /// The engine card points at this catalog instead of copying it, so every
+    /// refusal an operation names must be one the engine answers with.
+    #[test]
+    fn the_engine_card_names_only_catalogued_refusals() {
+        let card: serde_json::Value =
+            serde_json::from_str(include_str!("../../../engine-card.json")).expect("card is JSON");
+        let refusals: std::collections::BTreeSet<String> = CodeCatalog::of_engine()
+            .refusals
+            .into_iter()
+            .map(|r| r.code)
+            .collect();
+        let operations = card["operations"].as_array().expect("operations");
+        assert!(!operations.is_empty());
+        for operation in operations {
+            for code in operation["errors"].as_array().expect("errors") {
+                let code = code.as_str().expect("a code");
+                assert!(
+                    refusals.contains(code),
+                    "{} names {code}, which is not a refusal",
+                    operation["id"]
+                );
+            }
+        }
+    }
+
     /// The npm README's code tables list exactly the published vocabulary, so
     /// the tables and `codes()` cannot drift apart.
     #[test]
