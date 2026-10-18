@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `engine-card.json` describes all six WebAssembly operations (it described
+  `solve_2d` only): `solve_3d`, `check_2d`, `check_3d`, `optimize_cutting_path`
+  and `available_strategies` join it, each with its determinism -- the cutting
+  path is time-bounded by `time_limit_ms` (default 5000) and repeats with 0.
+  The schemas of the operations that have no hand-written one are generated
+  from the wire types into `schemas/wasm.schema.json`, held to the types by a
+  test. The wire types themselves are unchanged; the published packages are
+  not affected.
+
 ## [0.28.0] - 2026-10-18
 
 `UNesting` and the PyPI package are 0.28.0. Depends on u-metaheur 0.14.

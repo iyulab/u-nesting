@@ -8,7 +8,7 @@ This directory contains JSON Schema definitions for the U-Nesting FFI API.
 |------|-------------|
 | `request-2d.schema.json` | Request schema for 2D polygon nesting |
 | `request-3d.schema.json` | Request schema for 3D bin packing |
-| `response.schema.json` | Response schema for all operations |
+| `response.schema.json` | Response schema for `solve_2d` (the 3D response, the checkers' and the cutting path's are generated into `schemas/wasm.schema.json`) |
 
 ## Usage
 
