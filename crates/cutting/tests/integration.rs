@@ -351,3 +351,31 @@ fn a_kerf_that_fits_the_gap_cuts_every_part() {
         assert!(result.skipped.is_empty());
     }
 }
+
+/// Without a time limit the optimizer reads no clock and draws nothing at
+/// random: the same layout gives the same sequence.
+#[test]
+fn the_same_layout_gives_the_same_sequence_without_a_time_limit() {
+    let geometries = vec![Geometry2D::new("P1")
+        .with_polygon(vec![(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0)])
+        .with_hole(vec![(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)])
+        .with_quantity(3)];
+    let boundary = Boundary2D::rectangle(100.0, 100.0);
+    let config = || {
+        CuttingConfig::new()
+            .with_pierce_candidates(4)
+            .with_time_limit_ms(0)
+    };
+    let first = solve_and_cut(&geometries, &boundary, Config::default(), config());
+    for _ in 0..5 {
+        let again = solve_and_cut(&geometries, &boundary, Config::default(), config());
+        assert_eq!(
+            format!("{:?}", again.sequence),
+            format!("{:?}", first.sequence)
+        );
+        assert_eq!(
+            again.total_rapid_distance.to_bits(),
+            first.total_rapid_distance.to_bits()
+        );
+    }
+}

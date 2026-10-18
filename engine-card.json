@@ -9,10 +9,37 @@
     "repository": "https://github.com/iyulab/U-Nesting"
   },
   "surfaces": [
-    { "kind": "crate", "name": "u-nesting", "package_version": "0.28.0", "engine_version": "0.28.0", "error_shape": "Err(Error), whose code() is the code and whose variant holds the fields." },
-    { "kind": "npm", "name": "@iyulab/u-nesting", "package_version": "0.28.0", "engine_version": "0.28.0", "wasm": true, "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build.", "error_shape": "A thrown Error whose code property is the code, with the fields as its other properties." },
-    { "kind": "pypi", "name": "u-nesting", "package_version": "0.28.0", "engine_version": "0.28.0", "error_shape": "Nothing raised: the response dict has success False, the code and a details dict holding the fields." },
-    { "kind": "nuget", "name": "UNesting", "package_version": "0.28.0", "engine_version": "0.28.0", "note": "C ABI wrapper; versioned with the crate.", "error_shape": "A NestingException whose ErrorCode is the code, Parameter and Index the fields of those names, and Details the rest." }
+    {
+      "kind": "crate",
+      "name": "u-nesting",
+      "package_version": "0.28.0",
+      "engine_version": "0.28.0",
+      "error_shape": "Err(Error), whose code() is the code and whose variant holds the fields."
+    },
+    {
+      "kind": "npm",
+      "name": "@iyulab/u-nesting",
+      "package_version": "0.28.0",
+      "engine_version": "0.28.0",
+      "wasm": true,
+      "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build.",
+      "error_shape": "A thrown Error whose code property is the code, with the fields as its other properties."
+    },
+    {
+      "kind": "pypi",
+      "name": "u-nesting",
+      "package_version": "0.28.0",
+      "engine_version": "0.28.0",
+      "error_shape": "Nothing raised: the response dict has success False, the code and a details dict holding the fields."
+    },
+    {
+      "kind": "nuget",
+      "name": "UNesting",
+      "package_version": "0.28.0",
+      "engine_version": "0.28.0",
+      "note": "C ABI wrapper; versioned with the crate.",
+      "error_shape": "A NestingException whose ErrorCode is the code, Parameter and Index the fields of those names, and Details the rest."
+    }
   ],
   "errors": {
     "shape": "A refusal carries a stable snake_case 'code' and the fields listed for that code; how it arrives depends on the surface (error_shape).",
@@ -25,12 +52,39 @@
     {
       "id": "solve_2d",
       "summary": "Places polygon parts on a rectangular or polygonal sheet (or on as many sheets as they need), by the chosen strategy, and reports the placements, the parts left unplaced, the utilization and why the run stopped.",
-      "input": { "schema": "docs/json-schema/request-2d.schema.json" },
-      "output": { "schema": "docs/json-schema/response.schema.json" },
+      "input": {
+        "schema": "docs/json-schema/request-2d.schema.json"
+      },
+      "output": {
+        "schema": "docs/json-schema/response.schema.json"
+      },
       "contract_test": "crates/ffi/src/request_schema.rs::the_2d_request_schema_has_the_keys_the_request_takes",
-      "errors": ["parameter_out_of_range", "empty_input", "invalid_option", "unknown_option", "malformed_input", "value_not_finite", "cancelled", "invalid_geometry", "duplicate_id", "invalid_boundary", "internal"],
-      "hints": { "read_only": true, "destructive": false, "idempotent": false, "open_world": false },
-      "effects": { "filesystem": "none", "network": "none", "clock": "deadline", "randomness": "unseeded", "note": "The searches (ga, brkga, sa, gdrr, alns) draw from config.seed when it is given and from fresh entropy when it is not; blf and nfp use no randomness." },
+      "errors": [
+        "parameter_out_of_range",
+        "empty_input",
+        "invalid_option",
+        "unknown_option",
+        "malformed_input",
+        "value_not_finite",
+        "cancelled",
+        "invalid_geometry",
+        "duplicate_id",
+        "invalid_boundary",
+        "internal"
+      ],
+      "hints": {
+        "read_only": true,
+        "destructive": false,
+        "idempotent": false,
+        "open_world": false
+      },
+      "effects": {
+        "filesystem": "none",
+        "network": "none",
+        "clock": "deadline",
+        "randomness": "unseeded",
+        "note": "The searches (ga, brkga, sa, gdrr, alns) draw from config.seed when it is given and from fresh entropy when it is not; blf and nfp use no randomness."
+      },
       "determinism": {
         "kind": "nondeterministic",
         "note": "The worst case, for a search without config.seed. stop_reason says which limit ended a run.",
@@ -65,7 +119,14 @@
           }
         ]
       },
-      "output_provenance": { "fields": ["stop_reason", "generations", "iterations"], "note": "Whether the layout is a finished construction, the best a search found before a budget or the deadline, or a cancelled run's." },
+      "output_provenance": {
+        "fields": [
+          "stop_reason",
+          "generations",
+          "iterations"
+        ],
+        "note": "Whether the layout is a finished construction, the best a search found before a budget or the deadline, or a cancelled run's."
+      },
       "validation": {
         "status": "none",
         "limits": [
@@ -73,7 +134,259 @@
           "Feasibility of every returned layout is checkable with check_2d, which tests keep at zero violations for each strategy."
         ]
       },
-      "performance": { "status": "none", "complexity": "Constructive fills: about O(n^2) no-fit-polygon queries in the part count n; searches: that per evaluated layout, until their budget or the deadline." }
+      "performance": {
+        "status": "none",
+        "complexity": "Constructive fills: about O(n^2) no-fit-polygon queries in the part count n; searches: that per evaluated layout, until their budget or the deadline."
+      }
+    },
+    {
+      "id": "solve_3d",
+      "summary": "Packs boxes into a container by the chosen strategy (a layer fill, extreme points, or a GA, BRKGA or SA search), with orientations, spacing, margins, a mass limit and support under gravity, and reports the placements, the boxes left unplaced, the utilization and why the run stopped.",
+      "input": {
+        "schema": "docs/json-schema/request-3d.schema.json"
+      },
+      "output": {
+        "schema": "schemas/wasm.schema.json#/$defs/Pack3DResponse",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "contract_test": "crates/ffi/src/request_schema.rs::the_3d_request_schema_has_the_keys_the_request_takes",
+      "errors": [
+        "parameter_out_of_range",
+        "empty_input",
+        "invalid_option",
+        "unknown_option",
+        "malformed_input",
+        "value_not_finite",
+        "cancelled",
+        "invalid_geometry",
+        "duplicate_id",
+        "invalid_boundary",
+        "internal"
+      ],
+      "hints": {
+        "read_only": true,
+        "destructive": false,
+        "idempotent": false,
+        "open_world": false
+      },
+      "effects": {
+        "filesystem": "none",
+        "network": "none",
+        "clock": "deadline",
+        "randomness": "unseeded",
+        "note": "The searches (ga, brkga, sa) draw from config.seed when it is given and from fresh entropy when it is not; blf and ep use no randomness."
+      },
+      "determinism": {
+        "kind": "nondeterministic",
+        "note": "The worst case, for a search without config.seed. stop_reason says which limit ended a run.",
+        "cases": [
+          {
+            "when": "strategy blf or ep, with time_limit_ms 0 (no time limit)",
+            "kind": "deterministic",
+            "randomness": "none",
+            "clock": "none",
+            "test": "crates/d3/tests/seed.rs::the_constructive_fills_repeat_without_a_time_limit"
+          },
+          {
+            "when": "a search (ga, brkga, sa) given config.seed, with time_limit_ms 0: it ends on its own generation budget",
+            "kind": "seeded",
+            "randomness": "seeded",
+            "clock": "none",
+            "test": "crates/d3/tests/seed.rs::the_same_seed_gives_the_same_packing"
+          },
+          {
+            "when": "strategy blf or ep, with a time limit (time_limit_ms above 0)",
+            "kind": "time_bounded",
+            "randomness": "none",
+            "clock": "deadline",
+            "note": "A fill stops before its next box once the limit runs out, so how many boxes it places depends on machine speed; one that finishes in time gives the packing it gives without a limit."
+          },
+          {
+            "when": "a search given config.seed, with a time limit (time_limit_ms above 0)",
+            "kind": "time_bounded",
+            "randomness": "seeded",
+            "clock": "deadline",
+            "note": "How far the search gets before the limit depends on machine speed; with the same seed it visits the same candidates in the same order."
+          }
+        ]
+      },
+      "output_provenance": {
+        "fields": [
+          "stop_reason",
+          "generations",
+          "iterations"
+        ],
+        "note": "Whether the layout is a finished construction, the best a search found before a budget or the deadline, or a cancelled run's."
+      },
+      "validation": {
+        "status": "none",
+        "limits": [
+          "Packing quality has not been compared against best-known solutions of standard instances.",
+          "Feasibility of every returned packing is checkable with check_3d."
+        ]
+      },
+      "performance": {
+        "status": "none",
+        "complexity": "Constructive fills: polynomial in the box count (candidate positions times boxes); searches: that per evaluated packing, until their budget or the deadline."
+      }
+    },
+    {
+      "id": "check_2d",
+      "summary": "Whether a 2D layout keeps the problem it answers -- the solve_2d request and its response: every part inside the sheet and its margin, no overlap (by intersection area) or spacing breach, allowed rotations and flips, the sheets and copies used, and the parts reported unplaced; lists every rule broken. Its problem schema is generated from the request type both dimensions share, so it lists 3D-only settings too; solve_2d's own request schema is exact.",
+      "input": {
+        "schema": "schemas/wasm.schema.json#/$defs/check_2d.input",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "output": {
+        "schema": "schemas/wasm.schema.json#/$defs/check_2d.output",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "contract_test": "crates/core/src/api_types.rs::engine_card_tests::every_export_is_a_card_operation_with_its_arguments",
+      "hints": {
+        "read_only": true,
+        "destructive": false,
+        "idempotent": true,
+        "open_world": false
+      },
+      "effects": {
+        "filesystem": "none",
+        "network": "none",
+        "clock": "none",
+        "randomness": "none"
+      },
+      "determinism": {
+        "kind": "deterministic",
+        "test": "crates/core/src/api_types.rs::engine_card_tests::the_clock_and_unseeded_randomness_are_where_the_card_says"
+      },
+      "validation": {
+        "status": "none"
+      },
+      "performance": {
+        "status": "none"
+      }
+    },
+    {
+      "id": "check_3d",
+      "summary": "Whether a 3D packing keeps the problem it answers -- the solve_3d request and its response: every box inside the container and its margin, no overlap or spacing breach, allowed orientations, one container, copies, the mass limit, support under gravity and stability, and the boxes reported unplaced; lists every rule broken.",
+      "input": {
+        "schema": "schemas/wasm.schema.json#/$defs/check_3d.input",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "output": {
+        "schema": "schemas/wasm.schema.json#/$defs/check_3d.output",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "contract_test": "crates/core/src/api_types.rs::engine_card_tests::every_export_is_a_card_operation_with_its_arguments",
+      "hints": {
+        "read_only": true,
+        "destructive": false,
+        "idempotent": true,
+        "open_world": false
+      },
+      "effects": {
+        "filesystem": "none",
+        "network": "none",
+        "clock": "none",
+        "randomness": "none"
+      },
+      "determinism": {
+        "kind": "deterministic",
+        "test": "crates/core/src/api_types.rs::engine_card_tests::the_clock_and_unseeded_randomness_are_where_the_card_says"
+      },
+      "validation": {
+        "status": "none"
+      },
+      "performance": {
+        "status": "none"
+      }
+    },
+    {
+      "id": "optimize_cutting_path",
+      "summary": "A cutting sequence for the parts a successful solve_2d placed: the order and direction of every contour (holes before the boundary around them, inner parts before outer ones), pierce points, rapid moves between them, and the contours it had to skip with the reason; the estimated time when speeds are given. A 2-opt pass improves the order until cutting_config.time_limit_ms (default 5000; 0 for none).",
+      "input": {
+        "schema": "schemas/wasm.schema.json#/$defs/optimize_cutting_path.input",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "output": {
+        "schema": "schemas/wasm.schema.json#/$defs/optimize_cutting_path.output",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "contract_test": "crates/core/src/api_types.rs::engine_card_tests::every_export_is_a_card_operation_with_its_arguments",
+      "hints": {
+        "read_only": true,
+        "destructive": false,
+        "idempotent": false,
+        "open_world": false
+      },
+      "effects": {
+        "filesystem": "none",
+        "network": "none",
+        "clock": "deadline",
+        "randomness": "none",
+        "note": "The 2-opt improvement stops at cutting_config.time_limit_ms; computation_time_ms in the result measures the call."
+      },
+      "determinism": {
+        "kind": "time_bounded",
+        "note": "The worst case, a time limit above 0 (the default is 5000 ms): how far the improvement gets depends on machine speed.",
+        "cases": [
+          {
+            "when": "cutting_config.time_limit_ms 0 (no time limit)",
+            "kind": "deterministic",
+            "clock": "none",
+            "test": "crates/cutting/tests/integration.rs::the_same_layout_gives_the_same_sequence_without_a_time_limit",
+            "note": "Apart from computation_time_ms."
+          }
+        ]
+      },
+      "validation": {
+        "status": "none"
+      },
+      "performance": {
+        "status": "none"
+      },
+      "output_provenance": {
+        "fields": [
+          "skipped_contours",
+          "computation_time_ms"
+        ],
+        "note": "Which contours the sequence leaves out and why."
+      }
+    },
+    {
+      "id": "available_strategies",
+      "summary": "The strategies each dimension offers in this build and the settings each reads; a solve giving any other setting with that strategy is refused.",
+      "input": {
+        "schema": "schemas/wasm.schema.json#/$defs/available_strategies.input",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "output": {
+        "schema": "schemas/wasm.schema.json#/$defs/available_strategies.output",
+        "freshness_test": "crates/core/src/api_types.rs::engine_card_tests::the_schemas_are_generated_from_the_binding_types"
+      },
+      "contract_test": "crates/core/src/api_types.rs::engine_card_tests::every_export_is_a_card_operation_with_its_arguments",
+      "hints": {
+        "read_only": true,
+        "destructive": false,
+        "idempotent": true,
+        "open_world": false
+      },
+      "effects": {
+        "filesystem": "none",
+        "network": "none",
+        "clock": "none",
+        "randomness": "none"
+      },
+      "determinism": {
+        "kind": "deterministic",
+        "test": "crates/core/src/api_types.rs::engine_card_tests::the_clock_and_unseeded_randomness_are_where_the_card_says"
+      },
+      "validation": {
+        "status": "none"
+      },
+      "performance": {
+        "status": "none",
+        "complexity": "O(1)."
+      }
     }
   ]
 }

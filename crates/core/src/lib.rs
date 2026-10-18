@@ -49,7 +49,10 @@
 pub mod alns;
 #[cfg(feature = "serde")]
 pub mod api_types;
+
 pub mod brkga;
+#[cfg(all(test, feature = "serde"))]
+mod engine_card;
 pub mod error;
 pub mod exact;
 pub mod ga;

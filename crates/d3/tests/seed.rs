@@ -61,6 +61,29 @@ fn seeded(strategy: Strategy, seed: u64) -> Config {
         .with_seed(seed)
 }
 
+/// The constructive fills draw nothing at random: without a time limit the
+/// same request gives the same packing, with no seed.
+#[test]
+fn the_constructive_fills_repeat_without_a_time_limit() {
+    let (pieces, boundary) = mixed();
+    for strategy in [Strategy::BottomLeftFill, Strategy::ExtremePoint] {
+        let solve = || {
+            Packer3D::new(Config::default().with_strategy(strategy).with_time_limit(0))
+                .solve(&pieces, &boundary)
+                .expect("solve")
+        };
+        let first = solve();
+        assert!(!first.placements.is_empty(), "{strategy:?}");
+        for run in 1..RUNS {
+            assert_eq!(
+                layout(&solve()),
+                layout(&first),
+                "{strategy:?}: run {run} differs from run 0"
+            );
+        }
+    }
+}
+
 #[test]
 fn the_same_seed_gives_the_same_packing() {
     let (pieces, boundary) = mixed();

@@ -16,6 +16,7 @@ pub const API_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// One strategy as [`StrategyCatalog`] describes it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct StrategyInfo {
@@ -33,6 +34,7 @@ pub struct StrategyInfo {
 /// `{"2d": [{"name": "blf", "reads": ["spacing", ...]}, ...], "3d": [...]}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct StrategyCatalog {
@@ -67,6 +69,7 @@ impl StrategyCatalog {
 /// fields that can come with it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct RefusalCode {
@@ -80,6 +83,7 @@ pub struct RefusalCode {
 /// functions that report it (`check_2d`, `check_3d`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct ViolationCode {
@@ -98,6 +102,7 @@ pub struct ViolationCode {
 /// so it lists what the engine answers with.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CodeCatalog {
@@ -153,6 +158,7 @@ impl CodeCatalog {
 /// length in a request is in that one unit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Request2D {
@@ -166,6 +172,7 @@ pub struct Request2D {
     /// under the strict unknown-field policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "\"2d\" | \"3d\" | null"))]
+    #[cfg_attr(test, schemars(extend("enum" = ["2d", "3d", null])))]
     pub mode: Option<Dimension>,
 
     /// Geometries to place.
@@ -186,6 +193,7 @@ pub struct Request2D {
 /// — the caller chooses the units and uses them throughout a request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Request3D {
@@ -199,6 +207,7 @@ pub struct Request3D {
     /// under the strict unknown-field policy.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "\"2d\" | \"3d\" | null"))]
+    #[cfg_attr(test, schemars(extend("enum" = ["2d", "3d", null])))]
     pub mode: Option<Dimension>,
 
     /// Geometries to place.
@@ -216,6 +225,7 @@ pub struct Request3D {
 /// 2D geometry request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Geometry2DRequest {
@@ -250,6 +260,7 @@ pub struct Geometry2DRequest {
 /// 2D boundary request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Boundary2DRequest {
@@ -269,6 +280,7 @@ pub struct Boundary2DRequest {
 /// 3D geometry request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Geometry3DRequest {
@@ -293,12 +305,14 @@ pub struct Geometry3DRequest {
         feature = "tsify",
         tsify(optional, type = "\"any\" | \"upright\" | \"fixed\" | null")
     )]
+    #[cfg_attr(test, schemars(extend("enum" = ["any", "upright", "fixed", null])))]
     pub orientation: Option<String>,
 }
 
 /// 3D boundary request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Boundary3DRequest {
@@ -323,6 +337,7 @@ pub struct Boundary3DRequest {
 /// Configuration request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct ConfigRequest {
@@ -408,6 +423,7 @@ pub struct ConfigRequest {
 /// and each placement carries `z` and an orientation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct SolveResponse {
@@ -514,6 +530,7 @@ pub struct SolveResponse {
             type = "\"completed\" | \"optimal\" | \"target_reached\" | \"iteration_limit\" | \"no_improvement\" | \"time_limit\" | \"cancelled\" | null"
         )
     )]
+    #[cfg_attr(test, schemars(schema_with = "card_schema::stop_reason"))]
     pub stop_reason: Option<StopReason>,
 
     /// Computation time in milliseconds.
@@ -523,6 +540,7 @@ pub struct SolveResponse {
 /// Placement response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct PlacementResponse {
@@ -741,6 +759,7 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
 /// (bindings/csharp/UNesting/Models/Geometry3D.cs).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Pack3DResponse {
@@ -811,6 +830,7 @@ pub struct Pack3DResponse {
             type = "\"completed\" | \"optimal\" | \"target_reached\" | \"iteration_limit\" | \"no_improvement\" | \"time_limit\" | \"cancelled\" | null"
         )
     )]
+    #[cfg_attr(test, schemars(schema_with = "card_schema::stop_reason"))]
     pub stop_reason: Option<StopReason>,
 
     /// Computation time in milliseconds.
@@ -823,6 +843,7 @@ pub struct Pack3DResponse {
 /// `orientation` label (e.g. `"xyz"`), and uses `bin_index` (not `sheet_index`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Placement3DResponse {
@@ -882,6 +903,7 @@ impl Pack3DResponse {
 /// judged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Check2DRequest {
@@ -896,6 +918,7 @@ pub struct Check2DRequest {
 /// judged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct Check3DRequest {
@@ -911,6 +934,7 @@ pub struct Check3DRequest {
 /// the response gives them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(tag = "code", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LayoutViolationResponse {
     /// The placement names a geometry the problem does not have.
@@ -1065,6 +1089,7 @@ impl LayoutViolationResponse {
 /// it breaks; or, with `success: false`, why the request was refused.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CheckResponse {
@@ -1119,6 +1144,7 @@ impl CheckResponse {
 /// Request for cutting path optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CuttingRequest {
@@ -1137,6 +1163,7 @@ pub struct CuttingRequest {
 /// Cutting path configuration request.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CuttingConfigRequest {
@@ -1174,6 +1201,7 @@ pub struct CuttingConfigRequest {
         feature = "tsify",
         tsify(optional, type = "\"ccw\" | \"cw\" | \"auto\" | null")
     )]
+    #[cfg_attr(test, schemars(extend("enum" = ["ccw", "cw", "auto", null])))]
     pub exterior_direction: Option<String>,
 
     /// Default cut direction for interior contours: "ccw", "cw", or "auto".
@@ -1181,6 +1209,7 @@ pub struct CuttingConfigRequest {
         feature = "tsify",
         tsify(optional, type = "\"ccw\" | \"cw\" | \"auto\" | null")
     )]
+    #[cfg_attr(test, schemars(extend("enum" = ["ccw", "cw", "auto", null])))]
     pub interior_direction: Option<String>,
 
     /// Home position [x, y] for the cutting head.
@@ -1227,6 +1256,7 @@ impl CuttingConfigRequest {
 /// Response for cutting path optimization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CuttingResponse {
@@ -1284,6 +1314,7 @@ pub struct CuttingResponse {
 /// A contour left out of the cutting sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct SkippedContourResponse {
@@ -1310,6 +1341,7 @@ pub struct SkippedContourResponse {
 /// A single step in the cutting sequence.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct CutStepResponse {
@@ -1396,6 +1428,7 @@ impl CuttingResponse {
 /// present.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
 #[serde(deny_unknown_fields)]
 pub struct RefusalDetails {
@@ -1448,6 +1481,7 @@ pub struct RefusalDetails {
 /// A refused value as it was given.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 #[serde(untagged)]
 pub enum RefusalValue {
     /// A number outside its range.
@@ -1741,7 +1775,11 @@ mod code_catalog_tests {
         let operations = card["operations"].as_array().expect("operations");
         assert!(!operations.is_empty());
         for operation in operations {
-            for code in operation["errors"].as_array().expect("errors") {
+            // An operation may leave its list out: the catalog is the vocabulary.
+            let Some(codes) = operation["errors"].as_array() else {
+                continue;
+            };
+            for code in codes {
                 let code = code.as_str().expect("a code");
                 assert!(
                     refusals.contains(code),
@@ -2474,5 +2512,103 @@ mod dto_strictness_tests {
             super::RefusalDetails::of(&cutting).parameter.as_deref(),
             Some("pierce_candidates")
         );
+    }
+}
+
+/// Wire shapes JSON Schema cannot read off a Rust type (the engine card's
+/// schemas; tests only).
+#[cfg(test)]
+mod card_schema {
+    use schemars::{Schema, SchemaGenerator};
+
+    /// Why a run stopped, or `null` for a refused request.
+    pub(super) fn stop_reason(_: &mut SchemaGenerator) -> Schema {
+        let names =
+            crate::engine_card::string_enum(u_metaheur::StopReason::ALL.iter().map(|r| r.name()))
+                .to_value();
+        Schema::try_from(serde_json::json!({ "anyOf": [names, { "type": "null" }] }))
+            .expect("an object is a schema")
+    }
+}
+
+#[cfg(test)]
+mod engine_card_tests {
+    //! The engine card's operations are the WebAssembly binding's exports
+    //! (`crates/wasm`), and the schemas it points at for the checkers, the
+    //! cutting-path optimizer and the strategy catalog are generated from
+    //! these types. `solve_2d` and `solve_3d` keep their hand-written schemas
+    //! (`docs/json-schema/`): both dimensions share one settings type, so a
+    //! generated request would offer each the other's settings, and their
+    //! two-way contract tests hold the hand schemas to the engine.
+
+    use super::*;
+    use crate::engine_card::{arg, Schemas};
+
+    fn schemas() -> Schemas {
+        let s = Schemas::new();
+        s.op_by_hand("solve_2d", &["request"]);
+        s.op_by_hand("solve_3d", &["request"]);
+        s.op(
+            "check_2d",
+            vec![arg("request", s.of::<Check2DRequest>())],
+            s.of::<CheckResponse>(),
+        );
+        s.op(
+            "check_3d",
+            vec![arg("request", s.of::<Check3DRequest>())],
+            s.of::<CheckResponse>(),
+        );
+        s.op(
+            "optimize_cutting_path",
+            vec![arg("request", s.of::<CuttingRequest>())],
+            s.of::<CuttingResponse>(),
+        );
+        s.op("available_strategies", vec![], s.of::<StrategyCatalog>());
+        s
+    }
+
+    #[test]
+    fn the_schemas_are_generated_from_the_binding_types() {
+        schemas().check("u-nesting WebAssembly operations");
+    }
+
+    #[test]
+    fn every_export_is_a_card_operation_with_its_arguments() {
+        let s = schemas();
+        s.check_exports(include_str!("../../wasm/src/lib.rs"));
+        s.check_card();
+    }
+
+    /// Where the repository reads a clock or draws unseeded randomness: the
+    /// searches' deadline and their draw of a seed when none is given, which
+    /// the card declares on `solve_2d` and `solve_3d`. The checkers, the
+    /// cutting-path optimizer and the catalog reach none of them.
+    #[test]
+    fn the_clock_and_unseeded_randomness_are_where_the_card_says() {
+        let found = crate::engine_card::clock_and_entropy_uses();
+        // The benchmark harness times and samples its own runs; it is not an
+        // operation.
+        let expected: Vec<(String, &str)> = [
+            ("crates/benchmark/src/dataset3d.rs", "rand::rng()"),
+            ("crates/benchmark/src/result.rs", "SystemTime"),
+            ("crates/benchmark/src/runner.rs", "Instant::now"),
+            ("crates/benchmark/src/runner3d.rs", "Instant::now"),
+            ("crates/benchmark/src/scenario_runner.rs", "Instant::now"),
+            ("crates/core/src/brkga.rs", "rand::rng()"),
+            ("crates/core/src/ga.rs", "rand::rng()"),
+            ("crates/core/src/sa.rs", "rand::rng()"),
+            ("crates/core/src/timing.rs", "Instant::now"),
+            ("crates/d2/src/brkga_nesting.rs", "rand::rng()"),
+            ("crates/d2/src/ga_nesting.rs", "rand::rng()"),
+            ("crates/d2/src/nfp_cm_solver.rs", "Instant::now"),
+            ("crates/d2/src/sa_nesting.rs", "rand::rng()"),
+            ("crates/d3/src/brkga_packing.rs", "rand::rng()"),
+            ("crates/d3/src/ga_packing.rs", "rand::rng()"),
+            ("crates/d3/src/sa_packing.rs", "rand::rng()"),
+        ]
+        .iter()
+        .map(|(f, c)| (f.to_string(), *c))
+        .collect();
+        assert_eq!(found, expected);
     }
 }

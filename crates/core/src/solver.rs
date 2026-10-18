@@ -38,6 +38,7 @@ pub enum Strategy {
 /// On the wire (a request's `mode`, the strategy catalog) `"2d"` / `"3d"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(all(test, feature = "serde"), derive(schemars::JsonSchema))]
 pub enum Dimension {
     /// 2D nesting of parts on sheets.
     #[cfg_attr(feature = "serde", serde(rename = "2d"))]
