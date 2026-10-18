@@ -146,6 +146,11 @@ impl CodeCatalog {
 }
 
 /// Request for 2D nesting.
+///
+/// All geometry is pre-flattened polylines (vertex arrays): curves (arcs,
+/// Béziers) are flattened to vertices with a tolerance before submitting.
+/// Coordinates are unitless — the caller chooses the unit (e.g. mm), and every
+/// length in a request is in that one unit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
@@ -176,6 +181,9 @@ pub struct Request2D {
 }
 
 /// Request for 3D bin packing.
+///
+/// Boxes and the container are axis-aligned; lengths and masses are unitless
+/// — the caller chooses the units and uses them throughout a request.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
@@ -214,7 +222,8 @@ pub struct Geometry2DRequest {
     /// Unique identifier.
     pub id: String,
 
-    /// Polygon vertices as [[x, y], ...].
+    /// Exterior vertices as [[x, y], ...]: a closed polyline (curves
+    /// flattened to vertices before submitting).
     pub polygon: Vec<[f64; 2]>,
 
     /// Interior holes (optional).
@@ -325,7 +334,8 @@ pub struct ConfigRequest {
     #[cfg_attr(feature = "tsify", tsify(optional))]
     pub margin: Option<f64>,
 
-    /// Optimization strategy.
+    /// Optimization strategy, by name (case-insensitive); the strategies
+    /// offered in each dimension are listed by `available_strategies`.
     #[cfg_attr(
         feature = "tsify",
         tsify(
@@ -335,12 +345,14 @@ pub struct ConfigRequest {
     )]
     pub strategy: Option<String>,
 
-    /// Time limit in milliseconds: a whole number, at least 0.
+    /// Time limit in milliseconds: a whole number, at least 0 (0 = no limit).
     #[serde(default, deserialize_with = "whole::optional")]
     #[cfg_attr(feature = "tsify", tsify(optional, type = "number | null"))]
     pub time_limit_ms: Option<i128>,
 
-    /// Target utilization (0.0 - 1.0).
+    /// Target utilization (0.0 - 1.0): ga, brkga and sa stop once every piece
+    /// is placed at this utilization or more. Refused (`invalid_option`)
+    /// under any other strategy.
     #[cfg_attr(feature = "tsify", tsify(optional))]
     pub target_utilization: Option<f64>,
 
@@ -391,7 +403,9 @@ pub struct ConfigRequest {
     pub multi_sheet: Option<bool>,
 }
 
-/// Response for solve operations.
+/// Response for solve operations — `solve_2d`'s. The 3D response
+/// (`Pack3DResponse`) has the same shape with `bins_used` for `sheets_used`,
+/// and each placement carries `z` and an orientation.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
 #[cfg_attr(feature = "tsify", tsify(missing_as_null))]
@@ -403,7 +417,8 @@ pub struct SolveResponse {
     /// Whether the operation succeeded.
     pub success: bool,
 
-    /// Error message if failed.
+    /// Readable refusal text; `null` on success. Branch on `code`, not on
+    /// this text.
     pub error: Option<String>,
 
     /// Stable name of the reason a request was refused
