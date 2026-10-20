@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test. The wire types themselves are unchanged; the published packages are
   not affected.
 
+### Changed
+
+- `SolveResponse.utilization` says what it divides by: the boundary's area for a
+  single-sheet solve, and for a multi-sheet solve each sheet's height times the
+  length of it the placements reach (the last sheet is not charged the length it
+  leaves unused). The values are unchanged; the field had no definition.
+
 ## [0.28.0] - 2026-10-18
 
 `UNesting` and the PyPI package are 0.28.0. Depends on u-metaheur 0.14.

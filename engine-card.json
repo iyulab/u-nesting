@@ -128,10 +128,28 @@
         "note": "Whether the layout is a finished construction, the best a search found before a budget or the deadline, or a cancelled run's."
       },
       "validation": {
-        "status": "none",
+        "status": "partial",
+        "checks": [
+          {
+            "claim": "Every 2D strategy returns each piece inside the sheet and its margin, no two pieces overlapping or closer than the spacing, no copy placed twice, and the unplaced list, counts and utilization the placements add up to; the same holds on every sheet of a multi-sheet layout, where utilization is the placed area over each sheet's height times the length the pieces reach.",
+            "reference_kind": "literature",
+            "reference": "the definition of a feasible rectangular layout, by interval arithmetic that shares no code with the engine",
+            "method": "7 strategies x two seeded six-piece sets (margin 0 and 1.5, spacing 0 and 0.5), and 7 multi-sheet runs on 14 x 14 sheets",
+            "tolerance": "1e-6 (geometry, utilization)",
+            "test": "crates/wasm/src/lib.rs::oracle_tests::every_2d_strategy_returns_a_layout_that_is_inside_and_apart"
+          },
+          {
+            "claim": "Twenty-four 1 x 2 bars never pass full utilization or the count that fits in a 6 x 8 sheet.",
+            "reference_kind": "literature",
+            "reference": "area conservation: placed area cannot exceed the sheet",
+            "method": "every strategy on a perfectly tileable set",
+            "tolerance": "1e-9",
+            "test": "crates/wasm/src/lib.rs::oracle_tests::utilization_never_passes_one_and_a_tiling_is_not_overfilled"
+          }
+        ],
         "limits": [
-          "Layout quality has not been compared against best-known solutions of standard instances.",
-          "Feasibility of every returned layout is checkable with check_2d, which tests keep at zero violations for each strategy."
+          "Axis-aligned rectangles are checked exactly; layouts of non-rectangular polygons are checked by the engine's own checker (check_2d) only.",
+          "Layout quality has not been compared against best-known solutions of standard instances."
         ]
       },
       "performance": {
@@ -219,10 +237,20 @@
         "note": "Whether the layout is a finished construction, the best a search found before a budget or the deadline, or a cancelled run's."
       },
       "validation": {
-        "status": "none",
+        "status": "partial",
+        "checks": [
+          {
+            "claim": "Every 3D strategy returns each box inside the container and its margin with no two boxes overlapping, the orientation label read as which original axis lies along each world axis, and utilization equal to the boxes' volume over the bins' volume.",
+            "reference_kind": "literature",
+            "reference": "the definition of a feasible box packing, by interval arithmetic that shares no code with the engine",
+            "method": "5 strategies x two seeded five-box sets (margin 0 and 0.5)",
+            "tolerance": "1e-6",
+            "test": "crates/wasm/src/lib.rs::oracle_tests::every_3d_strategy_returns_a_packing_that_is_inside_and_apart"
+          }
+        ],
         "limits": [
-          "Packing quality has not been compared against best-known solutions of standard instances.",
-          "Feasibility of every returned packing is checkable with check_3d."
+          "Mass, support (gravity, stability) and orientation constraints are covered by unit tests, not by this oracle.",
+          "Packing quality has not been compared against best-known solutions of standard instances."
         ]
       },
       "performance": {
@@ -259,7 +287,20 @@
         "test": "crates/core/src/api_types.rs::engine_card_tests::the_clock_and_unseeded_randomness_are_where_the_card_says"
       },
       "validation": {
-        "status": "none"
+        "status": "partial",
+        "checks": [
+          {
+            "claim": "On 60 layouts of rectangles dropped anywhere on the sheet, some feasible and some not, the pieces reported outside the sheet and the pairs reported overlapping are exactly those that interval arithmetic finds, and feasible is true exactly when there are none.",
+            "reference_kind": "literature",
+            "reference": "the definition of a feasible rectangular layout (containment and zero-area overlap)",
+            "method": "60 seeded layouts: a third the solver's own, a third with one piece moved, a third with every piece moved",
+            "tolerance": "exact (sets of pieces and pairs), 1e-6 (touching)",
+            "test": "crates/wasm/src/lib.rs::oracle_tests::check_2d_agrees_with_interval_arithmetic_on_random_layouts"
+          }
+        ],
+        "limits": [
+          "Only boundary and overlap violations are compared with an independent predicate; the other violation kinds are covered by unit tests."
+        ]
       },
       "performance": {
         "status": "none"
@@ -294,7 +335,20 @@
         "test": "crates/core/src/api_types.rs::engine_card_tests::the_clock_and_unseeded_randomness_are_where_the_card_says"
       },
       "validation": {
-        "status": "none"
+        "status": "partial",
+        "checks": [
+          {
+            "claim": "On 60 packings of boxes dropped anywhere in the container with random orientations, the boxes reported outside and the pairs reported overlapping are exactly those that interval arithmetic finds.",
+            "reference_kind": "literature",
+            "reference": "the definition of a feasible box packing (containment and zero-volume overlap)",
+            "method": "60 seeded packings: a third the solver's own, a third with one box moved, a third with every box moved",
+            "tolerance": "exact (sets of boxes and pairs), 1e-6 (touching)",
+            "test": "crates/wasm/src/lib.rs::oracle_tests::check_3d_agrees_with_interval_arithmetic_on_random_packings"
+          }
+        ],
+        "limits": [
+          "Only boundary and overlap violations are compared with an independent predicate; mass, support and orientation violations are covered by unit tests."
+        ]
       },
       "performance": {
         "status": "none"
@@ -339,7 +393,20 @@
         ]
       },
       "validation": {
-        "status": "none"
+        "status": "partial",
+        "checks": [
+          {
+            "claim": "The plan cuts each placed part once, each step cuts the part's perimeter, each rapid starts where the previous cut ended and is as long as the move to the pierce point, and the totals (cut, rapid, pierces, time at the given speeds, efficiency) are what the steps add up to.",
+            "reference_kind": "literature",
+            "reference": "the definition of a cutting plan's figures",
+            "method": "six seeded four-piece layouts, kerf 0, rapid speed 50, cut speed 5",
+            "tolerance": "1e-6 relative",
+            "test": "crates/wasm/src/lib.rs::oracle_tests::a_cutting_plan_cuts_each_part_once_and_adds_up"
+          }
+        ],
+        "limits": [
+          "The order of the cuts is not checked for optimality; kerf compensation, interior contours and home position are covered by unit tests."
+        ]
       },
       "performance": {
         "status": "none"

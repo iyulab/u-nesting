@@ -623,3 +623,715 @@ mod tests {
         );
     }
 }
+
+/// The layouts and packings the operations return and judge, held against
+/// plain geometry: axis-aligned boxes are placed, rotated by quarter turns or
+/// permuted by orientation, and tested for containment and overlap with
+/// interval arithmetic that shares nothing with the engine. The coordinate
+/// conventions are the documented ones, read off the responses: a 2D
+/// placement rotates the polygon counter-clockwise about its own origin and
+/// then moves it by `(x, y)`; a 3D orientation label's i-th letter is the
+/// original axis that lies along world axis i.
+#[cfg(test)]
+mod oracle_tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    struct Rng(u64);
+
+    impl Rng {
+        fn new(seed: u64) -> Self {
+            Rng(seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407)
+                | 1)
+        }
+        fn unit(&mut self) -> f64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 >> 11) as f64 / (1u64 << 53) as f64
+        }
+        fn between(&mut self, lo: f64, hi: f64) -> f64 {
+            lo + (hi - lo) * self.unit()
+        }
+    }
+
+    const TOL: f64 = 1e-6;
+
+    /// A 2D piece: `(id, width, height, quantity)`.
+    type Piece = (String, f64, f64, usize);
+
+    fn pieces(seed: u64, count: usize) -> Vec<Piece> {
+        let mut r = Rng::new(seed);
+        (0..count)
+            .map(|i| {
+                let (w, h) = (r.between(2.0, 9.0), r.between(2.0, 9.0));
+                (format!("p{i}"), w, h, 1 + (r.unit() * 3.0) as usize)
+            })
+            .collect()
+    }
+
+    fn request_2d(pieces: &[Piece], width: f64, height: f64, config: Value) -> Value {
+        json!({
+            "geometries": pieces.iter().map(|(id, w, h, q)| json!({
+                "id": id,
+                "polygon": [[0.0, 0.0], [w, 0.0], [w, h], [0.0, h]],
+                "quantity": q,
+                "rotations": [0.0, 90.0],
+            })).collect::<Vec<_>>(),
+            "boundary": { "width": width, "height": height },
+            "config": config,
+        })
+    }
+
+    /// The rectangle a 2D placement occupies: `[x0, y0, x1, y1]`.
+    fn rect_2d(pieces: &[Piece], p: &PlacementResponse) -> [f64; 4] {
+        let (_, w, h, _) = pieces.iter().find(|q| q.0 == p.geometry_id).expect("piece");
+        // Counter-clockwise about the origin by a quarter turn maps the
+        // rectangle [0, w] x [0, h] to [-h, 0] x [0, w].
+        let quarter = ((p.rotation / 90.0).round() as i64).rem_euclid(4);
+        assert!(
+            (p.rotation - 90.0 * quarter as f64).abs() < 1e-9,
+            "rotation {}",
+            p.rotation
+        );
+        let (x0, y0, x1, y1) = match quarter {
+            0 => (0.0, 0.0, *w, *h),
+            1 => (-h, 0.0, 0.0, *w),
+            2 => (-w, -h, 0.0, 0.0),
+            _ => (0.0, -w, *h, 0.0),
+        };
+        [x0 + p.x, y0 + p.y, x1 + p.x, y1 + p.y]
+    }
+
+    /// The gap between two boxes (0 when they touch or overlap) and their
+    /// overlap measure per axis, as `(gap, overlaps)`: boxes overlap when
+    /// every axis overlaps by more than `TOL`.
+    fn gap_and_overlap(a: &[f64], b: &[f64]) -> (f64, bool) {
+        let n = a.len() / 2;
+        let mut sq = 0.0;
+        let mut overlaps = true;
+        for k in 0..n {
+            let d = (b[k] - a[k + n]).max(a[k] - b[k + n]);
+            if d > 0.0 {
+                sq += d * d;
+            }
+            if d > -TOL {
+                overlaps = false;
+            }
+        }
+        (sq.sqrt(), overlaps)
+    }
+
+    fn strategies(dimension: &str) -> Vec<(String, Vec<String>)> {
+        let c = serde_json::to_value(StrategyCatalog::of_build()).expect("catalog");
+        c[dimension]
+            .as_array()
+            .expect("list")
+            .iter()
+            .map(|s| {
+                (
+                    s["name"].as_str().expect("name").to_string(),
+                    s["reads"]
+                        .as_array()
+                        .expect("reads")
+                        .iter()
+                        .map(|r| r.as_str().expect("r").to_string())
+                        .collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// A small, quick configuration for a strategy: only the settings it reads.
+    fn config_for(name: &str, reads: &[String], extra: Value) -> Value {
+        let mut c = json!({ "strategy": name });
+        let mut set = |key: &str, value: Value| {
+            if reads.iter().any(|r| r == key) {
+                c[key] = value;
+            }
+        };
+        set("seed", json!(7));
+        set("population_size", json!(10));
+        set("max_generations", json!(8));
+        set("max_iterations", json!(150));
+        set("time_limit_ms", json!(2000));
+        for (k, v) in extra.as_object().expect("object") {
+            set(k, v.clone());
+        }
+        c
+    }
+
+    /// What a successful 2D answer must be, by definition.
+    fn assert_layout(
+        pieces: &[Piece],
+        (width, height): (f64, f64),
+        margin: f64,
+        spacing: f64,
+        multi_sheet: bool,
+        r: &SolveResponse,
+        what: &str,
+    ) {
+        assert!(r.success, "{what}: {:?}", r.error);
+        let total: usize = pieces.iter().map(|p| p.3).sum();
+        assert_eq!(r.total_requested, total, "{what}: total_requested");
+        let mut seen = std::collections::HashSet::new();
+        let mut area = 0.0;
+        let boxes: Vec<[f64; 4]> = r.placements.iter().map(|p| rect_2d(pieces, p)).collect();
+        for (p, b) in r.placements.iter().zip(&boxes) {
+            assert!(
+                seen.insert((p.geometry_id.clone(), p.instance)),
+                "{what}: {} #{} twice",
+                p.geometry_id,
+                p.instance
+            );
+            let (_, w, h, q) = pieces.iter().find(|q| q.0 == p.geometry_id).expect("piece");
+            assert!(
+                p.instance < *q,
+                "{what}: copy {} of {}",
+                p.instance,
+                p.geometry_id
+            );
+            area += w * h;
+            assert!(
+                b[0] >= margin - TOL
+                    && b[1] >= margin - TOL
+                    && b[2] <= width - margin + TOL
+                    && b[3] <= height - margin + TOL,
+                "{what}: {} #{} leaves the sheet: {b:?}",
+                p.geometry_id,
+                p.instance
+            );
+        }
+        for i in 0..boxes.len() {
+            for j in i + 1..boxes.len() {
+                if r.placements[i].sheet_index != r.placements[j].sheet_index {
+                    continue;
+                }
+                let (gap, overlap) = gap_and_overlap(&boxes[i], &boxes[j]);
+                assert!(
+                    !overlap,
+                    "{what}: placements {i} and {j} overlap: {:?} {:?}",
+                    boxes[i], boxes[j]
+                );
+                assert!(
+                    gap >= spacing - TOL,
+                    "{what}: placements {i} and {j} are {gap} apart, spacing {spacing}"
+                );
+            }
+        }
+        let sheets = r
+            .placements
+            .iter()
+            .map(|p| p.sheet_index + 1)
+            .max()
+            .unwrap_or(0);
+        assert!(
+            r.sheets_used >= sheets,
+            "{what}: sheets_used {} below the sheet used {sheets}",
+            r.sheets_used
+        );
+        // One sheet: the area over the sheet's. Several (`multi_sheet`): the
+        // area over each sheet's height times the length of it the pieces
+        // reach, the last sheet not charged its unused length.
+        let material = if multi_sheet {
+            (0..r.sheets_used)
+                .map(|s| {
+                    let reach = r
+                        .placements
+                        .iter()
+                        .zip(&boxes)
+                        .filter(|(p, _)| p.sheet_index == s)
+                        .map(|(_, b)| b[2])
+                        .fold(0.0, f64::max);
+                    height * reach
+                })
+                .sum::<f64>()
+        } else {
+            width * height
+        };
+        assert!(
+            (r.utilization - area / material).abs() <= 1e-6,
+            "{what}: utilization {} vs {}",
+            r.utilization,
+            area / material
+        );
+        let placed: std::collections::HashMap<&str, usize> =
+            r.placements.iter().fold(Default::default(), |mut m, p| {
+                *m.entry(p.geometry_id.as_str()).or_default() += 1;
+                m
+            });
+        for (id, _, _, q) in pieces {
+            let missing = *q > placed.get(id.as_str()).copied().unwrap_or(0);
+            assert_eq!(
+                r.unplaced.contains(id),
+                missing,
+                "{what}: unplaced list for {id}"
+            );
+        }
+        assert_eq!(
+            r.all_placed,
+            r.placements.len() == total,
+            "{what}: all_placed"
+        );
+        assert_eq!(
+            r.unplaced_count,
+            total - r.placements.len(),
+            "{what}: unplaced_count"
+        );
+    }
+
+    #[test]
+    fn every_2d_strategy_returns_a_layout_that_is_inside_and_apart() {
+        for (name, reads) in strategies("2d") {
+            for (seed, margin, spacing) in [(1_u64, 0.0, 0.0), (2, 1.5, 0.5)] {
+                let ps = pieces(seed, 6);
+                let config = config_for(
+                    &name,
+                    &reads,
+                    json!({ "margin": margin, "spacing": spacing }),
+                );
+                let r = solve_2d_internal(
+                    from_value(request_2d(&ps, 40.0, 30.0, config)).expect("request"),
+                );
+                assert_layout(
+                    &ps,
+                    (40.0, 30.0),
+                    margin,
+                    spacing,
+                    false,
+                    &r,
+                    &format!("{name} seed {seed}"),
+                );
+                assert!(
+                    !r.placements.is_empty(),
+                    "{name} seed {seed}: nothing placed on a sheet with room"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn multi_sheet_layouts_are_valid_on_every_sheet() {
+        for (name, reads) in strategies("2d") {
+            if !reads.iter().any(|r| r == "multi_sheet") {
+                continue;
+            }
+            let ps = pieces(5, 6);
+            let config = config_for(&name, &reads, json!({ "multi_sheet": true }));
+            let r = solve_2d_internal(
+                from_value(request_2d(&ps, 14.0, 14.0, config)).expect("request"),
+            );
+            assert_layout(
+                &ps,
+                (14.0, 14.0),
+                0.0,
+                0.0,
+                true,
+                &r,
+                &format!("{name} multi-sheet"),
+            );
+            assert!(
+                r.sheets_used > 1,
+                "{name}: {} sheets for parts needing more",
+                r.sheets_used
+            );
+        }
+    }
+
+    /// A perfect tiling exists and is easy: 24 unit-by-two bars in a 6 x 8
+    /// sheet. No layout can pass full utilization, and the engine's answer
+    /// can never place more bars than fit.
+    #[test]
+    fn utilization_never_passes_one_and_a_tiling_is_not_overfilled() {
+        let ps = vec![("bar".to_string(), 1.0, 2.0, 24)];
+        for (name, reads) in strategies("2d") {
+            let config = config_for(&name, &reads, json!({}));
+            let r =
+                solve_2d_internal(from_value(request_2d(&ps, 6.0, 8.0, config)).expect("request"));
+            assert_layout(&ps, (6.0, 8.0), 0.0, 0.0, false, &r, &name);
+            assert!(
+                r.placements.len() <= 24 && r.utilization <= 1.0 + 1e-9,
+                "{name}: {}",
+                r.utilization
+            );
+        }
+    }
+
+    /// `check_2d` against an exact predicate on random layouts: pieces dropped
+    /// anywhere, so some leave the sheet and some overlap.
+    #[test]
+    fn check_2d_agrees_with_interval_arithmetic_on_random_layouts() {
+        let (mut infeasible, mut feasible) = (0, 0);
+        for seed in 0..60 {
+            let mut r = Rng::new(seed + 100);
+            let ps = pieces(seed, 4);
+            let problem = request_2d(&ps, 30.0, 24.0, json!({}));
+            let mut layout = solve_2d_internal(from_value(problem.clone()).expect("request"));
+            assert!(layout.success);
+            // A third keep the solver's own layout, a third move one piece, a
+            // third drop every piece anywhere.
+            let moved = layout.placements.len();
+            for (i, p) in layout.placements.iter_mut().enumerate() {
+                if seed % 3 == 0
+                    || (seed % 3 == 1 && i != (r.unit() * moved as f64) as usize % moved)
+                {
+                    continue;
+                }
+                p.x = r.between(-4.0, 30.0);
+                p.y = r.between(-4.0, 24.0);
+                p.rotation = if r.unit() < 0.5 { 0.0 } else { 90.0 };
+            }
+            let boxes: Vec<[f64; 4]> = layout.placements.iter().map(|p| rect_2d(&ps, p)).collect();
+            let outside: Vec<usize> = (0..boxes.len())
+                .filter(|&i| {
+                    boxes[i][0] < -TOL
+                        || boxes[i][1] < -TOL
+                        || boxes[i][2] > 30.0 + TOL
+                        || boxes[i][3] > 24.0 + TOL
+                })
+                .collect();
+            let mut overlapping = Vec::new();
+            for i in 0..boxes.len() {
+                for j in i + 1..boxes.len() {
+                    if gap_and_overlap(&boxes[i], &boxes[j]).1 {
+                        overlapping.push((i, j));
+                    }
+                }
+            }
+            let checked = u_nesting_d2::check::check_2d(Check2DRequest {
+                problem: from_value(problem).expect("problem"),
+                solve_result: layout,
+            });
+            assert!(checked.success, "seed {seed}: {:?}", checked.error);
+            let found_outside: Vec<usize> = checked
+                .violations
+                .iter()
+                .filter_map(|v| match v {
+                    LayoutViolationResponse::OutsideBoundary { placement, .. } => Some(*placement),
+                    _ => None,
+                })
+                .collect();
+            let found_overlap: Vec<(usize, usize)> = checked
+                .violations
+                .iter()
+                .filter_map(|v| match v {
+                    LayoutViolationResponse::Overlap { placement, other } => {
+                        Some((*placement.min(other), *placement.max(other)))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let mut sorted_outside = found_outside.clone();
+            sorted_outside.sort_unstable();
+            let mut sorted_overlap = found_overlap.clone();
+            sorted_overlap.sort_unstable();
+            assert_eq!(sorted_outside, outside, "seed {seed}: outside");
+            assert_eq!(sorted_overlap, overlapping, "seed {seed}: overlap");
+            assert_eq!(
+                checked.feasible,
+                outside.is_empty() && overlapping.is_empty(),
+                "seed {seed}: feasible"
+            );
+            if checked.feasible {
+                feasible += 1;
+            } else {
+                infeasible += 1;
+            }
+        }
+        assert!(
+            feasible >= 3 && infeasible >= 3,
+            "the layouts should be both: {feasible} / {infeasible}"
+        );
+    }
+
+    // --- 3D ---
+
+    /// A 3D box: `(id, [a, b, c], quantity)`.
+    type Boxy = (String, [f64; 3], usize);
+
+    fn boxes_3d(seed: u64, count: usize) -> Vec<Boxy> {
+        let mut r = Rng::new(seed);
+        (0..count)
+            .map(|i| {
+                (
+                    format!("b{i}"),
+                    [
+                        r.between(2.0, 6.0),
+                        r.between(2.0, 6.0),
+                        r.between(2.0, 6.0),
+                    ],
+                    1 + (r.unit() * 3.0) as usize,
+                )
+            })
+            .collect()
+    }
+
+    fn request_3d(boxes: &[Boxy], container: [f64; 3], config: Value) -> Value {
+        json!({
+            "geometries": boxes.iter().map(|(id, d, q)| json!({
+                "id": id, "dimensions": d, "quantity": q,
+            })).collect::<Vec<_>>(),
+            "boundary": { "dimensions": container },
+            "config": config,
+        })
+    }
+
+    /// The box a 3D placement occupies: `[x0, y0, z0, x1, y1, z1]`.
+    fn box_3d(boxes: &[Boxy], p: &Placement3DResponse) -> [f64; 6] {
+        let (_, d, _) = boxes.iter().find(|b| b.0 == p.geometry_id).expect("box");
+        let axis = |c: char| match c {
+            'x' => 0,
+            'y' => 1,
+            'z' => 2,
+            other => panic!("orientation letter {other}"),
+        };
+        let labels: Vec<usize> = p.orientation.chars().map(axis).collect();
+        let e = [d[labels[0]], d[labels[1]], d[labels[2]]];
+        [p.x, p.y, p.z, p.x + e[0], p.y + e[1], p.z + e[2]]
+    }
+
+    fn assert_packing(
+        boxes: &[Boxy],
+        container: [f64; 3],
+        margin: f64,
+        r: &Pack3DResponse,
+        what: &str,
+    ) {
+        assert!(r.success, "{what}: {:?}", r.error);
+        let total: usize = boxes.iter().map(|b| b.2).sum();
+        assert_eq!(r.total_requested, total, "{what}: total_requested");
+        let placed: Vec<[f64; 6]> = r.placements.iter().map(|p| box_3d(boxes, p)).collect();
+        let mut volume = 0.0;
+        for (p, b) in r.placements.iter().zip(&placed) {
+            let (_, d, q) = boxes.iter().find(|x| x.0 == p.geometry_id).expect("box");
+            assert!(
+                p.instance < *q,
+                "{what}: copy {} of {}",
+                p.instance,
+                p.geometry_id
+            );
+            volume += d[0] * d[1] * d[2];
+            for k in 0..3 {
+                assert!(
+                    b[k] >= margin - TOL && b[k + 3] <= container[k] - margin + TOL,
+                    "{what}: {} #{} leaves the container on axis {k}: {b:?}",
+                    p.geometry_id,
+                    p.instance
+                );
+            }
+        }
+        for i in 0..placed.len() {
+            for j in i + 1..placed.len() {
+                if r.placements[i].bin_index == r.placements[j].bin_index {
+                    assert!(
+                        !gap_and_overlap(&placed[i], &placed[j]).1,
+                        "{what}: boxes {i} and {j} overlap"
+                    );
+                }
+            }
+        }
+        let bins = r
+            .placements
+            .iter()
+            .map(|p| p.bin_index + 1)
+            .max()
+            .unwrap_or(0);
+        assert!(
+            r.bins_used >= bins,
+            "{what}: bins_used {} below {bins}",
+            r.bins_used
+        );
+        let used = r.bins_used.max(1) as f64;
+        let capacity = used * container[0] * container[1] * container[2];
+        assert!(
+            (r.utilization - volume / capacity).abs() <= 1e-6,
+            "{what}: utilization {} vs {}",
+            r.utilization,
+            volume / capacity
+        );
+    }
+
+    #[test]
+    fn every_3d_strategy_returns_a_packing_that_is_inside_and_apart() {
+        for (name, reads) in strategies("3d") {
+            for (seed, margin) in [(1_u64, 0.0), (2, 0.5)] {
+                let bs = boxes_3d(seed, 5);
+                let config = config_for(&name, &reads, json!({ "margin": margin }));
+                let r = solve_3d_internal(
+                    from_value(request_3d(&bs, [14.0, 12.0, 10.0], config)).expect("request"),
+                );
+                assert_packing(
+                    &bs,
+                    [14.0, 12.0, 10.0],
+                    margin,
+                    &r,
+                    &format!("{name} seed {seed}"),
+                );
+                assert!(
+                    !r.placements.is_empty(),
+                    "{name} seed {seed}: nothing placed in a container with room"
+                );
+            }
+        }
+    }
+
+    /// `check_3d` against interval arithmetic on random packings, orientations
+    /// included.
+    #[test]
+    fn check_3d_agrees_with_interval_arithmetic_on_random_packings() {
+        let labels = ["xyz", "xzy", "yxz", "yzx", "zxy", "zyx"];
+        let (mut infeasible, mut feasible) = (0, 0);
+        for seed in 0..60 {
+            let mut r = Rng::new(seed + 300);
+            let bs = boxes_3d(seed, 3);
+            let container = [14.0, 12.0, 10.0];
+            let problem = request_3d(&bs, container, json!({ "strategy": "ep" }));
+            let mut packing = solve_3d_internal(from_value(problem.clone()).expect("request"));
+            assert!(packing.success);
+            let moved = packing.placements.len();
+            for (i, p) in packing.placements.iter_mut().enumerate() {
+                if seed % 3 == 0
+                    || (seed % 3 == 1 && i != (r.unit() * moved as f64) as usize % moved)
+                {
+                    continue;
+                }
+                p.x = r.between(0.0, 14.0);
+                p.y = r.between(0.0, 12.0);
+                p.z = r.between(0.0, 10.0);
+                p.orientation = labels[(r.unit() * 6.0) as usize % 6].to_string();
+            }
+            let placed: Vec<[f64; 6]> = packing.placements.iter().map(|p| box_3d(&bs, p)).collect();
+            let outside: Vec<usize> = (0..placed.len())
+                .filter(|&i| {
+                    (0..3).any(|k| placed[i][k] < -TOL || placed[i][k + 3] > container[k] + TOL)
+                })
+                .collect();
+            let mut overlapping = Vec::new();
+            for i in 0..placed.len() {
+                for j in i + 1..placed.len() {
+                    if gap_and_overlap(&placed[i], &placed[j]).1 {
+                        overlapping.push((i, j));
+                    }
+                }
+            }
+            let checked = u_nesting_d3::check::check_3d(Check3DRequest {
+                problem: from_value(problem).expect("problem"),
+                solve_result: packing,
+            });
+            assert!(checked.success, "seed {seed}: {:?}", checked.error);
+            let mut found_outside: Vec<usize> = checked
+                .violations
+                .iter()
+                .filter_map(|v| match v {
+                    LayoutViolationResponse::OutsideBoundary { placement, .. } => Some(*placement),
+                    _ => None,
+                })
+                .collect();
+            found_outside.sort_unstable();
+            let mut found_overlap: Vec<(usize, usize)> = checked
+                .violations
+                .iter()
+                .filter_map(|v| match v {
+                    LayoutViolationResponse::Overlap { placement, other } => {
+                        Some((*placement.min(other), *placement.max(other)))
+                    }
+                    _ => None,
+                })
+                .collect();
+            found_overlap.sort_unstable();
+            assert_eq!(found_outside, outside, "seed {seed}: outside");
+            assert_eq!(found_overlap, overlapping, "seed {seed}: overlap");
+            if checked.feasible {
+                feasible += 1;
+            } else {
+                infeasible += 1;
+            }
+        }
+        assert!(
+            feasible >= 3 && infeasible >= 3,
+            "the packings should be both: {feasible} / {infeasible}"
+        );
+    }
+
+    // --- cutting path ---
+
+    /// A cutting plan is read against the parts it cuts: one step per part,
+    /// each for the part's perimeter, rapid moves between the pierce points,
+    /// and the totals the steps add up to.
+    #[test]
+    fn a_cutting_plan_cuts_each_part_once_and_adds_up() {
+        for seed in 0..6 {
+            let ps = pieces(seed + 40, 4);
+            let problem = request_2d(&ps, 40.0, 30.0, json!({ "strategy": "blf" }));
+            let layout = solve_2d_internal(from_value(problem.clone()).expect("request"));
+            assert!(layout.success && layout.all_placed, "seed {seed}");
+            let (rapid_speed, cut_speed) = (50.0, 5.0);
+            let r = optimize_cutting_path_internal(
+                from_value(json!({
+                    "geometries": problem["geometries"],
+                    "solve_result": layout,
+                    "cutting_config": { "kerf_width": 0.0, "rapid_speed": rapid_speed, "cut_speed": cut_speed },
+                }))
+                .expect("cutting request"),
+            );
+            assert!(r.success, "seed {seed}: {:?}", r.error);
+            assert_eq!(
+                r.sequence.len(),
+                layout.placements.len(),
+                "seed {seed}: one step per part"
+            );
+            let mut cut = 0.0;
+            let mut rapid = 0.0;
+            let mut previous: Option<[f64; 2]> = None;
+            for step in &r.sequence {
+                let (_, w, h, _) = ps.iter().find(|p| p.0 == step.geometry_id).expect("piece");
+                assert!(
+                    (step.cut_distance - 2.0 * (w + h)).abs() <= 1e-6,
+                    "seed {seed}: perimeter of {}",
+                    step.geometry_id
+                );
+                cut += step.cut_distance;
+                match (step.rapid_from, previous) {
+                    (None, None) => assert!(step.rapid_distance <= 1e-9, "seed {seed}: first move"),
+                    (Some(from), Some(prev)) => {
+                        assert!(
+                            ((from[0] - prev[0]).hypot(from[1] - prev[1])) <= 1e-6,
+                            "seed {seed}: a rapid starts where the last cut ended"
+                        );
+                        let d =
+                            (step.pierce_point[0] - from[0]).hypot(step.pierce_point[1] - from[1]);
+                        assert!(
+                            (step.rapid_distance - d).abs() <= 1e-6,
+                            "seed {seed}: rapid distance"
+                        );
+                    }
+                    other => panic!(
+                        "seed {seed}: rapid_from and the previous pierce disagree: {other:?}"
+                    ),
+                }
+                rapid += step.rapid_distance;
+                previous = Some(step.pierce_point);
+            }
+            let rel = |a: f64, b: f64| (a - b).abs() <= 1e-6 * b.abs().max(1.0);
+            assert!(rel(r.total_cut_distance, cut), "seed {seed}: total cut");
+            assert!(
+                rel(r.total_rapid_distance, rapid),
+                "seed {seed}: total rapid"
+            );
+            assert_eq!(r.total_pierces, r.sequence.len(), "seed {seed}: pierces");
+            assert!(
+                rel(
+                    r.estimated_time_seconds,
+                    rapid / rapid_speed + cut / cut_speed
+                ),
+                "seed {seed}: time"
+            );
+            assert!(
+                rel(r.efficiency, cut / (cut + rapid)),
+                "seed {seed}: efficiency"
+            );
+        }
+    }
+}

@@ -456,7 +456,11 @@ pub struct SolveResponse {
     /// Number of sheets/bins used.
     pub sheets_used: usize,
 
-    /// Utilization ratio.
+    /// Utilization ratio: the placed area over the material used. A
+    /// single-sheet solve divides by the boundary's area. A multi-sheet solve
+    /// (`config.multi_sheet`) divides by each sheet's height times the length
+    /// of it the placements reach, so the last sheet is not charged the length
+    /// it leaves unused.
     pub utilization: f64,
 
     /// Total number of geometry **instances** requested (Σ of every geometry's

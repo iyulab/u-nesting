@@ -1752,7 +1752,7 @@
           "type": "number"
         },
         "utilization": {
-          "description": "Utilization ratio.",
+          "description": "Utilization ratio: the placed area over the material used. A\nsingle-sheet solve divides by the boundary's area. A multi-sheet solve\n(`config.multi_sheet`) divides by each sheet's height times the length\nof it the placements reach, so the last sheet is not charged the length\nit leaves unused.",
           "format": "double",
           "type": "number"
         },
