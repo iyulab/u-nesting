@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   test. The wire types themselves are unchanged; the published packages are
   not affected.
 
+### Fixed
+
+- A part smaller than a unit was refused as a degenerate polygon: the area
+  threshold was `1e-9 * max(extent, 1)^2`, so for any part under one unit it was an
+  absolute `1e-9` (a 1 x 2 micrometre bar given in metres has area 2e-12). The
+  threshold is now a fraction of the part's own extent squared, in whatever unit it
+  is given in; a ring of one repeated point (extent 0) is still refused.
+- The position grid a placement search samples (the fallback when no corner of the
+  feasible region qualifies) had its step clamped to an absolute 0.5 to 10 units
+  (GA, BRKGA, BLF, NFP) or floored at 1 unit (ALNS, GDRR), which is a fraction of
+  the sheet only for a sheet 1,000 units long: on a sheet 6 units wide the step was
+  coarser than a part. The bounds are now 1/2000 and 1/100 of the sheet's longer
+  side (the same values on a sheet 1,000 long), computed in one place instead of
+  five.
+
 ### Changed
 
 - `SolveResponse.utilization` says what it divides by: the boundary's area for a

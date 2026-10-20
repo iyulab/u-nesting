@@ -1334,4 +1334,99 @@ mod oracle_tests {
             );
         }
     }
+
+    /// The same parts on the same sheet in other units of length (micrometres
+    /// to hundreds of kilometres) are the same problem: each strategy that
+    /// runs without a clock or a seed gives a valid layout and places as many
+    /// parts at the same utilization.
+    #[test]
+    fn the_unit_of_length_does_not_change_the_layout() {
+        let ps = pieces(11, 6);
+        let (width, height) = (40.0, 30.0);
+        for name in ["blf", "nfp"] {
+            let mut base: Option<(usize, f64)> = None;
+            for scale in [1.0, 1e-6, 1e-4, 1e-2, 1e2, 1e4, 1e8] {
+                let scaled: Vec<Piece> = ps
+                    .iter()
+                    .map(|(id, w, h, q)| (id.clone(), w * scale, h * scale, *q))
+                    .collect();
+                let mut r = solve_2d_internal(
+                    from_value(request_2d(
+                        &scaled,
+                        width * scale,
+                        height * scale,
+                        json!({ "strategy": name }),
+                    ))
+                    .expect("request"),
+                );
+                for p in &mut r.placements {
+                    p.x /= scale;
+                    p.y /= scale;
+                }
+                assert_layout(
+                    &ps,
+                    (width, height),
+                    0.0,
+                    0.0,
+                    false,
+                    &r,
+                    &format!("{name} scale {scale:e}"),
+                );
+                let found = (r.placements.len(), r.utilization);
+                let reference = *base.get_or_insert(found);
+                assert_eq!(found.0, reference.0, "{name} scale {scale:e}: parts placed");
+                assert!(
+                    (found.1 - reference.1).abs() <= 1e-9,
+                    "{name} scale {scale:e}: utilization {} vs {}",
+                    found.1,
+                    reference.1
+                );
+            }
+        }
+    }
+
+    /// A tight set (twenty-four bars that tile the sheet exactly) in units
+    /// from micrometres to hundreds of kilometres: where the pieces touch,
+    /// rounding decides whether a corner is a contact or an overlap, so how
+    /// many bars fit may differ between units -- but whatever is placed never
+    /// overlaps and never leaves the sheet.
+    #[test]
+    fn a_tight_set_never_overlaps_in_any_unit_of_length() {
+        let ps = vec![("bar".to_string(), 1.0, 2.0, 24)];
+        for name in ["blf", "nfp"] {
+            for scale in [1e-6, 1e-4, 1e-2, 1.0, 1e2, 1e4, 1e8] {
+                let scaled: Vec<Piece> = ps
+                    .iter()
+                    .map(|(id, w, h, q)| (id.clone(), w * scale, h * scale, *q))
+                    .collect();
+                let mut r = solve_2d_internal(
+                    from_value(request_2d(
+                        &scaled,
+                        6.0 * scale,
+                        8.0 * scale,
+                        json!({ "strategy": name }),
+                    ))
+                    .expect("request"),
+                );
+                for p in &mut r.placements {
+                    p.x /= scale;
+                    p.y /= scale;
+                }
+                assert_layout(
+                    &ps,
+                    (6.0, 8.0),
+                    0.0,
+                    0.0,
+                    false,
+                    &r,
+                    &format!("{name} scale {scale:e}"),
+                );
+                assert!(
+                    r.placements.len() >= 12,
+                    "{name} scale {scale:e}: only {} bars of 24",
+                    r.placements.len()
+                );
+            }
+        }
+    }
 }

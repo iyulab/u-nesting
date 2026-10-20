@@ -378,12 +378,14 @@ impl Geometry for Geometry2D {
         }
 
         // Reject degenerate (zero-area / collinear) polygons: they make NFP and
-        // collision tests meaningless. Threshold scales with extent so a small
-        // but legitimate piece survives while a truly collinear ring is caught.
+        // collision tests meaningless. The threshold is a fraction of the
+        // extent squared, in whatever unit the piece is given in, so a small
+        // but legitimate piece survives while a truly collinear ring (area 0
+        // at any extent, a single repeated point included) is caught.
         let (min, max) = self.aabb_vec();
-        let scale = (max[0] - min[0]).max(max[1] - min[1]).max(1.0);
+        let scale = (max[0] - min[0]).max(max[1] - min[1]);
         let area_eps = 1e-9 * scale * scale;
-        if geom_polygon::signed_area(&self.exterior).abs() < area_eps {
+        if geom_polygon::signed_area(&self.exterior).abs() <= area_eps {
             return Err(Error::invalid_geometry(
                 Some(&self.id),
                 format!(

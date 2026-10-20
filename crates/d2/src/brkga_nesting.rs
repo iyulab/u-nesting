@@ -362,21 +362,9 @@ impl BrkgaNestingProblem {
         (placements, utilization, placed_count)
     }
 
-    /// Computes an adaptive sample step based on geometry sizes.
+    /// The step of the position grid; see [`sample_step`](crate::placement_utils::sample_step).
     fn compute_sample_step(&self) -> f64 {
-        if self.geometries.is_empty() {
-            return 1.0;
-        }
-
-        let mut min_dim = f64::INFINITY;
-        for geom in &self.geometries {
-            let (g_min, g_max) = geom.aabb();
-            let width = g_max[0] - g_min[0];
-            let height = g_max[1] - g_min[1];
-            min_dim = min_dim.min(width).min(height);
-        }
-
-        (min_dim / 4.0).clamp(0.5, 10.0)
+        crate::placement_utils::sample_step(&self.geometries, &self.boundary)
     }
 }
 

@@ -400,7 +400,7 @@ impl Nester2D {
         let mut total_placed_area = 0.0;
 
         // Sampling step for grid search (adaptive based on geometry size)
-        let sample_step = self.compute_sample_step(geometries);
+        let sample_step = self.compute_sample_step(geometries, boundary);
 
         for geom in geometries {
             geom.validate()?;
@@ -588,23 +588,9 @@ impl Nester2D {
         Ok(result)
     }
 
-    /// Computes an adaptive sample step based on geometry sizes.
-    fn compute_sample_step(&self, geometries: &[Geometry2D]) -> f64 {
-        if geometries.is_empty() {
-            return 1.0;
-        }
-
-        // Use the smallest geometry dimension divided by 4 as sample step
-        let mut min_dim = f64::INFINITY;
-        for geom in geometries {
-            let (g_min, g_max) = geom.aabb();
-            let width = g_max[0] - g_min[0];
-            let height = g_max[1] - g_min[1];
-            min_dim = min_dim.min(width).min(height);
-        }
-
-        // Clamp sample step to reasonable range
-        (min_dim / 4.0).clamp(0.5, 10.0)
+    /// The step of the position grid; see [`sample_step`](crate::placement_utils::sample_step).
+    fn compute_sample_step(&self, geometries: &[Geometry2D], boundary: &Boundary2D) -> f64 {
+        crate::placement_utils::sample_step(geometries, boundary)
     }
 
     /// Returns whichever of `meta` (a metaheuristic result) and a fresh

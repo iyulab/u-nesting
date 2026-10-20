@@ -222,7 +222,7 @@ impl AlnsNestingProblem {
     fn compute_sample_step(&self) -> f64 {
         let (min, max) = self.boundary.aabb();
         let width = max[0] - min[0];
-        (width / 100.0).max(1.0)
+        width / 100.0
     }
 
     /// Try to place an item at the best position using NFP.

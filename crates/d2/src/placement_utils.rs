@@ -12,6 +12,30 @@ use u_nesting_core::geometry::{Boundary, Geometry};
 use u_nesting_core::timing::Timer;
 use u_nesting_core::Placement;
 
+/// The step of the position grid a placement search samples: a quarter of the
+/// smallest piece side, so no piece is stepped over, kept between 1/2000 and
+/// 1/100 of the sheet's longer side so a tiny piece does not ask for a grid
+/// finer than the sheet can use and a large one does not get a coarse one.
+///
+/// The bounds are fractions of the sheet, not lengths: a layout is the same in
+/// any unit of length, so its search must be (the bounds were once 0.5 and 10
+/// units, which is that fraction only for a sheet 1,000 units long).
+pub(crate) fn sample_step(geometries: &[Geometry2D], boundary: &Boundary2D) -> f64 {
+    let (b_min, b_max) = boundary.aabb();
+    let extent = (b_max[0] - b_min[0]).max(b_max[1] - b_min[1]);
+    let min_dim = geometries
+        .iter()
+        .map(|g| {
+            let (g_min, g_max) = g.aabb();
+            (g_max[0] - g_min[0]).min(g_max[1] - g_min[1])
+        })
+        .fold(f64::INFINITY, f64::min);
+    if !min_dim.is_finite() {
+        return extent / 100.0;
+    }
+    (min_dim / 4.0).clamp(extent / 2000.0, extent / 100.0)
+}
+
 /// Instance information for decoding placement orders.
 ///
 /// Maps a flat instance index to the corresponding geometry and its
@@ -389,6 +413,34 @@ pub fn nesting_fitness(placed_count: usize, total_count: usize, utilization: f64
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The grid step is a length: the same sheet and parts in another unit
+    /// give the step in that unit. The bounds are fractions of the sheet, so
+    /// they hold at every scale (and are the old 0.5 and 10 on a sheet 1,000
+    /// units long).
+    #[test]
+    fn the_sample_step_scales_with_the_unit_of_length() {
+        let step_at = |scale: f64, side: f64| {
+            let parts = [Geometry2D::rectangle("p", side * scale, 3.0 * side * scale)];
+            let sheet = Boundary2D::rectangle(1000.0 * scale, 400.0 * scale);
+            sample_step(&parts, &sheet) / scale
+        };
+        for side in [0.1, 4.0, 20.0, 900.0] {
+            let reference = step_at(1.0, side);
+            for scale in [1e-6, 1e-3, 1e3, 1e8] {
+                let found = step_at(scale, side);
+                assert!(
+                    (found - reference).abs() <= 1e-9 * reference,
+                    "side {side} scale {scale:e}: {found} vs {reference}"
+                );
+            }
+        }
+        // A sheet 1,000 long: a quarter of a 4-unit part is 1; a tiny part is
+        // held to the finest step (0.5), a huge one to the coarsest (10).
+        assert_eq!(step_at(1.0, 4.0), 1.0);
+        assert_eq!(step_at(1.0, 0.1), 0.5);
+        assert_eq!(step_at(1.0, 900.0), 10.0);
+    }
 
     #[test]
     fn density_tells_a_short_layout_from_a_long_one() {
