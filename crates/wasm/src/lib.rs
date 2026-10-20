@@ -724,6 +724,9 @@ mod oracle_tests {
         (sq.sqrt(), overlaps)
     }
 
+    /// The strategies of this build that run on their own: the exact (MILP)
+    /// ones, which a build with the `milp` feature lists, need a solver the
+    /// test machine may not have and place nothing without one.
     fn strategies(dimension: &str) -> Vec<(String, Vec<String>)> {
         let c = serde_json::to_value(StrategyCatalog::of_build()).expect("catalog");
         c[dimension]
@@ -741,6 +744,7 @@ mod oracle_tests {
                         .collect(),
                 )
             })
+            .filter(|(name, _)| !name.ends_with("exact"))
             .collect()
     }
 
@@ -851,11 +855,11 @@ mod oracle_tests {
         } else {
             width * height
         };
+        let expected = if area > 0.0 { area / material } else { 0.0 };
         assert!(
-            (r.utilization - area / material).abs() <= 1e-6,
-            "{what}: utilization {} vs {}",
-            r.utilization,
-            area / material
+            (r.utilization - expected).abs() <= 1e-6,
+            "{what}: utilization {} vs {expected}",
+            r.utilization
         );
         let placed: std::collections::HashMap<&str, usize> =
             r.placements.iter().fold(Default::default(), |mut m, p| {
