@@ -1429,4 +1429,50 @@ mod oracle_tests {
             }
         }
     }
+
+    /// The 3D counterpart: the same boxes in a container in other units of
+    /// length give a valid packing, as many boxes at the same utilization.
+    #[test]
+    fn the_unit_of_length_does_not_change_the_packing() {
+        let bs = boxes_3d(21, 5);
+        let container = [14.0, 12.0, 10.0];
+        for (name, reads) in strategies("3d") {
+            if reads.iter().any(|r| r == "seed") {
+                continue; // the searches draw random numbers: not unit-exact
+            }
+            let placed: Vec<(usize, f64)> = [1e-6, 1e-3, 1.0, 1e3, 1e8]
+                .iter()
+                .map(|&scale| {
+                    let scaled: Vec<Boxy> = bs
+                        .iter()
+                        .map(|(id, d, q)| {
+                            (id.clone(), [d[0] * scale, d[1] * scale, d[2] * scale], *q)
+                        })
+                        .collect();
+                    let c = [
+                        container[0] * scale,
+                        container[1] * scale,
+                        container[2] * scale,
+                    ];
+                    let mut r = solve_3d_internal(
+                        from_value(request_3d(&scaled, c, json!({ "strategy": name })))
+                            .expect("request"),
+                    );
+                    for p in &mut r.placements {
+                        p.x /= scale;
+                        p.y /= scale;
+                        p.z /= scale;
+                    }
+                    assert_packing(&bs, container, 0.0, &r, &format!("{name} scale {scale:e}"));
+                    (r.placements.len(), r.utilization)
+                })
+                .collect();
+            assert!(
+                placed
+                    .windows(2)
+                    .all(|w| w[0].0 == w[1].0 && (w[0].1 - w[1].1).abs() <= 1e-9),
+                "{name}: boxes placed and utilization at scales 1e-6 .. 1e8: {placed:?}"
+            );
+        }
+    }
 }
