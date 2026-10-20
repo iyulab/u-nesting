@@ -1475,4 +1475,191 @@ mod oracle_tests {
             );
         }
     }
+
+    // --- non-rectangular parts ---
+
+    type Pt = (f64, f64);
+
+    /// A part made of convex pieces (counter-clockwise), with the outline the
+    /// request gives.
+    struct Shape {
+        id: &'static str,
+        outline: Vec<Pt>,
+        convex: Vec<Vec<Pt>>,
+        quantity: usize,
+    }
+
+    fn shapes() -> Vec<Shape> {
+        vec![
+            Shape {
+                id: "triangle",
+                outline: vec![(0.0, 0.0), (9.0, 0.0), (0.0, 6.0)],
+                convex: vec![vec![(0.0, 0.0), (9.0, 0.0), (0.0, 6.0)]],
+                quantity: 3,
+            },
+            Shape {
+                id: "trapezoid",
+                outline: vec![(0.0, 0.0), (10.0, 0.0), (7.0, 5.0), (2.0, 5.0)],
+                convex: vec![vec![(0.0, 0.0), (10.0, 0.0), (7.0, 5.0), (2.0, 5.0)]],
+                quantity: 2,
+            },
+            Shape {
+                id: "ell",
+                outline: vec![
+                    (0.0, 0.0),
+                    (8.0, 0.0),
+                    (8.0, 3.0),
+                    (4.0, 3.0),
+                    (4.0, 8.0),
+                    (0.0, 8.0),
+                ],
+                convex: vec![
+                    vec![(0.0, 0.0), (8.0, 0.0), (8.0, 3.0), (0.0, 3.0)],
+                    vec![(0.0, 3.0), (4.0, 3.0), (4.0, 8.0), (0.0, 8.0)],
+                ],
+                quantity: 2,
+            },
+        ]
+    }
+
+    fn request_polygons(shapes: &[Shape], scale: f64, sheet: (f64, f64), config: Value) -> Value {
+        json!({
+            "geometries": shapes.iter().map(|s| json!({
+                "id": s.id,
+                "polygon": s.outline.iter().map(|p| [p.0 * scale, p.1 * scale]).collect::<Vec<_>>(),
+                "quantity": s.quantity,
+                "rotations": [0.0, 90.0, 180.0, 270.0],
+            })).collect::<Vec<_>>(),
+            "boundary": { "width": sheet.0 * scale, "height": sheet.1 * scale },
+            "config": config,
+        })
+    }
+
+    /// A point rotated counter-clockwise about the origin by a multiple of a
+    /// quarter turn, then moved by `(x, y)`.
+    fn place(p: Pt, rotation: f64, x: f64, y: f64) -> Pt {
+        let (mut px, mut py) = p;
+        for _ in 0..(((rotation / 90.0).round() as i64).rem_euclid(4)) {
+            (px, py) = (-py, px);
+        }
+        (px + x, py + y)
+    }
+
+    fn polygon_area(p: &[Pt]) -> f64 {
+        (0..p.len())
+            .map(|i| p[i].0 * p[(i + 1) % p.len()].1 - p[(i + 1) % p.len()].0 * p[i].1)
+            .sum::<f64>()
+            / 2.0
+    }
+
+    /// The area two convex counter-clockwise polygons share (Sutherland and
+    /// Hodgman: clip one by each edge of the other).
+    fn shared_area(subject: &[Pt], clip: &[Pt]) -> f64 {
+        let mut out: Vec<Pt> = subject.to_vec();
+        for i in 0..clip.len() {
+            let (a, b) = (clip[i], clip[(i + 1) % clip.len()]);
+            let side = |p: Pt| (b.0 - a.0) * (p.1 - a.1) - (b.1 - a.1) * (p.0 - a.0);
+            let input = std::mem::take(&mut out);
+            for j in 0..input.len() {
+                let (p, q) = (input[j], input[(j + 1) % input.len()]);
+                let (sp, sq) = (side(p), side(q));
+                if sp >= 0.0 {
+                    out.push(p);
+                }
+                if (sp >= 0.0) != (sq >= 0.0) {
+                    let t = sp / (sp - sq);
+                    out.push((p.0 + t * (q.0 - p.0), p.1 + t * (q.1 - p.1)));
+                }
+            }
+            if out.is_empty() {
+                return 0.0;
+            }
+        }
+        polygon_area(&out).abs()
+    }
+
+    /// A placed part: its convex pieces in the sheet, rotation and position
+    /// applied, in the units of the problem (the response divided by `scale`).
+    fn placed_pieces(shapes: &[Shape], p: &PlacementResponse) -> Vec<Vec<Pt>> {
+        let shape = shapes
+            .iter()
+            .find(|s| s.id == p.geometry_id)
+            .expect("shape");
+        shape
+            .convex
+            .iter()
+            .map(|piece| {
+                piece
+                    .iter()
+                    .map(|&v| place(v, p.rotation, p.x, p.y))
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn parts_that_are_not_rectangles_are_valid_in_every_unit_of_length() {
+        let sheet = (40.0, 30.0);
+        let ss = shapes();
+        let total: usize = ss.iter().map(|s| s.quantity).sum();
+        let tolerance = 1e-6;
+        for name in ["blf", "nfp"] {
+            let mut reference: Option<f64> = None;
+            for scale in [1.0, 1e-6, 1e-3, 1e3, 1e8] {
+                let mut r = solve_2d_internal(
+                    from_value(request_polygons(
+                        &ss,
+                        scale,
+                        sheet,
+                        json!({ "strategy": name }),
+                    ))
+                    .expect("request"),
+                );
+                let what = format!("{name} scale {scale:e}");
+                assert!(r.success, "{what}: {:?}", r.error);
+                for p in &mut r.placements {
+                    p.x /= scale;
+                    p.y /= scale;
+                }
+                assert_eq!(
+                    r.placements.len(),
+                    total,
+                    "{what}: every part fits this sheet"
+                );
+                let pieces: Vec<Vec<Vec<Pt>>> =
+                    r.placements.iter().map(|p| placed_pieces(&ss, p)).collect();
+                for (p, parts) in r.placements.iter().zip(&pieces) {
+                    for v in parts.iter().flatten() {
+                        assert!(
+                            v.0 >= -tolerance
+                                && v.1 >= -tolerance
+                                && v.0 <= sheet.0 + tolerance
+                                && v.1 <= sheet.1 + tolerance,
+                            "{what}: {} #{} leaves the sheet at {v:?}",
+                            p.geometry_id,
+                            p.instance
+                        );
+                    }
+                }
+                for i in 0..pieces.len() {
+                    for j in i + 1..pieces.len() {
+                        let shared: f64 = pieces[i]
+                            .iter()
+                            .flat_map(|a| pieces[j].iter().map(move |b| shared_area(a, b)))
+                            .sum();
+                        assert!(
+                            shared <= tolerance,
+                            "{what}: parts {i} and {j} share an area of {shared}"
+                        );
+                    }
+                }
+                let utilization = r.utilization;
+                let first = *reference.get_or_insert(utilization);
+                assert!(
+                    (utilization - first).abs() <= 1e-9,
+                    "{what}: utilization {utilization} vs {first}"
+                );
+            }
+        }
+    }
 }
