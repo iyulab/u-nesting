@@ -33,6 +33,14 @@
 //!   `rayon::ThreadPool::install` (or `RAYON_NUM_THREADS`) sets how many
 //!   threads it uses.
 
+/// This crate's version, as published (`CARGO_PKG_VERSION`) — for a consumer
+/// that reports what it was built against without reading a lock file.
+///
+/// ```
+/// assert!(!u_nesting::VERSION.is_empty());
+/// ```
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Core traits and abstractions.
 pub use u_nesting_core as core;
 

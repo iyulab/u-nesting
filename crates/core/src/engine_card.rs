@@ -26,8 +26,8 @@ use serde_json::{json, Map, Value};
 pub const SCHEMA_FILE: &str = "schemas/wasm.schema.json";
 
 /// Exports that are not operations: `codes` lists the refusal vocabulary,
-/// which the card reaches through `errors.source`, and `version` names the
-/// build.
+/// which the card reaches through `errors.source`, and `version` — where a
+/// binding has one — names the build (the crate's own `VERSION`).
 const NOT_OPERATIONS: &[&str] = &["codes", "version"];
 
 /// One argument of an exported function.
