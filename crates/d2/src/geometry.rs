@@ -282,11 +282,13 @@ impl Geometry2D {
     pub fn from_requests(
         requests: Vec<u_nesting_core::api_types::Geometry2DRequest>,
     ) -> Result<Vec<Self>> {
-        requests
+        let geometries = requests
             .into_iter()
             .enumerate()
             .map(|(index, request)| Self::from_request(index, request))
-            .collect()
+            .collect::<Result<Vec<_>>>()?;
+        u_nesting_core::geometry::check_total_quantity(&geometries)?;
+        Ok(geometries)
     }
 }
 

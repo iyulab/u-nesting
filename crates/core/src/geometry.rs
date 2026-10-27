@@ -223,6 +223,42 @@ pub fn check_quantity(parameter: &str, id: &str, value: i128) -> Result<usize> {
     })
 }
 
+/// The number of copies all `geometries` ask for, Σ quantity.
+///
+/// Each quantity fits a `usize` on its own ([`check_quantity`]); their sum
+/// need not, and a total that wraps would be a different request.
+///
+/// # Errors
+///
+/// [`Error::OutOfRange`](crate::Error::OutOfRange) at the first geometry
+/// whose quantity takes the total past `usize::MAX`: `parameter`
+/// `geometries[i].quantity`, its id, and `max` the most it could have asked
+/// for given the geometries before it.
+pub fn check_total_quantity<G: Geometry>(geometries: &[G]) -> Result<usize> {
+    let mut total: usize = 0;
+    for (i, geometry) in geometries.iter().enumerate() {
+        let quantity = geometry.quantity();
+        total = total.checked_add(quantity).ok_or_else(|| {
+            let room = usize::MAX - total;
+            crate::Error::OutOfRange {
+                parameter: format!("geometries[{i}].quantity"),
+                id: Some(geometry.id().to_string()),
+                min: Some(1.0),
+                max: Some(room as f64),
+                exclusive_min: None,
+                exclusive_max: None,
+                got: quantity as f64,
+                range: format!(
+                    "a whole number in [1, {room}] -- the copies of every geometry together \
+                     must be at most {}",
+                    usize::MAX
+                ),
+            }
+        })?;
+    }
+    Ok(total)
+}
+
 /// Refuses a geometry id given to two geometries.
 ///
 /// [`Geometry::id`] is the geometry's identity: a result names each placement

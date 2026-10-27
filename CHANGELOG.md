@@ -14,6 +14,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reading a lock file -- which names the wrong version once the crate is linked
   from another package.
 
+### Fixed
+
+- Quantities whose sum exceeds the platform's count were added unchecked: a
+  panic reported as `internal` (a silently wrapped total in a release build).
+  The geometry that takes the total past the limit is now refused as
+  `parameter_out_of_range` (`geometries[i].quantity`, its `id`, `max` the room
+  the geometries before it left) -- on every transport and in
+  `Nester2D`/`Packer3D` validation (`check_total_quantity`).
+
 ## [0.28.1] - 2026-10-20
 
 ### Added

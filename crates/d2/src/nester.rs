@@ -1266,6 +1266,7 @@ impl Nester2D {
         for geom in geometries {
             geom.validate()?;
         }
+        u_nesting_core::geometry::check_total_quantity(geometries)?;
         u_nesting_core::geometry::ensure_unique_ids(geometries)
     }
 

@@ -2644,6 +2644,38 @@ mod tests {
 
     /// A 2D request for one rectangle, `field` added to the geometry and
     /// `config` given as the config object's body.
+    /// Each quantity fits a count on its own; two whose sum does not were
+    /// added unchecked -- a panic reported as `internal` (a silent wrap in a
+    /// release build). The geometry that takes the total past the limit is
+    /// refused, with the room the ones before it left.
+    #[test]
+    fn copies_that_do_not_fit_a_count_together_are_out_of_range() {
+        let half = usize::MAX / 2 + 1;
+        let r = c_abi(
+            unesting_solve,
+            &format!(
+                r#"{{"geometries": [{{"id": "a", "polygon": [[0,0],[10,0],[10,5],[0,5]], "quantity": {half}}},
+                    {{"id": "b", "polygon": [[0,0],[10,0],[10,5],[0,5]], "quantity": {half}}}],
+                    "boundary": {{"width": 50, "height": 50}}}}"#
+            ),
+        );
+        assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+        assert_eq!(r["details"]["parameter"], "geometries[1].quantity");
+        assert_eq!(r["details"]["id"], "b");
+        assert_eq!(r["details"]["max"], (usize::MAX - half) as f64);
+
+        let r = c_abi(
+            unesting_solve,
+            &format!(
+                r#"{{"mode": "3d", "geometries": [{{"id": "c", "dimensions": [1, 1, 1], "quantity": {half}}},
+                    {{"id": "d", "dimensions": [1, 1, 1], "quantity": {half}}}],
+                    "boundary": {{"dimensions": [5, 5, 5]}}}}"#
+            ),
+        );
+        assert_eq!(r["code"], "parameter_out_of_range", "{r}");
+        assert_eq!(r["details"]["parameter"], "geometries[1].quantity");
+    }
+
     fn rectangle_with(field: &str, config: &str) -> String {
         format!(
             r#"{{"geometries": [{{"id": "plate", "polygon": [[0,0],[10,0],[10,5],[0,5]]{field}}}],
