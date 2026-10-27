@@ -4,7 +4,7 @@
   "engine": {
     "id": "u-nesting",
     "summary": "2D nesting of polygons on sheets and 3D packing of boxes in a container, by constructive fills and metaheuristic searches, with checkers that say whether a layout keeps its problem's rules.",
-    "version": "0.28.1",
+    "version": "0.28.2",
     "license": "MIT",
     "repository": "https://github.com/iyulab/U-Nesting"
   },
@@ -12,15 +12,15 @@
     {
       "kind": "crate",
       "name": "u-nesting",
-      "package_version": "0.28.1",
-      "engine_version": "0.28.1",
+      "package_version": "0.28.2",
+      "engine_version": "0.28.2",
       "error_shape": "Err(Error), whose code() is the code and whose variant holds the fields."
     },
     {
       "kind": "npm",
       "name": "@iyulab/u-nesting",
-      "package_version": "0.28.1",
-      "engine_version": "0.28.1",
+      "package_version": "0.28.2",
+      "engine_version": "0.28.2",
       "wasm": true,
       "note": "Objects in and out, typed in the .d.ts (Request2D, SolveResponse, ...); a refusal is thrown. Bundler and Node targets; no bundler-less browser build.",
       "error_shape": "A thrown Error whose code property is the code, with the fields as its other properties."
@@ -28,15 +28,15 @@
     {
       "kind": "pypi",
       "name": "u-nesting",
-      "package_version": "0.28.1",
-      "engine_version": "0.28.1",
+      "package_version": "0.28.2",
+      "engine_version": "0.28.2",
       "error_shape": "Nothing raised: the response dict has success False, the code and a details dict holding the fields."
     },
     {
       "kind": "nuget",
       "name": "UNesting",
-      "package_version": "0.28.1",
-      "engine_version": "0.28.1",
+      "package_version": "0.28.2",
+      "engine_version": "0.28.2",
       "note": "C ABI wrapper; versioned with the crate.",
       "error_shape": "A NestingException whose ErrorCode is the code, Parameter and Index the fields of those names, and Details the rest."
     }
