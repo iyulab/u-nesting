@@ -52,7 +52,7 @@ Each geometry has:
 |-------|------|----------|-------------|
 | `id` | string | Yes | Unique identifier; two geometries with one id are refused (`duplicate_id`) |
 | `polygon` | number[][] | Yes | Outer contour vertices (CCW) |
-| `quantity` | integer | No | Number of copies, at least 1 (default: 1) |
+| `quantity` | integer | No | Number of copies, at least 1 (default: 1). The copies of all parts together must fit an unsigned machine word; the part that takes the total past it is refused (`parameter_out_of_range`, `geometries[i].quantity`, `max` the room left) |
 | `rotations` | number[] | No | Allowed angles in degrees, at least one; omit it for a fixed orientation |
 | `allow_flip` | boolean | No | Allow mirror reflection (default: false) |
 | `holes` | number[][][] | No | Interior holes (CW orientation) |
