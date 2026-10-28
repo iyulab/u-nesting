@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+
+### Changed
+
+- Depends on u-metaheur 0.15.
+
 ## [0.28.2] - 2026-10-28
 
 ### Added
