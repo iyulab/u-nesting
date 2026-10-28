@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Depends on u-metaheur 0.16.
+- Depends on u-metaheur 0.17.
 
 ## [0.28.2] - 2026-10-28
 
