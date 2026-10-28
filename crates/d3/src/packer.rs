@@ -537,6 +537,8 @@ impl Packer3D {
             // about 4 while the tuning that matters moves it by tenths, and a scale
             // measured on neighbours of the start reads the 4 -- a start ten times
             // too hot (8 random sets of 25 boxes: utilisation 75.5 % against 70-73 %).
+            // The objective is made of ratios, so these are not in a length unit
+            // (tests/unit_invariance.rs).
             .with_initial_temp(0.5)
             .with_final_temp(0.01)
             .with_cooling_rate(0.98)
