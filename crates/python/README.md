@@ -198,7 +198,7 @@ Solve a 2D nesting problem.
   refusal) -- never `[0, 0]`
 - `used_utilization` (float or `None`): Part area over `used_bounding_box`;
   `None` exactly where it is
-- `stop_reason` (str): Why the run stopped — `completed` (the method ran to its own end), `optimal` (an exact method proved it), `target_reached` (every part placed at `target_utilization` or more), `iteration_limit`, `no_improvement` (the search stalled), `time_limit` (`time_limit_ms` ran out; the layout is the best found by then) or `cancelled`. `None` on a refusal
+- `stop_reason` (str): Why the run stopped — `completed` (the method ran to its own end), `optimal` (an exact method proved it), `target_reached` (every part placed at `target_utilization` or more), `iteration_limit`, `no_improvement` (the search stalled), `time_limit` (`time_limit_ms` ran out; the layout is the best found by then) or `cancelled` (reachable only through the C ABI's progress callback -- a Python call takes no cancel argument, so bound a run with `time_limit_ms`). `None` on a refusal
 - `computation_time_ms` (int): Solve time
 - `error` (str | None): Readable text when the request was refused
 - `code` (str | None): Stable reason for that refusal (`invalid_geometry`,

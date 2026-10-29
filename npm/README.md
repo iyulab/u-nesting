@@ -488,8 +488,16 @@ type StopReason =
   | "iteration_limit"  // the search spent its generation/iteration budget
   | "no_improvement"   // the search went its stall budget without improving
   | "time_limit"       // config.time_limit_ms ran out: the best layout found by then
-  | "cancelled";       // the caller cancelled: what was placed by then
+  | "cancelled";       // the caller cancelled: what was placed by then (C ABI only, see below)
 ```
+
+`cancelled` is only reachable through the C ABI, whose progress callback can ask a
+running search to stop and still return what was placed. This package's calls are
+synchronous and take no cancel or progress argument, so a WebAssembly run never
+reports `cancelled`; it ends by one of the other reasons. To stop one early, set
+`config.time_limit_ms` (the run ends with `time_limit` and the best layout found by
+then), or run the call in a Web Worker / `worker_threads` Worker and call
+`terminate()` on it, which discards the run instead of returning a layout.
 
 ### Refusals
 
@@ -543,7 +551,7 @@ interface RefusalDetails {   // the properties a thrown Error carries besides `c
 | `duplicate_id` | `parameter`, `id`, `first`, `index` | Two geometries share an id |
 | `invalid_boundary` | `parameter` (when one field is at fault) | A boundary of a shape the engine cannot place into: both or neither of size and polygon, a polygon with fewer than 3 vertices, of no area or crossing itself |
 | `malformed_input` | `parameter` (the path of the field, e.g. `geometries[2].quantity`, when there is one) | Not JSON — or, in JavaScript, a request passed as a string (`parameter: "request"`; pass the object) — or a missing, unknown or mistyped key, a count given as a fraction (`2.5`) included |
-| `cancelled` | — | The caller stopped the run (C ABI progress callback) |
+| `cancelled` | — | The caller stopped the run (C ABI progress callback; not reachable from this package) |
 | `internal` | — | A failure inside the engine, not caused by the request |
 
 ## Related

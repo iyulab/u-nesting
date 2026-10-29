@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- The WebAssembly and Python READMEs say that `stop_reason: "cancelled"` is reachable
+  only through the C ABI's progress callback, and how to end a run early there
+  (`time_limit_ms`, or a Worker's `terminate()`).
 - Depends on u-metaheur 0.19.
 - **Breaking** `SolveResponse.utilization` means one thing in every mode: the placed
   area over the area of the sheets taken (`sheets_used` × the boundary's area). A
