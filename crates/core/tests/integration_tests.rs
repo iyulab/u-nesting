@@ -293,6 +293,7 @@ mod solve_result_tests {
             total_piece_area: 0.0,
             total_material_used: 0.0,
             total_requested: 2,
+            unplaced_reasons: vec![],
             used_bounding_box: [0.0, 0.0],
         };
 

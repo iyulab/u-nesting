@@ -456,11 +456,10 @@ pub struct SolveResponse {
     /// Number of sheets/bins used.
     pub sheets_used: usize,
 
-    /// Utilization ratio: the placed area over the material used. A
-    /// single-sheet solve divides by the boundary's area. A multi-sheet solve
-    /// (`config.multi_sheet`) divides by each sheet's height times the length
-    /// of it the placements reach, so the last sheet is not charged the length
-    /// it leaves unused.
+    /// Utilization ratio: the placed area over the area of the sheets taken
+    /// (`sheets_used` × the boundary's area), in a single-sheet and a
+    /// multi-sheet (`config.multi_sheet`) solve alike -- one field, one meaning.
+    /// `0.0` when nothing was placed or on error.
     pub utilization: f64,
 
     /// Total number of geometry **instances** requested (Σ of every geometry's
@@ -474,6 +473,14 @@ pub struct SolveResponse {
     /// at least one unplaced instance; see `unplaced_count` for *how many*.
     #[serde(default)]
     pub unplaced: Vec<String>,
+
+    /// Why each of `unplaced` is unplaced, in the same order:
+    /// `exceeds_boundary` (no allowed rotation of the piece fits the sheet's
+    /// bounding box less the margin -- no sheet of this size can take it, so
+    /// more sheets will not help) or `no_room` (it fits a sheet but the layout
+    /// had no room left). Empty when nothing is unplaced and on error responses.
+    #[serde(default)]
+    pub unplaced_reasons: Vec<UnplacedReasonResponse>,
 
     /// Instance-level count of geometry instances that could not be placed
     /// (`total_requested - placements.len()`). Satisfies the invariant
@@ -495,13 +502,14 @@ pub struct SolveResponse {
     /// divides by the full boundary and shrinks as boundary height grows). For an
     /// open-ended roll the larger axis is the material length consumed.
     ///
-    /// Populated for **single-sheet** solves (the common open-roll / fabric case),
-    /// where all placements share one boundary-local frame. In **multi-sheet**
-    /// solves the placements are re-localized per sheet, so a single footprint is
-    /// ill-defined and this stays `[0.0, 0.0]`. Also `[0.0, 0.0]` when nothing was
-    /// placed or on error.
+    /// Defined for **single-sheet** solves (the common open-roll / fabric case),
+    /// where all placements share one boundary-local frame. `null` where there
+    /// is no such footprint: a multi-sheet solve (the placements are re-localized
+    /// per sheet, so one footprint is ill-defined), nothing placed, or an error.
+    /// `null` is "not defined", never a footprint of zero.
     #[serde(default)]
-    pub used_bounding_box: [f64; 2],
+    #[cfg_attr(feature = "tsify", tsify(type = "[number, number] | null"))]
+    pub used_bounding_box: Option<[f64; 2]>,
 
     /// Utilization against the used bounding box
     /// (`placed_area / (used_width * used_height)`) rather than the full boundary.
@@ -511,15 +519,14 @@ pub struct SolveResponse {
     ///
     /// This is **not** a fixed-width stock-efficiency metric. For fixed-width
     /// material (fabric rolls, coil, sheet stock) the boundary width is real
-    /// consumed stock, not padding — collapsing the width axis over-reports how
+    /// consumed stock, not padding -- collapsing the width axis over-reports how
     /// much material was saved. Fixed-width consumers should compute
     /// `placed_area / (boundary_width * used_bounding_box[1])` instead
     /// (`used_bounding_box[1]` is the consumed length and is boundary-independent).
     ///
-    /// `0.0` when nothing placed, on error, or in multi-sheet solves
-    /// (see `used_bounding_box`).
+    /// `null` exactly where `used_bounding_box` is.
     #[serde(default)]
-    pub used_utilization: f64,
+    pub used_utilization: Option<f64>,
 
     /// Why the run stopped: `completed` (the method ran to its own end),
     /// `optimal` (an exact method proved it), `target_reached` (every piece
@@ -539,6 +546,23 @@ pub struct SolveResponse {
 
     /// Computation time in milliseconds.
     pub elapsed_ms: u64,
+}
+
+/// Why one geometry is unplaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "tsify", derive(tsify::Tsify))]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "tsify", tsify(missing_as_null))]
+#[serde(deny_unknown_fields)]
+pub struct UnplacedReasonResponse {
+    /// Geometry ID -- an entry of `unplaced`.
+    #[serde(rename = "id")]
+    pub geometry_id: String,
+
+    /// `exceeds_boundary` or `no_room`.
+    #[cfg_attr(feature = "tsify", tsify(type = "\"exceeds_boundary\" | \"no_room\""))]
+    #[cfg_attr(test, schemars(schema_with = "card_schema::unplaced_reason"))]
+    pub reason: String,
 }
 
 /// Placement response.
@@ -729,10 +753,13 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
         let unplaced_count = r.total_requested.saturating_sub(placed);
         let [uw, uh] = r.used_bounding_box;
         let used_area = uw * uh;
-        let used_utilization = if used_area > 0.0 {
-            r.total_piece_area / used_area
+        let (used_bounding_box, used_utilization) = if used_area > 0.0 {
+            (
+                Some(r.used_bounding_box),
+                Some(r.total_piece_area / used_area),
+            )
         } else {
-            0.0
+            (None, None)
         };
         Self {
             version: API_VERSION.to_string(),
@@ -745,9 +772,17 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
             utilization: r.utilization,
             total_requested: r.total_requested,
             unplaced: r.unplaced,
+            unplaced_reasons: r
+                .unplaced_reasons
+                .into_iter()
+                .map(|(geometry_id, reason)| UnplacedReasonResponse {
+                    geometry_id,
+                    reason: reason.name().to_string(),
+                })
+                .collect(),
             unplaced_count,
             all_placed: unplaced_count == 0,
-            used_bounding_box: r.used_bounding_box,
+            used_bounding_box,
             used_utilization,
             stop_reason: Some(r.stop_reason),
             elapsed_ms: r.computation_time_ms,
@@ -1394,10 +1429,11 @@ impl SolveResponse {
             utilization: 0.0,
             total_requested: 0,
             unplaced: Vec::new(),
+            unplaced_reasons: Vec::new(),
             unplaced_count: 0,
             all_placed: false,
-            used_bounding_box: [0.0, 0.0],
-            used_utilization: 0.0,
+            used_bounding_box: None,
+            used_utilization: None,
             stop_reason: None,
             elapsed_ms: 0,
         }
@@ -1607,7 +1643,14 @@ impl ConfigRequest {
             config.strategy = Strategy::parse(strategy).ok_or_else(|| Error::UnknownOption {
                 parameter: "strategy".to_string(),
                 got: strategy.clone(),
-                expected: Strategy::NAMES.iter().map(|n| n.to_string()).collect(),
+                // What this dimension offers in this build -- the table
+                // `available_strategies()` publishes -- not every name the
+                // parser knows (extreme point is 3D only; the exact
+                // strategies need the `milp` feature).
+                expected: Strategy::offered(dimension)
+                    .into_iter()
+                    .map(|s| s.name().to_string())
+                    .collect(),
             })?;
         }
         // A setting the chosen strategy does not read is refused: run without
@@ -2334,6 +2377,30 @@ mod dto_strictness_tests {
             Some("target_utilization")
         );
 
+        // An unknown strategy name lists what the dimension offers -- the same
+        // names `available_strategies()` publishes for it.
+        for (dimension, refused) in [
+            (
+                crate::solver::Dimension::TwoD,
+                request(json!({ "strategy": "zzz" })).to_config(),
+            ),
+            (
+                crate::solver::Dimension::ThreeD,
+                request(json!({ "strategy": "zzz" })).to_config_3d(),
+            ),
+        ] {
+            match refused.expect_err("an unknown strategy is refused") {
+                crate::Error::UnknownOption { expected, .. } => assert_eq!(
+                    expected,
+                    crate::solver::Strategy::offered(dimension)
+                        .into_iter()
+                        .map(|s| s.name().to_string())
+                        .collect::<Vec<_>>(),
+                    "{dimension:?}"
+                ),
+                other => panic!("expected unknown_option, got {other:?}"),
+            }
+        }
         let spacing = request(json!({ "spacing": -1.0 })).to_config().unwrap_err();
         assert_eq!(
             super::RefusalDetails::of(&spacing).parameter.as_deref(),
@@ -2384,9 +2451,27 @@ mod dto_strictness_tests {
             "invariant placed + unplaced_count == total_requested"
         );
         assert!(!resp.all_placed, "not all placed");
-        assert_eq!(resp.used_bounding_box, [10.0, 12.0]);
+        assert_eq!(resp.used_bounding_box, Some([10.0, 12.0]));
         // used_utilization = piece_area / (used_w * used_h) = 60 / 120 = 0.5
-        assert!((resp.used_utilization - 0.5).abs() < 1e-9);
+        assert!((resp.used_utilization.expect("a footprint was placed") - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn used_footprint_is_null_where_it_is_not_defined() {
+        // A multi-sheet solve leaves the footprint unset, as does an empty one:
+        // the wire says "not defined", not a footprint of zero.
+        let r: crate::SolveResult<f64> = crate::SolveResult::new();
+        let resp = super::SolveResponse::from(r);
+        assert_eq!(resp.used_bounding_box, None);
+        assert_eq!(resp.used_utilization, None);
+        let json = serde_json::to_value(&resp).expect("response serializes");
+        assert!(json["used_bounding_box"].is_null());
+        assert!(json["used_utilization"].is_null());
+        let refused = super::SolveResponse::refused(&crate::Error::EmptyInput {
+            parameter: "geometries".to_string(),
+        });
+        assert_eq!(refused.used_bounding_box, None);
+        assert_eq!(refused.used_utilization, None);
     }
 
     #[test]
@@ -2524,6 +2609,11 @@ mod dto_strictness_tests {
 #[cfg(test)]
 mod card_schema {
     use schemars::{Schema, SchemaGenerator};
+
+    /// Why a geometry is unplaced.
+    pub(super) fn unplaced_reason(_: &mut SchemaGenerator) -> Schema {
+        crate::engine_card::string_enum(crate::result::UnplacedReason::ALL.iter().map(|r| r.name()))
+    }
 
     /// Why a run stopped, or `null` for a refused request.
     pub(super) fn stop_reason(_: &mut SchemaGenerator) -> Schema {

@@ -836,31 +836,21 @@ mod oracle_tests {
             "{what}: sheets_used {} below the sheet used {sheets}",
             r.sheets_used
         );
-        // One sheet: the area over the sheet's. Several (`multi_sheet`): the
-        // area over each sheet's height times the length of it the pieces
-        // reach, the last sheet not charged its unused length.
-        let material = if multi_sheet {
-            (0..r.sheets_used)
-                .map(|s| {
-                    let reach = r
-                        .placements
-                        .iter()
-                        .zip(&boxes)
-                        .filter(|(p, _)| p.sheet_index == s)
-                        .map(|(_, b)| b[2])
-                        .fold(0.0, f64::max);
-                    height * reach
-                })
-                .sum::<f64>()
-        } else {
-            width * height
-        };
+        // One field, one meaning: the area over the area of the sheets taken.
+        let material = r.sheets_used.max(1) as f64 * width * height;
         let expected = if area > 0.0 { area / material } else { 0.0 };
         assert!(
             (r.utilization - expected).abs() <= 1e-6,
             "{what}: utilization {} vs {expected}",
             r.utilization
         );
+        // A multi-sheet answer has no single footprint: null, not zero.
+        if multi_sheet {
+            assert!(
+                r.used_bounding_box.is_none() && r.used_utilization.is_none(),
+                "{what}: a multi-sheet solve has no one footprint"
+            );
+        }
         let placed: std::collections::HashMap<&str, usize> =
             r.placements.iter().fold(Default::default(), |mut m, p| {
                 *m.entry(p.geometry_id.as_str()).or_default() += 1;

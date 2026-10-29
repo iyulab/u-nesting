@@ -227,6 +227,11 @@ public sealed record Placement2D(
     int SheetIndex,
     bool Flipped);
 
+/// <summary>Why one part is unplaced.</summary>
+/// <param name="Id">The part's <see cref="Geometry2D.Id"/> — an entry of <see cref="NestingResult.Unplaced"/>.</param>
+/// <param name="Reason">Whether the part can never fit a sheet of this size, or the layout ran out of room.</param>
+public sealed record UnplacedPart(string Id, UnplacedReason Reason);
+
 /// <summary>A solved 2D nesting problem. A request the engine refuses raises <see cref="NestingException"/> instead.</summary>
 /// <param name="Version">The engine's version.</param>
 /// <param name="Placements">One per placed copy.</param>
@@ -237,6 +242,7 @@ public sealed record Placement2D(
 /// copy while <see cref="Unplaced"/> lists part ids once each.
 /// </param>
 /// <param name="Unplaced">Ids of the parts with at least one copy left unplaced, each once; see <see cref="UnplacedCount"/> for how many copies.</param>
+/// <param name="UnplacedReasons">Why each entry of <paramref name="Unplaced"/> is unplaced, in the same order; empty when nothing is.</param>
 /// <param name="UnplacedCount">Copies left unplaced: <c>Placements.Count + UnplacedCount == TotalRequested</c>.</param>
 /// <param name="AllPlaced">
 /// Whether every requested copy was placed. Check this to detect a partial result: a
@@ -245,13 +251,14 @@ public sealed record Placement2D(
 /// <param name="UsedBoundingBox">
 /// <c>[width, height]</c> of the placed parts' footprint, independent of the sheet's
 /// padding; for an open-ended roll the larger axis is the material length consumed.
-/// <c>[0, 0]</c> in a multi-sheet solve and when nothing was placed.
+/// <c>null</c> where there is no such footprint: in a multi-sheet solve and when nothing
+/// was placed (never a footprint of zero).
 /// </param>
 /// <param name="UsedUtilization">
 /// Placed area over <see cref="UsedBoundingBox"/>'s area: how tightly the parts pack
 /// within their own extent. Not a stock-efficiency figure for fixed-width material,
 /// whose full width is consumed — use <c>placed_area / (sheet_width * UsedBoundingBox[1])</c>
-/// there. 0 in a multi-sheet solve and when nothing was placed.
+/// there. <c>null</c> exactly where <see cref="UsedBoundingBox"/> is.
 /// </param>
 /// <param name="StopReason">
 /// Why the run stopped — at the time limit, at the target, on cancellation or at its own end.
@@ -264,9 +271,10 @@ public sealed record NestingResult(
     double Utilization,
     int TotalRequested,
     IReadOnlyList<string> Unplaced,
+    IReadOnlyList<UnplacedPart> UnplacedReasons,
     int UnplacedCount,
     bool AllPlaced,
-    IReadOnlyList<double> UsedBoundingBox,
-    double UsedUtilization,
+    IReadOnlyList<double>? UsedBoundingBox,
+    double? UsedUtilization,
     StopReason StopReason,
     long ElapsedMs);

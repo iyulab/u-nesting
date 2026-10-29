@@ -7,9 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `unplaced_reasons` in the 2D result: why each unplaced part is unplaced, in the
+  order of `unplaced` -- `exceeds_boundary` (no allowed rotation fits the sheet less
+  the margin, so more sheets will not help) or `no_room` (it fits; the layout was
+  full). WebAssembly, C ABI, Python and `UNesting` (`UnplacedReasons`).
+
 ### Changed
 
 - Depends on u-metaheur 0.19.
+- **Breaking** `SolveResponse.utilization` means one thing in every mode: the placed
+  area over the area of the sheets taken (`sheets_used` × the boundary's area). A
+  multi-sheet solve used to divide by each sheet's height times the length the
+  placements reach, so the same field read differently by mode; the strip-based
+  figure is gone from the wire (a roll consumer reads `used_bounding_box[1]`).
+- **Breaking** `used_bounding_box` and `used_utilization` are `null` where they are
+  not defined -- a multi-sheet solve, nothing placed, an error -- instead of
+  `[0.0, 0.0]` / `0.0`, which read as a footprint of zero. Single-sheet solves that
+  place pieces are unchanged.
+- An unknown `strategy` name is refused with the names the dimension offers in this
+  build (what `available_strategies()` lists), not every name the parser knows.
 
 ## [0.28.2] - 2026-10-28
 

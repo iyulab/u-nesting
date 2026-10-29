@@ -1731,28 +1731,39 @@
           "minimum": 0,
           "type": "integer"
         },
+        "unplaced_reasons": {
+          "default": [],
+          "description": "Why each of `unplaced` is unplaced, in the same order:\n`exceeds_boundary` (no allowed rotation of the piece fits the sheet's\nbounding box less the margin -- no sheet of this size can take it, so\nmore sheets will not help) or `no_room` (it fits a sheet but the layout\nhad no room left). Empty when nothing is unplaced and on error responses.",
+          "items": {
+            "$ref": "#/$defs/UnplacedReasonResponse"
+          },
+          "type": "array"
+        },
         "used_bounding_box": {
-          "default": [
-            0.0,
-            0.0
-          ],
-          "description": "Axis-aligned bounding box `[width, height]` of the placed pieces' actual\nfootprint. Boundary-padding independent, unlike `utilization` (which\ndivides by the full boundary and shrinks as boundary height grows). For an\nopen-ended roll the larger axis is the material length consumed.\n\nPopulated for **single-sheet** solves (the common open-roll / fabric case),\nwhere all placements share one boundary-local frame. In **multi-sheet**\nsolves the placements are re-localized per sheet, so a single footprint is\nill-defined and this stays `[0.0, 0.0]`. Also `[0.0, 0.0]` when nothing was\nplaced or on error.",
+          "default": null,
+          "description": "Axis-aligned bounding box `[width, height]` of the placed pieces' actual\nfootprint. Boundary-padding independent, unlike `utilization` (which\ndivides by the full boundary and shrinks as boundary height grows). For an\nopen-ended roll the larger axis is the material length consumed.\n\nDefined for **single-sheet** solves (the common open-roll / fabric case),\nwhere all placements share one boundary-local frame. `null` where there\nis no such footprint: a multi-sheet solve (the placements are re-localized\nper sheet, so one footprint is ill-defined), nothing placed, or an error.\n`null` is \"not defined\", never a footprint of zero.",
           "items": {
             "format": "double",
             "type": "number"
           },
           "maxItems": 2,
           "minItems": 2,
-          "type": "array"
+          "type": [
+            "array",
+            "null"
+          ]
         },
         "used_utilization": {
-          "default": 0.0,
-          "description": "Utilization against the used bounding box\n(`placed_area / (used_width * used_height)`) rather than the full boundary.\nA **packing-density** metric: the denominator shrinks on **both** axes to\nthe placed footprint, so it answers \"how tightly are the pieces packed\nwithin their own extent?\" independent of boundary padding.\n\nThis is **not** a fixed-width stock-efficiency metric. For fixed-width\nmaterial (fabric rolls, coil, sheet stock) the boundary width is real\nconsumed stock, not padding — collapsing the width axis over-reports how\nmuch material was saved. Fixed-width consumers should compute\n`placed_area / (boundary_width * used_bounding_box[1])` instead\n(`used_bounding_box[1]` is the consumed length and is boundary-independent).\n\n`0.0` when nothing placed, on error, or in multi-sheet solves\n(see `used_bounding_box`).",
+          "default": null,
+          "description": "Utilization against the used bounding box\n(`placed_area / (used_width * used_height)`) rather than the full boundary.\nA **packing-density** metric: the denominator shrinks on **both** axes to\nthe placed footprint, so it answers \"how tightly are the pieces packed\nwithin their own extent?\" independent of boundary padding.\n\nThis is **not** a fixed-width stock-efficiency metric. For fixed-width\nmaterial (fabric rolls, coil, sheet stock) the boundary width is real\nconsumed stock, not padding -- collapsing the width axis over-reports how\nmuch material was saved. Fixed-width consumers should compute\n`placed_area / (boundary_width * used_bounding_box[1])` instead\n(`used_bounding_box[1]` is the consumed length and is boundary-independent).\n\n`null` exactly where `used_bounding_box` is.",
           "format": "double",
-          "type": "number"
+          "type": [
+            "number",
+            "null"
+          ]
         },
         "utilization": {
-          "description": "Utilization ratio: the placed area over the material used. A\nsingle-sheet solve divides by the boundary's area. A multi-sheet solve\n(`config.multi_sheet`) divides by each sheet's height times the length\nof it the placements reach, so the last sheet is not charged the length\nit leaves unused.",
+          "description": "Utilization ratio: the placed area over the area of the sheets taken\n(`sheets_used` × the boundary's area), in a single-sheet and a\nmulti-sheet (`config.multi_sheet`) solve alike -- one field, one meaning.\n`0.0` when nothing was placed or on error.",
           "format": "double",
           "type": "number"
         },
@@ -1814,6 +1825,29 @@
       "required": [
         "name",
         "reads"
+      ],
+      "type": "object"
+    },
+    "UnplacedReasonResponse": {
+      "additionalProperties": false,
+      "description": "Why one geometry is unplaced.",
+      "properties": {
+        "id": {
+          "description": "Geometry ID -- an entry of `unplaced`.",
+          "type": "string"
+        },
+        "reason": {
+          "description": "`exceeds_boundary` or `no_room`.",
+          "enum": [
+            "exceeds_boundary",
+            "no_room"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "reason"
       ],
       "type": "object"
     },

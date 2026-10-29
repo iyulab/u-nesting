@@ -178,12 +178,13 @@ The C interface and WebAssembly response:
 | `success` | Whether the request was solved; `false` with `error`, `code` and `details` when it was refused |
 | `placements` | List of part placements (instance-level) |
 | `sheets_used` | Number of sheets used |
-| `utilization` | Material utilization (0-1) |
+| `utilization` | Placed area over the area of the sheets taken (`sheets_used` × the boundary's area), 0-1, in every mode |
 | `total_requested` | Σ of every part's quantity (instance-level) |
 | `unplaced` | **Deduplicated** IDs of parts that couldn't be placed (not per-instance) |
+| `unplaced_reasons` | Why each entry of `unplaced` is unplaced, in the same order: `exceeds_boundary` (no allowed rotation fits the sheet less the margin — more sheets will not help) or `no_room` (it fits; the layout was full) |
 | `unplaced_count` | Instance-level count of parts that couldn't be placed |
 | `all_placed` | Whether every requested instance was placed |
-| `used_bounding_box`, `used_utilization` | The placed parts' footprint and their area over it |
+| `used_bounding_box`, `used_utilization` | The placed parts' footprint and their area over it; `null` in a multi-sheet solve, when nothing was placed, and on a refusal |
 | `stop_reason` | Why the run stopped: `completed`, `optimal`, `target_reached`, `iteration_limit`, `no_improvement`, `time_limit` (the best layout found when `time_limit_ms` ran out) or `cancelled` |
 | `elapsed_ms` | Solving time in milliseconds |
 

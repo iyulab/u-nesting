@@ -26,7 +26,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{
     offered_names, Config, Dimension, ProgressCallback, ProgressInfo, Solver, Strategy,
 };
-use u_nesting_core::{Error, Placement, Result, SolveResult, StopReason};
+use u_nesting_core::{Error, Placement, Result, SolveResult, StopReason, UnplacedReason};
 
 use crate::placement_utils::{hole_nfps, inset_boundary, nesting_fitness, offset_nfp};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -60,6 +60,43 @@ fn mirror_candidates(geom: &Geometry2D) -> &'static [bool] {
     } else {
         &[false]
     }
+}
+
+/// Records why each unplaced geometry is unplaced: `ExceedsBoundary` when no
+/// allowed rotation of it fits inside the boundary's bounding box less the
+/// margin (no sheet of this size can take it), `NoRoom` otherwise. The
+/// bounding box makes `ExceedsBoundary` a sufficient condition for a
+/// non-rectangular boundary, never a false claim.
+fn classify_unplaced(
+    result: &mut SolveResult<f64>,
+    geometries: &[Geometry2D],
+    boundary: &Boundary2D,
+    margin: f64,
+) {
+    let (b_min, b_max) = boundary.aabb();
+    let room = [
+        b_max[0] - b_min[0] - 2.0 * margin,
+        b_max[1] - b_min[1] - 2.0 * margin,
+    ];
+    result.classify_unplaced(|id| {
+        let Some(geometry) = geometries.iter().find(|g| g.id() == id) else {
+            return UnplacedReason::NoRoom;
+        };
+        let mut angles = geometry.rotations();
+        if angles.is_empty() {
+            angles.push(0.0);
+        }
+        let fits = angles.into_iter().any(|angle| {
+            let (g_min, g_max) = geometry.aabb_at_rotation(angle);
+            g_max[0] - g_min[0] <= room[0] + 1e-9 * room[0].abs().max(1.0)
+                && g_max[1] - g_min[1] <= room[1] + 1e-9 * room[1].abs().max(1.0)
+        });
+        if fits {
+            UnplacedReason::NoRoom
+        } else {
+            UnplacedReason::ExceedsBoundary
+        }
+    });
 }
 
 /// Returns `(placed_count, used_bounding_box_area)` for a solve result.
@@ -1450,6 +1487,7 @@ impl Nester2D {
         final_result.boundaries_used = strip_index;
         final_result.stop_reason = stop_reason;
         final_result.deduplicate_unplaced();
+        classify_unplaced(&mut final_result, geometries, boundary, self.config.margin);
         // Authoritative instance-level request total (Σ quantity), mirroring solve().
         final_result.total_requested = geometries.iter().map(|g| g.quantity()).sum();
 
@@ -1508,8 +1546,13 @@ impl Nester2D {
         final_result.total_piece_area = total_piece_area;
         final_result.total_material_used = total_material_used;
 
-        if total_material_used > 0.0 {
-            final_result.utilization = total_piece_area / total_material_used;
+        // `utilization` means the same in every mode: placed area over the area
+        // of the sheets taken. The strip-consumption figure
+        // (`total_material_used`) stays a statistic of the result, not the
+        // wire's efficiency.
+        let sheets_area = strip_index as f64 * boundary.measure();
+        if sheets_area > 0.0 {
+            final_result.utilization = total_piece_area / sheets_area;
         }
         final_result.computation_time_ms = start.elapsed_ms();
 
@@ -1548,6 +1591,7 @@ impl Nester2D {
         // that stopped early, or a placement the filter removed, cannot leave
         // the list out of step with the placements.
         result.record_unplaced(geometries);
+        classify_unplaced(&mut result, geometries, boundary, self.config.margin);
         // Authoritative instance-level request total (Σ quantity), recorded once
         // at the top-level entry point where `geometries` is the full request.
         result.total_requested = geometries.iter().map(|g| g.quantity()).sum();

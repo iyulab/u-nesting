@@ -427,11 +427,14 @@ interface SolveResponse {
                            // unplaced instances = total_requested - placements.length
   unplaced: string[];      // deduplicated geometry ids (NOT per-instance), so
                            // unplaced.length under-reports the failed-instance count
+  unplaced_reasons: { id: string; reason: "exceeds_boundary" | "no_room" }[];
+                           // why each unplaced id is unplaced, same order: exceeds_boundary = no
+                           // allowed rotation fits the sheet (more sheets will not help), no_room = it fits
   unplaced_count: number;  // instance-level: placements.length + unplaced_count == total_requested
   all_placed: boolean;     // every requested instance placed; success alone does not say so
-  used_bounding_box: [number, number]; // [width, height] of the placed footprint;
-                                       // [0, 0] for multi-sheet solves and when nothing is placed
-  used_utilization: number; // placed area over used_bounding_box (packing density)
+  used_bounding_box: [number, number] | null; // [width, height] of the placed footprint;
+                                              // null for multi-sheet solves and when nothing is placed
+  used_utilization: number | null; // placed area over used_bounding_box (packing density); null where it is
   stop_reason: StopReason | null; // why the run stopped; null on a refusal
   elapsed_ms: number;
 }

@@ -55,6 +55,12 @@ class Placement(TypedDict):
     rotation: List[float]
     boundary_index: int
 
+class UnplacedReason(TypedDict):
+    """Why one geometry is unplaced: ``exceeds_boundary`` (no allowed rotation fits the
+    sheet -- more sheets will not help) or ``no_room`` (it fits; the layout was full)."""
+    geometry_id: str
+    reason: Literal["exceeds_boundary", "no_room"]
+
 class SolveResult(TypedDict):
     """Solve operation result. Every refusal is reported here, never raised."""
     success: bool
@@ -63,10 +69,15 @@ class SolveResult(TypedDict):
     utilization: float
     total_requested: int
     unplaced: List[str]
+    unplaced_reasons: List["UnplacedReason"]
+    """Why each of ``unplaced`` is unplaced, in the same order."""
     unplaced_count: int
     all_placed: bool
-    used_bounding_box: List[float]
-    used_utilization: float
+    used_bounding_box: Optional[List[float]]
+    """``[width, height]`` of the placed pieces' footprint; ``None`` where it is
+    not defined (multi-sheet, nothing placed, a refusal) -- never ``[0, 0]``."""
+    used_utilization: Optional[float]
+    """Placed area over ``used_bounding_box``'s area; ``None`` exactly where it is."""
     stop_reason: Optional[
         Literal[
             "completed",

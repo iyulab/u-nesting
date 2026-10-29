@@ -30,6 +30,32 @@ pub struct StripStats {
 /// every piece, or a search that spent the budget it is given internally.
 pub use u_metaheur::StopReason;
 
+/// Why a geometry is among a solve's unplaced ones.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+pub enum UnplacedReason {
+    /// No allowed rotation of the piece fits inside the boundary's bounding
+    /// box (less the margin): no sheet of this size can take it, however many
+    /// are offered.
+    ExceedsBoundary,
+    /// The piece fits a sheet but the layout had no room left for it.
+    NoRoom,
+}
+
+impl UnplacedReason {
+    /// Every reason, in the order of [`Self::name`]'s vocabulary.
+    pub const ALL: [Self; 2] = [Self::ExceedsBoundary, Self::NoRoom];
+
+    /// The reason's wire name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ExceedsBoundary => "exceeds_boundary",
+            Self::NoRoom => "no_room",
+        }
+    }
+}
+
 /// Result of a nesting or packing solve operation.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
@@ -46,6 +72,11 @@ pub struct SolveResult<S> {
 
     /// IDs of geometries that could not be placed.
     pub unplaced: Vec<GeometryId>,
+
+    /// Why each of `unplaced` is unplaced, in the same order. Empty where the
+    /// solver does not classify (3D packing).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub unplaced_reasons: Vec<(GeometryId, UnplacedReason)>,
 
     /// Computation time in milliseconds.
     pub computation_time_ms: u64,
@@ -103,6 +134,7 @@ impl<S> SolveResult<S> {
             boundaries_used: 0,
             utilization: 0.0,
             unplaced: Vec::new(),
+            unplaced_reasons: Vec::new(),
             computation_time_ms: 0,
             generations: None,
             iterations: None,
@@ -212,6 +244,16 @@ impl<S> SolveResult<S> {
     pub fn record_unplaced<G: crate::geometry::Geometry>(&mut self, geometries: &[G]) {
         self.unplaced = unplaced_ids(&self.placements, geometries);
         self.deduplicate_unplaced();
+    }
+
+    /// Records why each unplaced geometry is unplaced, in the order of
+    /// `unplaced`.
+    pub fn classify_unplaced(&mut self, reason_of: impl Fn(&GeometryId) -> UnplacedReason) {
+        self.unplaced_reasons = self
+            .unplaced
+            .iter()
+            .map(|id| (id.clone(), reason_of(id)))
+            .collect();
     }
 
     /// Computes placement statistics.

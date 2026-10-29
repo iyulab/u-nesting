@@ -179,18 +179,25 @@ Solve a 2D nesting problem.
 **Returns:** Dictionary with:
 - `success` (bool): Whether solve succeeded
 - `placements` (list): Placement results (instance-level)
-- `utilization` (float): Area utilization ratio
+- `utilization` (float): Placed area over the area of the sheets taken
+  (`boundaries_used` × the boundary's area), in every mode
 - `boundaries_used` (int): Number of sheets used (>1 only when `multi_sheet=True`)
 - `total_requested` (int): Σ of every geometry's quantity (instance-level total).
   Unplaced instance count = `total_requested - len(placements)`
 - `unplaced` (list): **Deduplicated** IDs of items that couldn't be placed (not
   per-instance, so `len(unplaced)` under-reports the failed-instance count)
+- `unplaced_reasons` (list): Why each entry of `unplaced` is unplaced, in the same
+  order: `{"geometry_id": ..., "reason": "exceeds_boundary" | "no_room"}` --
+  `exceeds_boundary`: no allowed rotation of the part fits the sheet less the margin,
+  so more sheets will not help; `no_room`: it fits, the layout was full
 - `unplaced_count` (int): Instance-level count of unplaced instances
 - `all_placed` (bool): Whether every requested instance was placed -- prefer it
   to `success`, which only says the solve was not refused
-- `used_bounding_box` (list): `[width, height]` of the placed parts' footprint
-  (2D; `[0, 0]` for 3D)
-- `used_utilization` (float): Part area over `used_bounding_box` (2D; `0` for 3D)
+- `used_bounding_box` (list or `None`): `[width, height]` of the placed parts'
+  footprint; `None` where there is none (multi-sheet, nothing placed, 3D, a
+  refusal) -- never `[0, 0]`
+- `used_utilization` (float or `None`): Part area over `used_bounding_box`;
+  `None` exactly where it is
 - `stop_reason` (str): Why the run stopped — `completed` (the method ran to its own end), `optimal` (an exact method proved it), `target_reached` (every part placed at `target_utilization` or more), `iteration_limit`, `no_improvement` (the search stalled), `time_limit` (`time_limit_ms` ran out; the layout is the best found by then) or `cancelled`. `None` on a refusal
 - `computation_time_ms` (int): Solve time
 - `error` (str | None): Readable text when the request was refused

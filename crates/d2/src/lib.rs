@@ -343,5 +343,6 @@ pub use nfp::{NfpConfig, NfpMethod};
 pub use spatial_index::{SpatialEntry2D, SpatialIndex2D};
 pub use u_nesting_core::{
     Boundary, Boundary2DExt, Config, Error, Geometry, Geometry2DExt, Placement, Result,
-    RotationConstraint, SolveResult, Solver, StopReason, Strategy, Transform2D, AABB2D,
+    RotationConstraint, SolveResult, Solver, StopReason, Strategy, Transform2D, UnplacedReason,
+    AABB2D,
 };

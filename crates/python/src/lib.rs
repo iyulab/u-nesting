@@ -68,6 +68,13 @@ struct PlacementOutput {
     boundary_index: usize,
 }
 
+/// Why one geometry is unplaced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct UnplacedReasonOutput {
+    geometry_id: String,
+    reason: String,
+}
+
 /// Solve result output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SolveOutput {
@@ -81,6 +88,11 @@ struct SolveOutput {
     #[serde(default)]
     total_requested: usize,
     unplaced: Vec<String>,
+    /// Why each of `unplaced` is unplaced, in the same order: `{"geometry_id": ...,
+    /// "reason": "exceeds_boundary" | "no_room"}` -- `exceeds_boundary`: no allowed rotation fits
+    /// the sheet, more sheets will not help; `no_room`: it fits, the layout was full.
+    #[serde(default)]
+    unplaced_reasons: Vec<UnplacedReasonOutput>,
     /// Instance-level count of unplaced instances (`total_requested - len(placements)`).
     /// Satisfies `len(placements) + unplaced_count == total_requested`. Unlike the
     /// deduplicated `unplaced` ID list, this never undercounts a multi-quantity geometry.
@@ -91,17 +103,20 @@ struct SolveOutput {
     /// partial packing.
     #[serde(default)]
     all_placed: bool,
-    /// Used-footprint bounding box `[width, height]` (2D only; `[0, 0]` for 3D).
-    /// Boundary-padding independent, unlike `utilization`.
+    /// Used-footprint bounding box `[width, height]`. Boundary-padding
+    /// independent, unlike `utilization`. `None` where there is no such
+    /// footprint: a multi-sheet solve, nothing placed, 3D, or a refusal --
+    /// never `[0, 0]`.
     #[serde(default)]
-    used_bounding_box: [f64; 2],
-    /// Packing-density metric (2D only; `0` for 3D): `piece_area / (used_w × used_h)`
-    /// against the used bounding box. The denominator shrinks on **both** axes, so
-    /// this is **not** a fixed-width stock-efficiency figure — for fixed-width stock
+    used_bounding_box: Option<[f64; 2]>,
+    /// Packing-density metric: `piece_area / (used_w × used_h)` against the used
+    /// bounding box. The denominator shrinks on **both** axes, so this is **not**
+    /// a fixed-width stock-efficiency figure — for fixed-width stock
     /// (fabric/coil/sheet) the unused width is real waste. Fixed-width consumers
     /// should compute `piece_area / (boundary_width × used_bounding_box[1])`.
+    /// `None` exactly where `used_bounding_box` is.
     #[serde(default)]
-    used_utilization: f64,
+    used_utilization: Option<f64>,
     /// Why the run stopped (`completed`, `optimal`, `target_reached`,
     /// `iteration_limit`, `no_improvement`, `time_limit`, `cancelled`);
     /// `None` on a refusal.
@@ -129,10 +144,11 @@ impl SolveOutput {
             utilization: 0.0,
             total_requested: 0,
             unplaced: vec![],
+            unplaced_reasons: vec![],
             unplaced_count: 0,
             all_placed: false,
-            used_bounding_box: [0.0, 0.0],
-            used_utilization: 0.0,
+            used_bounding_box: None,
+            used_utilization: None,
             stop_reason: None,
             computation_time_ms: 0,
             error: Some(e.to_string()),
@@ -150,21 +166,26 @@ impl SolveOutput {
 
     /// Fills the derived accounting/metric fields from a solved result, applying
     /// the same instance-level invariant as the FFI/WASM `From` impl.
-    fn accounting(result: &u_nesting_core::SolveResult<f64>) -> (usize, bool, [f64; 2], f64) {
+    fn accounting(
+        result: &u_nesting_core::SolveResult<f64>,
+    ) -> (usize, bool, Option<[f64; 2]>, Option<f64>) {
         let unplaced_count = result
             .total_requested
             .saturating_sub(result.placements.len());
         let [uw, uh] = result.used_bounding_box;
         let used_area = uw * uh;
-        let used_utilization = if used_area > 0.0 {
-            result.total_piece_area / used_area
+        let (used_bounding_box, used_utilization) = if used_area > 0.0 {
+            (
+                Some(result.used_bounding_box),
+                Some(result.total_piece_area / used_area),
+            )
         } else {
-            0.0
+            (None, None)
         };
         (
             unplaced_count,
             unplaced_count == 0,
-            result.used_bounding_box,
+            used_bounding_box,
             used_utilization,
         )
     }
@@ -194,7 +215,7 @@ impl SolveOutput {
 ///
 /// Returns:
 ///     Dictionary with keys: success, placements, boundaries_used,
-///     utilization, total_requested, unplaced, unplaced_count, all_placed,
+///     utilization, total_requested, unplaced, unplaced_reasons, unplaced_count, all_placed,
 ///     used_bounding_box, used_utilization, stop_reason, computation_time_ms,
 ///     error, code,
 ///     details. Every refusal -- a malformed or unknown key, a setting out of
@@ -431,6 +452,14 @@ fn solved_output(result: u_nesting_core::SolveResult<f64>) -> SolveOutput {
         utilization: result.utilization,
         total_requested: result.total_requested,
         unplaced: result.unplaced,
+        unplaced_reasons: result
+            .unplaced_reasons
+            .into_iter()
+            .map(|(geometry_id, reason)| UnplacedReasonOutput {
+                geometry_id,
+                reason: reason.name().to_string(),
+            })
+            .collect(),
         unplaced_count,
         all_placed,
         used_bounding_box,
@@ -760,8 +789,11 @@ mod tests {
         result.total_piece_area = 100.0;
         result.used_bounding_box = [0.0, 0.0];
         let (_, _, bbox, used_utilization) = SolveOutput::accounting(&result);
-        assert_eq!(bbox, [0.0, 0.0]);
-        assert_eq!(used_utilization, 0.0, "must not divide by a zero footprint");
+        assert_eq!(bbox, None, "an empty footprint is not defined, not zero");
+        assert_eq!(
+            used_utilization, None,
+            "must not divide by a zero footprint"
+        );
     }
 
     #[test]
@@ -770,8 +802,8 @@ mod tests {
         result.total_piece_area = 50.0;
         result.used_bounding_box = [10.0, 20.0];
         let (_, _, bbox, used_utilization) = SolveOutput::accounting(&result);
-        assert_eq!(bbox, [10.0, 20.0]);
-        assert_eq!(used_utilization, 0.25);
+        assert_eq!(bbox, Some([10.0, 20.0]));
+        assert_eq!(used_utilization, Some(0.25));
     }
 
     // ---- input deserialization defaults ----
