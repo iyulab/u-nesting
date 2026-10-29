@@ -33,6 +33,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - An unknown `strategy` name is refused with the names the dimension offers in this
   build (what `available_strategies()` lists), not every name the parser knows.
 
+### Fixed
+
+- The candidate grid of the exact solvers (`milp` feature, off in the published packages)
+  no longer has a floor of one unit: a layout measured in metres got a grid as coarse as
+  its pieces, and the same layout in millimetres a fine one. The step is a fraction of the
+  smallest piece and of the sheet, so the unit does not change it.
+
 ## [0.28.2] - 2026-10-28
 
 ### Added

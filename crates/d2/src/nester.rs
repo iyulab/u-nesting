@@ -166,7 +166,9 @@ pub struct Nester2D {
 /// piece, however long it was given. Deriving the step from the pieces keeps
 /// the model at a size the search can actually finish: a quarter of the
 /// smallest side any piece has, so a piece still has several distinct
-/// positions along its own width.
+/// positions along its own width. The step is a fraction of the pieces and of
+/// the sheet, never a number of units: the same layout measured in metres and
+/// in millimetres gets the same grid.
 #[cfg(feature = "milp")]
 fn milp_grid_step(geometries: &[Geometry2D], boundary: &Boundary2D) -> f64 {
     let smallest_side = geometries
@@ -176,14 +178,22 @@ fn milp_grid_step(geometries: &[Geometry2D], boundary: &Boundary2D) -> f64 {
             (g_max[0] - g_min[0]).min(g_max[1] - g_min[1])
         })
         .fold(f64::INFINITY, f64::min);
-    if !smallest_side.is_finite() || smallest_side <= 0.0 {
-        return 1.0;
-    }
     let (b_min, b_max) = boundary.aabb();
     let longest_side = (b_max[0] - b_min[0]).max(b_max[1] - b_min[1]);
-    // Never finer than a unit, and never so fine that the sheet alone would
-    // carry more than a few hundred steps in either direction.
-    (smallest_side / 4.0).max(1.0).max(longest_side / 256.0)
+    // Never so fine that the sheet alone would carry more than a few hundred
+    // steps in either direction.
+    let finest = longest_side / 256.0;
+    let step = if smallest_side.is_finite() && smallest_side > 0.0 {
+        (smallest_side / 4.0).max(finest)
+    } else {
+        finest
+    };
+    // A sheet with no extent has no grid to speak of: the configured default.
+    if step.is_finite() && step > 0.0 {
+        step
+    } else {
+        1.0
+    }
 }
 
 /// The time budget the exact solver runs under.
@@ -1674,12 +1684,34 @@ mod tests {
             assert_eq!(milp_grid_step(&pieces, &boundary), 100_000.0 / 256.0);
         }
 
-        /// Never finer than a unit, whatever the pieces are.
+        /// The grid is a fraction of the pieces, not a number of units: the
+        /// same layout in metres and in millimetres gets the same grid, and a
+        /// piece smaller than a unit still has several positions.
         #[test]
-        fn the_step_never_goes_below_a_unit() {
-            let boundary = Boundary2D::rectangle(10.0, 10.0);
-            let pieces = [Geometry2D::rectangle("tiny", 0.5, 0.5)];
-            assert_eq!(milp_grid_step(&pieces, &boundary), 1.0);
+        fn the_step_does_not_depend_on_the_unit() {
+            let pieces = |scale: f64| {
+                [
+                    Geometry2D::rectangle("wide", 80.0 * scale, 40.0 * scale),
+                    Geometry2D::rectangle("small", 20.0 * scale, 60.0 * scale),
+                ]
+            };
+            let millimetres = milp_grid_step(&pieces(1.0), &Boundary2D::rectangle(400.0, 100.0));
+            for scale in [1e-3, 1e-6, 1e3] {
+                let step = milp_grid_step(
+                    &pieces(scale),
+                    &Boundary2D::rectangle(400.0 * scale, 100.0 * scale),
+                );
+                assert!(
+                    (step / scale - millimetres).abs() <= 1e-9 * millimetres,
+                    "scale {scale}: {step}"
+                );
+            }
+            // A piece under a unit gets a grid under a unit.
+            let tiny = milp_grid_step(
+                &[Geometry2D::rectangle("tiny", 0.5, 0.5)],
+                &Boundary2D::rectangle(10.0, 10.0),
+            );
+            assert_eq!(tiny, 0.125);
         }
     }
 
