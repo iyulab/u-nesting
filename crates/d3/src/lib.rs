@@ -94,7 +94,7 @@ pub use stability::{
     PlacedBox, StabilityAnalyzer, StabilityConstraint, StabilityReport, StabilityResult,
 };
 pub use u_nesting_core::{
-    Config, Error, Placement, Result, SolveResult, Solver, StopReason, Strategy,
+    Config, Error, Placement, Result, SolveResult, Solver, StopReason, Strategy, UnplacedReason,
 };
 
 /// Builds a [`Pack3DResponse`](u_nesting_core::api_types::Pack3DResponse) from a
@@ -152,6 +152,16 @@ pub fn build_pack3d_response(
         utilization: result.utilization,
         total_requested: result.total_requested,
         unplaced: result.unplaced.clone(),
+        unplaced_reasons: result
+            .unplaced_reasons
+            .iter()
+            .map(
+                |(geometry_id, reason)| u_nesting_core::api_types::UnplacedReasonResponse {
+                    geometry_id: geometry_id.clone(),
+                    reason: reason.name().to_string(),
+                },
+            )
+            .collect(),
         unplaced_count,
         all_placed: unplaced_count == 0,
         stop_reason: Some(result.stop_reason),

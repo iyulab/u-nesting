@@ -164,6 +164,7 @@ The C interface and WebAssembly response:
 | `utilization` | Volume utilization (0-1) |
 | `total_requested` | Σ of every box's quantity (instance-level) |
 | `unplaced` | **Deduplicated** IDs of boxes that couldn't be placed (not per-instance) |
+| `unplaced_reasons` | Why each entry of `unplaced` is unplaced, in the same order: `exceeds_boundary` (no allowed orientation fits the container less the margin, or the box alone outweighs `max_mass`) or `no_room` (it fits; the packing was full) |
 | `unplaced_count` | Instance-level count of boxes that couldn't be placed |
 | `all_placed` | Whether every requested instance was placed |
 | `stop_reason` | Why the run stopped: `completed`, `target_reached`, `iteration_limit`, `no_improvement`, `time_limit` (the best packing found when `time_limit_ms` ran out) or `cancelled` |

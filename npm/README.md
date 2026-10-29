@@ -464,6 +464,9 @@ interface Pack3DResponse {
                            // unplaced instances = total_requested - placements.length
   unplaced: string[];      // deduplicated geometry ids (NOT per-instance), so
                            // unplaced.length under-reports the failed-instance count
+  unplaced_reasons: { id: string; reason: "exceeds_boundary" | "no_room" }[];
+                           // why each unplaced id is unplaced, same order: exceeds_boundary = no allowed
+                           // orientation fits the container (or the box outweighs max_mass), no_room = it fits
   unplaced_count: number;  // instance-level: placements.length + unplaced_count == total_requested
   all_placed: boolean;     // every requested instance packed; success alone does not say so
   stop_reason: StopReason | null; // why the run stopped; null on a refusal

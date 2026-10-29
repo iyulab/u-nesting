@@ -17,7 +17,7 @@ use u_nesting_core::sa::SaConfig;
 use u_nesting_core::solver::{
     offered_names, Config, Dimension, ProgressCallback, ProgressInfo, Solver, Strategy,
 };
-use u_nesting_core::{Error, Placement, Result, SolveResult, StopReason};
+use u_nesting_core::{Error, Placement, Result, SolveResult, StopReason, UnplacedReason};
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -397,10 +397,44 @@ impl Packer3D {
         if boundary.has_gravity() || boundary.has_stability() {
             self.enforce_support(&mut result, geometries, boundary);
         }
+        self.classify_unplaced(&mut result, geometries, boundary);
         // The solve's time, not its search's: a search starts after its
         // greedy start, and the limit covers all of it.
         result.computation_time_ms = start.elapsed_ms();
         Ok(result)
+    }
+
+    /// Records why each unplaced geometry is unplaced: `ExceedsBoundary` when
+    /// it can never be packed into this container -- no allowed orientation
+    /// fits the container's dimensions less the margin on every side, or it
+    /// alone is heavier than the container's maximum mass -- `NoRoom`
+    /// otherwise.
+    fn classify_unplaced(
+        &self,
+        result: &mut SolveResult<f64>,
+        geometries: &[Geometry3D],
+        boundary: &Boundary3D,
+    ) {
+        let margin = self.config.margin;
+        let room = boundary.dimensions().map(|d| d - 2.0 * margin);
+        result.classify_unplaced(|id| {
+            let Some(geometry) = geometries.iter().find(|g| g.id() == id) else {
+                return UnplacedReason::NoRoom;
+            };
+            let too_heavy = matches!(
+                (geometry.mass(), boundary.max_mass()),
+                (Some(m), Some(max)) if m > max
+            );
+            let fits = (0..geometry.allowed_orientations().len()).any(|o| {
+                let d = geometry.dimensions_for_orientation(o);
+                (0..3).all(|axis| d[axis] <= room[axis] + 1e-9 * room[axis].abs().max(1.0))
+            });
+            if fits && !too_heavy {
+                UnplacedReason::NoRoom
+            } else {
+                UnplacedReason::ExceedsBoundary
+            }
+        });
     }
 
     /// Whether a constructive fill must stop before its next box, and why:

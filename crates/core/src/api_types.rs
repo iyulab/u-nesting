@@ -559,7 +559,8 @@ pub struct UnplacedReasonResponse {
     #[serde(rename = "id")]
     pub geometry_id: String,
 
-    /// `exceeds_boundary` or `no_room`.
+    /// `exceeds_boundary` or `no_room`. In 3D `exceeds_boundary` also covers a
+    /// piece heavier than the container's maximum mass.
     #[cfg_attr(feature = "tsify", tsify(type = "\"exceeds_boundary\" | \"no_room\""))]
     #[cfg_attr(test, schemars(schema_with = "card_schema::unplaced_reason"))]
     pub reason: String,
@@ -845,6 +846,15 @@ pub struct Pack3DResponse {
     #[serde(default)]
     pub unplaced: Vec<String>,
 
+    /// Why each of `unplaced` is unplaced, in the same order:
+    /// `exceeds_boundary` (no allowed orientation fits the container's
+    /// dimensions less the margin, or the piece alone is heavier than the
+    /// container's maximum mass -- more containers will not help) or `no_room`
+    /// (it fits; the packing had no room left). Empty when nothing is
+    /// unplaced and on error responses.
+    #[serde(default)]
+    pub unplaced_reasons: Vec<UnplacedReasonResponse>,
+
     /// Instance-level count of geometry instances that could not be placed
     /// (`total_requested - placements.len()`). Satisfies the invariant
     /// `placements.len() + unplaced_count == total_requested`. `0` on error.
@@ -926,6 +936,7 @@ impl Pack3DResponse {
             utilization: 0.0,
             total_requested: 0,
             unplaced: Vec::new(),
+            unplaced_reasons: Vec::new(),
             unplaced_count: 0,
             all_placed: false,
             stop_reason: None,

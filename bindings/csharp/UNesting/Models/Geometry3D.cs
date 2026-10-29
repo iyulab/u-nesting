@@ -266,6 +266,7 @@ public sealed record Placement3D(
 /// copy while <see cref="Unplaced"/> lists box ids once each.
 /// </param>
 /// <param name="Unplaced">Ids of the boxes with at least one copy left unpacked, each once.</param>
+/// <param name="UnplacedReasons">Why each entry of <paramref name="Unplaced"/> is unpacked, in the same order: no allowed orientation fits the container (or the box outweighs its limit), or the packing ran out of room.</param>
 /// <param name="UnplacedCount">Copies left unpacked: <c>Placements.Count + UnplacedCount == TotalRequested</c>.</param>
 /// <param name="AllPlaced">Whether every requested copy was packed; check this to detect a partial result.</param>
 /// <param name="StopReason">
@@ -279,6 +280,7 @@ public sealed record PackingResult(
     double Utilization,
     int TotalRequested,
     IReadOnlyList<string> Unplaced,
+    IReadOnlyList<UnplacedPart> UnplacedReasons,
     int UnplacedCount,
     bool AllPlaced,
     StopReason StopReason,

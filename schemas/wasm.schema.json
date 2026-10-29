@@ -1239,6 +1239,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "unplaced_reasons": {
+          "default": [],
+          "description": "Why each of `unplaced` is unplaced, in the same order:\n`exceeds_boundary` (no allowed orientation fits the container's\ndimensions less the margin, or the piece alone is heavier than the\ncontainer's maximum mass -- more containers will not help) or `no_room`\n(it fits; the packing had no room left). Empty when nothing is\nunplaced and on error responses.",
+          "items": {
+            "$ref": "#/$defs/UnplacedReasonResponse"
+          },
+          "type": "array"
+        },
         "utilization": {
           "description": "Volume utilization ratio.",
           "format": "double",
@@ -1837,7 +1845,7 @@
           "type": "string"
         },
         "reason": {
-          "description": "`exceeds_boundary` or `no_room`.",
+          "description": "`exceeds_boundary` or `no_room`. In 3D `exceeds_boundary` also covers a\npiece heavier than the container's maximum mass.",
           "enum": [
             "exceeds_boundary",
             "no_room"

@@ -9,10 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `unplaced_reasons` in the 2D result: why each unplaced part is unplaced, in the
-  order of `unplaced` -- `exceeds_boundary` (no allowed rotation fits the sheet less
-  the margin, so more sheets will not help) or `no_room` (it fits; the layout was
-  full). WebAssembly, C ABI, Python and `UNesting` (`UnplacedReasons`).
+- `unplaced_reasons` in the 2D and 3D results: why each unplaced part is unplaced, in
+  the order of `unplaced` -- `exceeds_boundary` (no allowed rotation or orientation
+  fits the sheet or container less the margin, or, in 3D, the box alone outweighs the
+  container's maximum mass, so more of them will not help) or `no_room` (it fits; the
+  layout was full). WebAssembly, C ABI, Python and `UNesting` (`UnplacedReasons`).
 
 ### Changed
 
