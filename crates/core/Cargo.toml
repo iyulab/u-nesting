@@ -21,7 +21,7 @@ rand.workspace = true
 # Wall-clock timing that works on both native (re-exports std::time) and wasm
 # (performance.now()). Restores time_limit_ms termination on wasm.
 web-time = "1"
-u-metaheur = "0.18"
+u-metaheur = "0.19"
 u-geometry = "0.6"
 # TypeScript declarations of the wire types, for the WebAssembly binding.
 tsify = { version = "0.5", default-features = false, features = ["js"], optional = true }
