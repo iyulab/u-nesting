@@ -227,7 +227,12 @@ impl Geometry2D {
 
             let cross = (x2 - x1) * (y3 - y2) - (y2 - y1) * (x3 - x2);
 
-            if cross.abs() > 1e-10 {
+            // A turn is the sine of the angle between the edges times their lengths:
+            // below 1e-12 of that it is a straight line and no turn at all (a fixed
+            // floor on the cross product, a length squared, made every polygon with
+            // sides under about 1e-5 convex whatever its shape).
+            let edges = (x2 - x1).hypot(y2 - y1) * (x3 - x2).hypot(y3 - y2);
+            if cross.abs() > 1e-12 * edges {
                 let current_sign = if cross > 0.0 { 1 } else { -1 };
                 if sign == 0 {
                     sign = current_sign;
@@ -713,5 +718,42 @@ mod tests {
         let expected = std::f64::consts::PI * 10.0 * 10.0;
         // Circle approximation should be close to actual area
         assert_relative_eq!(area, expected, epsilon = 5.0);
+    }
+
+    /// Powers of two from about 1e-30 to 1e30 (exact scalings) and the unit.
+    const EXPONENTS: [i32; 10] = [-100, -60, -40, -20, -10, 0, 10, 20, 40, 100];
+
+    /// Whether a polygon is convex is a fact about its shape: the turn at a
+    /// vertex was compared with an absolute 1e-10 (a length squared), so every
+    /// polygon with sides under about 1e-5 read as convex whatever its shape.
+    #[test]
+    fn convexity_does_not_depend_on_the_unit() {
+        let square = vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let l_shape = vec![
+            (0.0, 0.0),
+            (20.0, 0.0),
+            (20.0, 10.0),
+            (10.0, 10.0),
+            (10.0, 20.0),
+            (0.0, 20.0),
+        ];
+        for e in EXPONENTS {
+            let s = 2f64.powi(e);
+            let scaled = |ring: &[(f64, f64)]| -> Vec<(f64, f64)> {
+                ring.iter().map(|&(x, y)| (x * s, y * s)).collect()
+            };
+            assert!(
+                Geometry2D::new("sq")
+                    .with_polygon(scaled(&square))
+                    .is_convex(),
+                "square at 2^{e}"
+            );
+            assert!(
+                !Geometry2D::new("l")
+                    .with_polygon(scaled(&l_shape))
+                    .is_convex(),
+                "an L shape at 2^{e}"
+            );
+        }
     }
 }

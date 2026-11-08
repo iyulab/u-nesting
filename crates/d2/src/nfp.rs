@@ -472,10 +472,11 @@ fn compute_minkowski_erosion(boundary: &[(f64, f64)], geometry: &[(f64, f64)]) -
 
     // Fast path for rectangular boundary (common case)
     let (b_min_x, b_min_y, b_max_x, b_max_y) = bounding_box(boundary);
+    let rect_tolerance = corner_tolerance(b_min_x, b_min_y, b_max_x, b_max_y);
     let is_rect = boundary.len() == 4
         && boundary.iter().all(|&(x, y)| {
-            ((x - b_min_x).abs() < 1e-10 || (x - b_max_x).abs() < 1e-10)
-                && ((y - b_min_y).abs() < 1e-10 || (y - b_max_y).abs() < 1e-10)
+            ((x - b_min_x).abs() < rect_tolerance || (x - b_max_x).abs() < rect_tolerance)
+                && ((y - b_min_y).abs() < rect_tolerance || (y - b_max_y).abs() < rect_tolerance)
         });
 
     // Get geometry bounding box (AABB of the geometry in its current orientation)
@@ -495,7 +496,7 @@ fn compute_minkowski_erosion(boundary: &[(f64, f64)], geometry: &[(f64, f64)]) -
         let ifp_max_y = b_max_y - g_max_y;
 
         // Check if IFP is valid (non-empty)
-        if ifp_min_x > ifp_max_x + 1e-10 || ifp_min_y > ifp_max_y + 1e-10 {
+        if ifp_min_x > ifp_max_x + rect_tolerance || ifp_min_y > ifp_max_y + rect_tolerance {
             return Err(Error::invalid_geometry(
                 None,
                 "Geometry too large to fit in boundary".into(),
@@ -595,9 +596,10 @@ fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>
         let (min_x, min_y, max_x, max_y) = bounding_box(polygon);
 
         // Check if all vertices are on the bounding box edges (axis-aligned)
+        let tolerance = corner_tolerance(min_x, min_y, max_x, max_y);
         let is_axis_aligned = polygon.iter().all(|&(x, y)| {
-            ((x - min_x).abs() < 1e-10 || (x - max_x).abs() < 1e-10)
-                && ((y - min_y).abs() < 1e-10 || (y - max_y).abs() < 1e-10)
+            ((x - min_x).abs() < tolerance || (x - max_x).abs() < tolerance)
+                && ((y - min_y).abs() < tolerance || (y - max_y).abs() < tolerance)
         });
 
         if is_axis_aligned {
@@ -627,6 +629,10 @@ fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>
     // Any other polygon: a true inward offset. If the offset splits the
     // polygon, keep the largest piece — the inner-fit polygon is built from a
     // single boundary ring, and dropping a smaller piece only forgoes positions.
+    // What is left of the polygon is nothing once its area is under 1e-12 of the
+    // polygon's own (an absolute floor called every sheet with sides under about
+    // 1e-5 collapsed).
+    let collapsed = 1e-12 * signed_area(polygon).abs();
     crate::polygon_ops::offset_polygon(polygon, -offset)
         .into_iter()
         .max_by(|p, q| {
@@ -635,8 +641,15 @@ fn shrink_polygon(polygon: &[(f64, f64)], offset: f64) -> Result<Vec<(f64, f64)>
                 .partial_cmp(&signed_area(q).abs())
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
-        .filter(|ring| signed_area(ring).abs() > 1e-10)
+        .filter(|ring| signed_area(ring).abs() > collapsed)
         .ok_or_else(|| Error::invalid_geometry(None, "Offset polygon collapsed".into()))
+}
+
+/// How far a vertex may be from the bounding box's sides and still be on them:
+/// 1e-11 of the box's extent (an absolute 1e-10 was loose for a sheet a
+/// micrometre across and tight for one at large coordinates).
+fn corner_tolerance(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> f64 {
+    1e-11 * (max_x - min_x).max(max_y - min_y)
 }
 
 /// Computes bounding box of a polygon.
@@ -1346,7 +1359,10 @@ fn push_edge_crossings(
             let (q, q2) = (b[j], b[(j + 1) % b.len()]);
             let (sx, sy) = (q2.0 - q.0, q2.1 - q.1);
             let denom = rx * sy - ry * sx;
-            if denom.abs() < 1e-12 {
+            // Parallel when the sine of the angle between the edges is nothing:
+            // the cross product is that times both lengths, so a fixed floor on
+            // it (a length squared) tells parallel edges only in one unit.
+            if denom.abs() <= 1e-14 * rx.hypot(ry) * sx.hypot(sy) {
                 continue; // parallel: no single crossing point
             }
             let (qpx, qpy) = (q.0 - p.0, q.1 - p.1);
@@ -2633,5 +2649,72 @@ mod tests {
         let nfp = compute_nfp_with_config(&a, &b, 0.0, &config).unwrap();
 
         assert!(!nfp.is_empty());
+    }
+
+    /// Powers of two from about 1e-30 to 1e30 (exact scalings) and the unit.
+    const EXPONENTS: [i32; 10] = [-100, -60, -40, -20, -10, 0, 10, 20, 40, 100];
+
+    /// A sheet that is not a rectangle shrinks by the margin in every unit: a
+    /// result under an absolute area of 1e-10 was called "collapsed", so any
+    /// non-rectangular sheet with sides under about 1e-5 was refused.
+    #[test]
+    fn shrinking_a_polygon_does_not_depend_on_the_unit() {
+        let triangle = [(0.0, 0.0), (12.0, 0.0), (3.0, 9.0)];
+        let base = shrink_polygon(&triangle, 0.5).expect("shrinks at the unit scale");
+        let base_area = signed_area(&base).abs();
+        for e in EXPONENTS {
+            let s = 2f64.powi(e);
+            let scaled: Vec<_> = triangle.iter().map(|&(x, y)| (x * s, y * s)).collect();
+            let got = shrink_polygon(&scaled, 0.5 * s)
+                .unwrap_or_else(|err| panic!("collapsed at 2^{e}: {err:?}"));
+            let ratio = signed_area(&got).abs() / (s * s) / base_area;
+            assert!((ratio - 1.0).abs() < 1e-3, "area ratio {ratio} at 2^{e}");
+        }
+    }
+
+    /// Where two rings cross is a fact about their shapes: edges were called
+    /// parallel when the cross product of their directions (a length squared)
+    /// was under an absolute 1e-12.
+    #[test]
+    fn edge_crossings_do_not_depend_on_the_unit() {
+        let a = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let b = [(5.0, 5.0), (15.0, 5.0), (15.0, 15.0), (5.0, 15.0)];
+        for e in EXPONENTS {
+            let s = 2f64.powi(e);
+            let scaled = |ring: &[(f64, f64)]| -> Vec<(f64, f64)> {
+                ring.iter().map(|&(x, y)| (x * s, y * s)).collect()
+            };
+            let mut out = Vec::new();
+            push_edge_crossings(&scaled(&a), &scaled(&b), PackingAxis::X, None, &mut out);
+            assert_eq!(out.len(), 2, "two crossings at 2^{e}: {out:?}");
+        }
+    }
+
+    /// A rectangular sheet is a rectangle in every unit, and a piece that is
+    /// too big for it is refused in every unit (the overshoot allowed was an
+    /// absolute 1e-10).
+    #[test]
+    fn rectangular_erosion_does_not_depend_on_the_unit() {
+        for e in EXPONENTS {
+            let s = 2f64.powi(e);
+            let rect = |w: f64, h: f64| -> Vec<(f64, f64)> {
+                [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]
+                    .iter()
+                    .map(|&(x, y)| (x * s, y * s))
+                    .collect()
+            };
+            let fits = compute_minkowski_erosion(&rect(10.0, 6.0), &rect(4.0, 2.0))
+                .unwrap_or_else(|err| panic!("a piece that fits is refused at 2^{e}: {err:?}"));
+            let (lo_x, lo_y, hi_x, hi_y) = bounding_box(&fits.polygons[0]);
+            assert_eq!(
+                (lo_x / s, lo_y / s, hi_x / s, hi_y / s),
+                (0.0, 0.0, 6.0, 4.0),
+                "positions at 2^{e}"
+            );
+            assert!(
+                compute_minkowski_erosion(&rect(10.0, 6.0), &rect(10.0 + 1e-3, 2.0)).is_err(),
+                "a piece a thousandth too wide is accepted at 2^{e}"
+            );
+        }
     }
 }

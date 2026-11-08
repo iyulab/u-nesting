@@ -61,7 +61,8 @@ pub fn closest_point_on_polygon(
         let dy = qy - py;
         let len_sq = dx * dx + dy * dy;
 
-        let t = if len_sq < 1e-12 {
+        // Only an edge with no length has no direction to project on.
+        let t = if len_sq <= 0.0 {
             0.0
         } else {
             ((point.0 - px) * dx + (point.1 - py) * dy) / len_sq
@@ -159,5 +160,27 @@ mod tests {
         // Home to first: 10.0, first end to second start: sqrt((10)^2 + (10)^2)
         let expected = 10.0 + ((10.0_f64).powi(2) + (10.0_f64).powi(2)).sqrt();
         assert!((dist - expected).abs() < 1e-10);
+    }
+
+    /// The closest point on a boundary is the projection of the point on the
+    /// nearest edge, however short the edges are in their unit: an edge with a
+    /// squared length under an absolute 1e-12 (a side under a micrometre, in
+    /// metres) answered with its start point.
+    #[test]
+    fn closest_point_does_not_depend_on_the_unit() {
+        for e in [-100, -60, -40, -20, -10, 0, 10, 20, 40, 100] {
+            let s = 2f64.powi(e);
+            let square: Vec<_> = [(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]
+                .iter()
+                .map(|&(x, y)| (x * s, y * s))
+                .collect();
+            let (point, index, t) = closest_point_on_polygon(&square, (s, -s)).expect("non-empty");
+            assert_eq!(index, 0, "edge at 2^{e}");
+            assert!((t - 0.25).abs() < 1e-12, "t {t} at 2^{e}");
+            assert!(
+                (point.0 / s - 1.0).abs() < 1e-12 && (point.1 / s).abs() < 1e-12,
+                "point {point:?} at 2^{e}"
+            );
+        }
     }
 }

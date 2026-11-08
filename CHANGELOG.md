@@ -41,6 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for something else -- was rejected as self-intersecting, and float noise at large
   coordinates read as a genuine turn. The floor is now a fraction of the products the
   determinant is the difference of.
+- Four more floors that were absolute lengths, areas or cross products, so a part drawn in
+  meters at the scale of a micrometre feature (sides under about 1e-5) met them: a polygon was
+  convex whatever its shape (`Geometry::is_convex`, the turn compared with an absolute 1e-10);
+  a non-rectangular sheet was refused as "Offset polygon collapsed" (area under an absolute
+  1e-10); edges were parallel to everything when the cross product of their directions was under
+  1e-12, so no crossing was found; the closest point on a boundary came back as the start of
+  any edge with a squared length under 1e-12. Each is now relative to the shapes it judges
+  (the sine of the angle, the sheet's own area, the box's extent), so the answer does not depend
+  on the unit. The rectangular fast path's corner and overshoot tolerance follows the box's
+  extent as well.
 - The candidate grid of the exact solvers (`milp` feature, off in the published packages)
   no longer has a floor of one unit: a layout measured in metres got a grid as coarse as
   its pieces, and the same layout in millimetres a fine one. The step is a fraction of the
