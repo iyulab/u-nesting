@@ -6,19 +6,22 @@
 //! boundary-containment check and the simple-polygon check need. These helpers
 //! provide it with an orientation (signed-area) test.
 
-/// Absolute threshold below which an orientation determinant is treated as zero
-/// (collinear). Cross products here are in coordinate-squared units; nesting
-/// coordinates are typically 1e0–1e4, so this tolerates float noise without
-/// masking genuine crossings.
-const ORIENT_EPS: f64 = 1e-9;
+/// Fraction of the two products an orientation determinant is the difference of
+/// at or under which it is nothing but their rounding (collinear). A fixed
+/// floor on the determinant, which is a length squared, calls every ring with
+/// sides under about 3e-5 collinear and cannot tell float noise from a genuine
+/// touch at large coordinates; this is the same in every unit.
+const ORIENT_REL_EPS: f64 = 1e-12;
 
 /// Sign of the cross product `(b - a) × (c - a)`:
 /// `+1` if `a→b→c` turns counter-clockwise, `-1` if clockwise, `0` if collinear.
 fn orientation(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> i32 {
-    let cross = (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0);
-    if cross > ORIENT_EPS {
+    let (left, right) = ((b.0 - a.0) * (c.1 - a.1), (b.1 - a.1) * (c.0 - a.0));
+    let cross = left - right;
+    let floor = ORIENT_REL_EPS * (left.abs() + right.abs());
+    if cross > floor {
         1
-    } else if cross < -ORIENT_EPS {
+    } else if cross < -floor {
         -1
     } else {
         0
@@ -26,12 +29,14 @@ fn orientation(a: (f64, f64), b: (f64, f64), c: (f64, f64)) -> i32 {
 }
 
 /// Returns true when point `p`, known to be collinear with segment `a→b`, lies
-/// within that segment's bounding box (i.e. actually on the segment).
+/// within that segment's bounding box (i.e. actually on the segment), give or
+/// take the same fraction of the segment's size.
 fn on_segment(a: (f64, f64), b: (f64, f64), p: (f64, f64)) -> bool {
-    p.0 >= a.0.min(b.0) - ORIENT_EPS
-        && p.0 <= a.0.max(b.0) + ORIENT_EPS
-        && p.1 >= a.1.min(b.1) - ORIENT_EPS
-        && p.1 <= a.1.max(b.1) + ORIENT_EPS
+    let slack = ORIENT_REL_EPS * (a.0 - b.0).abs().max((a.1 - b.1).abs());
+    p.0 >= a.0.min(b.0) - slack
+        && p.0 <= a.0.max(b.0) + slack
+        && p.1 >= a.1.min(b.1) - slack
+        && p.1 <= a.1.max(b.1) + slack
 }
 
 /// Returns true when closed segments `p1→p2` and `p3→p4` intersect, including
@@ -380,5 +385,64 @@ mod tests {
             (0.0, 20.0),
         ];
         assert!(is_simple_polygon(&l));
+    }
+
+    /// Powers of two from about 1e-99 to 1e99 (exact scalings) and the unit.
+    const EXPONENTS: [i32; 13] = [
+        -330, -200, -100, -60, -40, -20, -10, 0, 10, 20, 40, 100, 330,
+    ];
+
+    fn scaled(ring: &[(f64, f64)], s: f64) -> Vec<(f64, f64)> {
+        ring.iter().map(|&(x, y)| (x * s, y * s)).collect()
+    }
+
+    /// Whether a ring is simple, and whether two segments meet, is a question
+    /// about shape, not about the unit the coordinates are in: an absolute
+    /// floor on the orientation determinant (a length squared) called every
+    /// ring with sides under about 3e-5 "not simple", and could not see the
+    /// touching of rings far above the coordinate range it was written for.
+    #[test]
+    fn simplicity_and_crossing_do_not_depend_on_the_unit() {
+        let square = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)];
+        let bowtie = [(0.0, 0.0), (10.0, 10.0), (10.0, 0.0), (0.0, 10.0)];
+        // The last vertex lies on the first edge's line, inside it: a touch.
+        let touching = [
+            (0.0, 0.0),
+            (10.0, 0.0),
+            (10.0, 10.0),
+            (5.0, 10.0),
+            (5.0, 0.0),
+            (0.0, 10.0),
+        ];
+        for e in EXPONENTS {
+            let s = 2f64.powi(e);
+            assert!(is_simple_polygon(&scaled(&square, s)), "square at 2^{e}");
+            assert!(!is_simple_polygon(&scaled(&bowtie, s)), "bowtie at 2^{e}");
+            assert!(
+                !is_simple_polygon(&scaled(&touching, s)),
+                "a ring whose edge ends on another edge, at 2^{e}"
+            );
+            let [a, b, c, d] =
+                [(0.0, 0.0), (4.0, 4.0), (0.0, 4.0), (4.0, 0.0)].map(|(x, y)| (x * s, y * s));
+            assert!(
+                segments_intersect(a, b, c, d),
+                "crossing diagonals at 2^{e}"
+            );
+            let [e0, e1] = [(5.0, 0.0), (9.0, 4.0)].map(|(x, y)| (x * s, y * s));
+            assert!(
+                !segments_intersect(a, b, e0, e1),
+                "parallel segments at 2^{e}"
+            );
+            let [f0, f1] = [(2.0, 2.0), (6.0, 6.0)].map(|(x, y)| (x * s, y * s));
+            assert!(
+                segments_intersect(a, b, f0, f1),
+                "collinear overlap at 2^{e}"
+            );
+            let [g0, g1] = [(5.0, 5.0), (6.0, 6.0)].map(|(x, y)| (x * s, y * s));
+            assert!(
+                !segments_intersect(a, b, g0, g1),
+                "collinear, apart, at 2^{e}"
+            );
+        }
     }
 }

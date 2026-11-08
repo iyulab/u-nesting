@@ -35,6 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A ring is judged simple, and two segments are judged to meet, the same way in every unit.
+  The orientation test compared its determinant (a length squared) with an absolute 1e-9, so a
+  valid polygon with sides under about 3e-5 -- a part in meters, a feature in a unit chosen
+  for something else -- was rejected as self-intersecting, and float noise at large
+  coordinates read as a genuine turn. The floor is now a fraction of the products the
+  determinant is the difference of.
 - The candidate grid of the exact solvers (`milp` feature, off in the published packages)
   no longer has a floor of one unit: a layout measured in metres got a grid as coarse as
   its pieces, and the same layout in millimetres a fine one. The step is a fraction of the
