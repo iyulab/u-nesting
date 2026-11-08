@@ -122,8 +122,8 @@ jobs:
           retention-days: 1
 
   # ── Pack & Publish NuGet ──
-  pack-and-publish:
-    name: Pack & Publish NuGet
+  pack:
+    name: Pack NuGet
     needs: [check-version, build-native]
     runs-on: ubuntu-latest
     steps:
@@ -182,29 +182,36 @@ jobs:
         run: |
           bash scripts/nuget_package_smoke.sh ./nupkg ${{ env.PACKAGE_NAME }} ${{ needs.check-version.outputs.version }} bindings/csharp/package-smoke/Program.cs
 
+      # The packages go to the central publisher (iyulab/nuget-publish): it holds the
+      # trusted-publishing policy and the only NuGet credential flow. Only the
+      # .nupkg / .snupkg files, and for a day.
       - name: Upload NuGet package artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: nuget-package
-          path: ./nupkg/*.nupkg
-          retention-days: 7
+          name: nuget-packages
+          path: |
+            ./nupkg/*.nupkg
+            ./nupkg/*.snupkg
+          if-no-files-found: error
+          retention-days: 1
 
-      - name: Publish to NuGet.org
-        if: github.event_name == 'push' || inputs.publish != false
-        run: |
-          VERSION=${{ needs.check-version.outputs.version }}
-          dotnet nuget push ./nupkg/${{ env.PACKAGE_NAME }}.${VERSION}.nupkg \
-            --api-key ${{ secrets.NUGET_API_KEY }} \
-            --source https://api.nuget.org/v3/index.json \
-            --skip-duplicate
+  # Ask the central publisher to push the packages above. This repository holds no
+  # NuGet key. The call must not run for a pull request.
+  publish:
+    name: Publish to NuGet.org (central)
+    needs: pack
+    if: github.event_name == 'push' || inputs.publish != false
+    uses: iyulab/nuget-publish/.github/workflows/request.yml@de1e58c8bcefaf88f497fcb58899a1c6e84f4e29 # main
+    permissions: {}
+    secrets: inherit
 
   # The artifacts above only carry files between jobs. Once the package is on
   # NuGet they are storage nobody reads, so they go as soon as it is published.
   # A run that does not publish keeps them for inspection until they expire.
-  # This job alone gets `actions: write`; the publishing job keeps its own scope.
+  # This job alone gets `actions: write`.
   cleanup-artifacts:
     name: Delete intermediate artifacts
-    needs: pack-and-publish
+    needs: publish
     if: github.event_name == 'push' || inputs.publish != false
     runs-on: ubuntu-latest
     permissions:
@@ -214,4 +221,4 @@ jobs:
         with:
           name: |
             native-*
-            nuget-package
+            nuget-packages
