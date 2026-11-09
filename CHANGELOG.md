@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Takes u-geometry 0.7 and u-metaheur 0.19.1: the offset, collision and normalisation floors, the VNS acceptance margin, the roulette floor and the rule engine's tie now follow the size of the values, so parts and costs in small units are no longer misjudged.
 - **BREAKING: the Python package needs Python 3.9 or later** (it was 3.8). pyo3 0.30 builds the stable-ABI wheel from 3.9, and
   Python 3.8 reached end of life in October 2024; `requires-python` is `>=3.9` and a Python 3.8 environment keeps the last
   release that supports it.
