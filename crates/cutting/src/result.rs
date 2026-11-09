@@ -12,7 +12,8 @@ pub struct CuttingPathResult {
     /// Ordered sequence of cutting steps.
     pub sequence: Vec<CutStep>,
 
-    /// Total cutting distance (sum of all contour perimeters).
+    /// Total cutting distance (sum of all contour perimeters). An edge shared by
+    /// two parts is cut along each contour and is counted twice.
     pub total_cut_distance: f64,
 
     /// Total non-cutting (rapid traverse) distance.

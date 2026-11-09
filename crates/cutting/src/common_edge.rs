@@ -1,8 +1,15 @@
 //! Common-edge detection for nested parts.
 //!
-//! Detects pairs of edges from different parts that are close enough to be
-//! cut in a single pass (common-line cutting). This reduces material waste,
-//! pierce count, and total cutting time.
+//! Detects pairs of edges from different parts that are close enough that one
+//! cut could serve both (common-line cutting).
+//!
+//! # What is and is not done with a detected edge
+//!
+//! Detection only. The cutting sequence uses it as an adjacency bonus (parts
+//! that share an edge are cut one after the other, which shortens rapid travel);
+//! every contour is still cut along its whole perimeter, so a shared edge is cut
+//! twice, and `total_cut_distance`, the pierce count and the time estimate count
+//! it twice. Merging the two passes into one is not implemented.
 //!
 //! # Algorithm
 //!

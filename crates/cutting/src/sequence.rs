@@ -50,7 +50,7 @@ pub fn optimize_sequence(
 /// When `common_edges` is provided, the NN heuristic applies a distance
 /// discount for contours sharing edges with the previously cut contour.
 /// This encourages consecutive cutting of adjacent parts, reducing rapid
-/// travel and enabling potential common-edge single-pass cutting.
+/// travel. The shared edge itself is still cut once per contour.
 pub fn optimize_sequence_with_adjacency(
     contours: &[CutContour],
     dag: &CuttingDag,

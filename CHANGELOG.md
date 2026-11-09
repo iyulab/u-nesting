@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The cutting crate described common-edge detection as edges that "are cut in a single pass", which reduces pierce
+  count and cutting time. It is detection only: the sequence uses a detected edge as an adjacency bonus, and every
+  contour is still cut along its whole perimeter, so a shared edge is cut twice and `total_cut_distance`, the pierce
+  count and `estimated_time_seconds` count it twice. The documentation of the module, of the adjacency sequencing and of
+  `total_cut_distance` now says so; merging the two passes is not implemented.
+
 ## [0.29.0] - 2026-11-09
 
 ### Added
