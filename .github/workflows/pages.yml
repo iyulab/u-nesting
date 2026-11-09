@@ -42,7 +42,7 @@ jobs:
       # wasm-pack at a fixed version, its download checked against the hash in
       # the action's manifest. (jetli/wasm-pack-action, used before, runs on
       # node16 and resolved its version at run time.)
-      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2
+      - uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2
         with:
           tool: wasm-pack@0.15.0
 
