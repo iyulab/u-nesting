@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING: the Python package needs Python 3.9 or later** (it was 3.8). pyo3 0.30 builds the stable-ABI wheel from 3.9, and
+  Python 3.8 reached end of life in October 2024; `requires-python` is `>=3.9` and a Python 3.8 environment keeps the last
+  release that supports it.
 - The WebAssembly and Python READMEs say that `stop_reason: "cancelled"` is reachable
   only through the C ABI's progress callback, and how to end a run early there
   (`time_limit_ms`, or a Worker's `terminate()`).

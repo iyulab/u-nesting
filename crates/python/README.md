@@ -279,7 +279,7 @@ assert "parameter_out_of_range" in known
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.9+
 - No additional dependencies
 
 ## License

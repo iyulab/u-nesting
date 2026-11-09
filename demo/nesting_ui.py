@@ -4,7 +4,7 @@ U-Nesting Interactive UI
 =========================
 SigmaNest XML 파일을 로드하여 네스팅 최적화를 시뮬레이션하는 대화형 UI
 
-Requirements: Python 3.8+ with tkinter (built-in)
+Requirements: Python 3.9+ with tkinter (built-in)
 Usage: python nesting_ui.py
 """
 
