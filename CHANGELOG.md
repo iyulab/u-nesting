@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-11-09
+
 ### Added
 
 - `unplaced_reasons` in the 2D and 3D results: why each unplaced part is unplaced, in
