@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 6b9330025f693a43fc827ae16ba6a35ed8fe3d432a7553bab8bf07123cb451d6 # shrinks to case = Case { frames: [(22.0, 22.0, 4.0, One, false)], chips: [(3.0, 3.0, false, false), (3.0, 3.0, false, false)], sheet: (50.0, 40.0), spacing: 0.0, margin: 0.0 }
+cc e52d136b71502a2c515deab282bf33b6a8017a616d41aa71a65e038e2ab28fdf # shrinks to case = Case { frames: [(22.0, 22.0, 4.0, One, false)], chips: [(3.0, 3.0, false, false), (3.0, 3.0, false, false)], sheet: (50.0, 40.0), spacing: 0.0, margin: 0.0 }
+cc 5055dbd0b3e31c88ee2c4ab57ce3d82b22bda629c781c1a49e82bd7b4406b88c # shrinks to case = Case { frames: [(22.0, 22.0, 4.0, One, false)], chips: [(3.0, 3.0, false, false), (3.0, 3.0, false, false)], sheet: (50.0, 40.0), spacing: 0.0, margin: 0.0 }
+cc aca0c7a9999b705ce400e175185560e44281461e8b343ac26db3a196d39ba364 # shrinks to case = Case { frames: [(22.0, 22.0, 4.0, Notched, false)], chips: [(3.0, 3.0, false, false), (3.0, 5.571500221680008, false, false), (7.352283642990726, 7.257808050831948, false, false)], sheet: (50.0, 44.062438713999256), spacing: 2.0, margin: 0.5 }
