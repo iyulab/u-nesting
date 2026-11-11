@@ -8,8 +8,8 @@ use crate::ga_nesting::run_ga_nesting;
 use crate::gdrr_nesting::run_gdrr_nesting;
 use crate::geometry::Geometry2D;
 use crate::nfp::{
-    compute_ifp_with_margin_and_mirror, compute_nfp_mirrored, find_bottom_left_placement,
-    rotate_nfp, translate_nfp, Nfp, NfpCache, PackingAxis, PlacedGeometry,
+    compute_ifp_with_margin_and_mirror, find_bottom_left_placement, Nfp, NfpCache, PackingAxis,
+    PlacedGeometry,
 };
 #[cfg(feature = "milp")]
 use crate::nfp_cm_solver::run_nfp_cm_nesting;
@@ -28,7 +28,7 @@ use u_nesting_core::solver::{
 };
 use u_nesting_core::{Error, Placement, Result, SolveResult, StopReason, UnplacedReason};
 
-use crate::placement_utils::{hole_nfps, inset_boundary, nesting_fitness, offset_nfp};
+use crate::placement_utils::{hole_nfps, inset_boundary, nesting_fitness, nfps_against_placed};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use u_nesting_core::timing::Timer;
@@ -498,48 +498,17 @@ impl Nester2D {
                             continue;
                         }
 
-                        // Compute NFPs with all placed geometries (using cache)
-                        let mut nfps: Vec<Nfp> = Vec::new();
-                        for placed in &placed_geometries {
-                            // Use cache for NFP computation (between original geometries at origin)
-                            // Key: (placed_geometry_id, current_geometry_id, rotation, mirror_a, mirror_b)
-                            let cache_key = (
-                                placed.geometry.id().as_str(),
-                                geom.id().as_str(),
-                                rotation - placed.rotation, // Relative rotation
-                                placed.mirrored,
-                                mirror,
-                            );
-
-                            // Compute NFP at origin and cache it (with relative rotation)
-                            // NFP is computed between the placed geometry at origin (no rotation)
-                            // and the new geometry with relative rotation applied.
-                            // Formula: NFP_actual = translate(rotate(NFP_relative, placed.rotation), placed.position)
-                            let nfp_at_origin =
-                                match self.nfp_cache.get_or_compute_mirrored(cache_key, || {
-                                    let placed_at_origin = placed.geometry.clone();
-                                    compute_nfp_mirrored(
-                                        &placed_at_origin,
-                                        geom,
-                                        rotation - placed.rotation,
-                                        placed.mirrored,
-                                        mirror,
-                                    )
-                                    // Grown by `spacing` before caching: an offset commutes with the
-                                    // rotation and translation below, and `config` never changes for
-                                    // this nester, so the cache never holds an NFP for another spacing.
-                                    .map(|nfp| offset_nfp(&nfp, spacing))
-                                }) {
-                                    Ok(nfp) => nfp,
-                                    Err(_) => continue,
-                                };
-
-                            // Transform NFP: first rotate by placed.rotation, then translate to placed.position
-                            // This correctly accounts for the placed geometry's actual orientation
-                            let rotated_nfp = rotate_nfp(&nfp_at_origin, placed.rotation);
-                            let translated_nfp = translate_nfp(&rotated_nfp, placed.position);
-                            nfps.push(translated_nfp);
-                        }
+                        // The no-fit polygons against every placed geometry (cached; `config`
+                        // never changes for this nester, so the cache never holds an NFP for
+                        // another spacing).
+                        let mut nfps: Vec<Nfp> = nfps_against_placed(
+                            &self.nfp_cache,
+                            &placed_geometries,
+                            geom,
+                            rotation,
+                            mirror,
+                            spacing,
+                        );
 
                         // `spacing` separates pieces from each other, not from the boundary —
                         // clearance to the edge is `margin`, already applied to the boundary.
@@ -1716,7 +1685,8 @@ mod tests {
     }
 
     use super::*;
-    use crate::placement_utils::polygon_centroid;
+    use crate::nfp::{compute_nfp_mirrored, translate_nfp};
+    use crate::placement_utils::{offset_nfp, polygon_centroid};
 
     /// The result names placements by geometry id (and instance), and the
     /// placement check looks each geometry up by id -- two geometries with one
