@@ -462,7 +462,10 @@ pub fn compute_ifp_with_margin_and_mirror(
 /// This gives all positions where placing geometry keeps it entirely inside boundary.
 /// For a rectangular boundary and convex geometry, this shrinks the boundary
 /// by the geometry's extent in each direction.
-fn compute_minkowski_erosion(boundary: &[(f64, f64)], geometry: &[(f64, f64)]) -> Result<Nfp> {
+pub(crate) fn compute_minkowski_erosion(
+    boundary: &[(f64, f64)],
+    geometry: &[(f64, f64)],
+) -> Result<Nfp> {
     if boundary.len() < 3 || geometry.len() < 3 {
         return Err(Error::invalid_geometry(
             None,
@@ -653,7 +656,7 @@ fn corner_tolerance(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> f64 {
 }
 
 /// Computes bounding box of a polygon.
-fn bounding_box(polygon: &[(f64, f64)]) -> (f64, f64, f64, f64) {
+pub(crate) fn bounding_box(polygon: &[(f64, f64)]) -> (f64, f64, f64, f64) {
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
@@ -696,7 +699,7 @@ fn compute_minkowski_sum_convex(poly_a: &[(f64, f64)], poly_b: &[(f64, f64)]) ->
 /// 1. Decompose both polygons into convex parts (triangulation merged into convex pieces)
 /// 2. Compute pairwise Minkowski sums of convex parts
 /// 3. Union all partial results using `i_overlay`
-fn compute_nfp_general(
+pub(crate) fn compute_nfp_general(
     stat_exterior: &[(f64, f64)],
     rotated_orbiting: &[(f64, f64)],
 ) -> Result<Nfp> {
@@ -989,7 +992,7 @@ fn union_polygons(polygons: &[Vec<(f64, f64)>]) -> Result<Nfp> {
 // ============================================================================
 
 /// Rotates a polygon around the origin by the given angle (in radians).
-fn rotate_polygon(polygon: &[(f64, f64)], angle: f64) -> Vec<(f64, f64)> {
+pub(crate) fn rotate_polygon(polygon: &[(f64, f64)], angle: f64) -> Vec<(f64, f64)> {
     if angle.abs() < 1e-10 {
         return polygon.to_vec();
     }
@@ -1009,7 +1012,7 @@ fn is_polygon_convex(polygon: &[(f64, f64)]) -> bool {
 }
 
 /// Ensures polygon vertices are in counter-clockwise order.
-fn ensure_ccw(polygon: &[(f64, f64)]) -> Vec<(f64, f64)> {
+pub(crate) fn ensure_ccw(polygon: &[(f64, f64)]) -> Vec<(f64, f64)> {
     geom_polygon::ensure_ccw(polygon)
 }
 
@@ -1061,7 +1064,7 @@ pub fn point_outside_all_nfps(point: (f64, f64), nfps: &[&Nfp]) -> bool {
 }
 
 /// Checks if a point is on the boundary of a polygon (not strictly inside or outside).
-fn point_on_polygon_boundary(point: (f64, f64), polygon: &[(f64, f64)]) -> bool {
+pub(crate) fn point_on_polygon_boundary(point: (f64, f64), polygon: &[(f64, f64)]) -> bool {
     let (px, py) = point;
     let n = polygon.len();
     const EPS: f64 = 1e-10;

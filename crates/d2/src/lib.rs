@@ -73,6 +73,7 @@ pub mod nfp;
 pub mod nfp_cm_solver;
 pub mod nfp_sliding;
 pub mod placement_utils;
+pub mod pocket;
 pub(crate) mod polygon_ops;
 pub mod sa_nesting;
 pub mod spatial_index;
