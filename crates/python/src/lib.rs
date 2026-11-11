@@ -200,6 +200,8 @@ impl SolveOutput {
 ///         - quantity (int, optional): Number of copies (default: 1)
 ///         - rotations (list, optional): Allowed rotation angles in degrees
 ///         - allow_flip (bool, optional): Allow mirroring (default: False)
+///         - allow_part_in_part (bool, optional): Let other pieces be placed in this piece's holes
+///           (default: False); read by nfp, ga, brkga, sa, gdrr and alns, refused by other strategies
 ///         - holes (list, optional): List of hole polygons
 ///     boundary: Boundary dictionary with either:
 ///         - width, height: For rectangular boundary

@@ -285,7 +285,8 @@ impl Geometry2D {
         let mut geom = Self::new(request.id)
             .with_polygon(points(request.polygon))
             .with_quantity(quantity)
-            .with_flip(request.allow_flip);
+            .with_flip(request.allow_flip)
+            .with_part_in_part(request.allow_part_in_part);
         if let Some(rotations) = request.rotations {
             geom = geom.with_rotations_deg(rotations);
         }

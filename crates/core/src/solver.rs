@@ -128,6 +128,19 @@ impl Strategy {
         }
     }
 
+    /// Whether this strategy, run in 2D, places a piece in a hole of another that
+    /// allows it (`allow_part_in_part`): the strategies that place by no-fit
+    /// polygons. The row packer reads the sheet as boxes and the exact solvers as
+    /// a grid; neither sees a hole, so a request that asks for it is refused
+    /// rather than run without it.
+    pub fn places_in_holes(self) -> bool {
+        use Strategy::*;
+        matches!(
+            self,
+            NfpGuided | GeneticAlgorithm | Brkga | SimulatedAnnealing | Gdrr | Alns
+        )
+    }
+
     /// The strategies `dimension` offers in this build, in
     /// [`Strategy::NAMES`] order.
     pub fn offered(dimension: Dimension) -> Vec<Self> {

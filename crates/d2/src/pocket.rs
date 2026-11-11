@@ -492,6 +492,38 @@ mod tests {
     }
 
     #[test]
+    fn a_strategy_that_does_not_place_in_holes_refuses_a_piece_that_asks_for_it() {
+        use crate::boundary::Boundary2D;
+        use crate::nester::Nester2D;
+        use u_nesting_core::solver::{Config, Dimension, Solver, Strategy};
+
+        let geometries = vec![
+            rect_piece(5.0, 5.0),
+            frame(square(6.0, 6.0, 24.0, 24.0)).with_part_in_part(true),
+        ];
+        let boundary = Boundary2D::rectangle(100.0, 100.0);
+        for strategy in Strategy::offered(Dimension::TwoD) {
+            let outcome = Nester2D::new(
+                Config::default()
+                    .with_strategy(strategy)
+                    .with_time_limit(1_000),
+            )
+            .solve(&geometries, &boundary);
+            if strategy.places_in_holes() {
+                assert!(outcome.is_ok(), "{strategy:?}: {:?}", outcome.err());
+            } else {
+                let error = outcome.expect_err("refused");
+                assert_eq!(
+                    error.parameter(),
+                    Some("geometries[1].allow_part_in_part"),
+                    "{strategy:?}"
+                );
+            }
+        }
+        assert!(!Strategy::BottomLeftFill.places_in_holes());
+    }
+
+    #[test]
     fn the_hull_walk_finds_the_vertices_of_a_notched_ring() {
         let c = vec![
             (8.0, 8.0),

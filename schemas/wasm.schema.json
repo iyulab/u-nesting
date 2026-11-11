@@ -623,6 +623,11 @@
           "description": "Allow flipping.",
           "type": "boolean"
         },
+        "allow_part_in_part": {
+          "default": false,
+          "description": "Let other pieces be placed in this piece's holes (default: a hole is kept\nempty). Read by the strategies that place by no-fit polygons -- `nfp`,\n`ga`, `brkga`, `sa`, `gdrr`, `alns`; any other strategy refuses a request\nthat sets it (`invalid_option`). List the piece before the pieces it\ntakes: `nfp` places in the order given, and the searches try orders.",
+          "type": "boolean"
+        },
         "holes": {
           "default": null,
           "description": "Interior holes (optional).",

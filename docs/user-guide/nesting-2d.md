@@ -55,6 +55,7 @@ Each geometry has:
 | `quantity` | integer | No | Number of copies, at least 1 (default: 1). The copies of all parts together must fit an unsigned machine word; the part that takes the total past it is refused (`parameter_out_of_range`, `geometries[i].quantity`, `max` the room left) |
 | `rotations` | number[] | No | Allowed angles in degrees, at least one; omit it for a fixed orientation |
 | `allow_flip` | boolean | No | Allow mirror reflection (default: false) |
+| `allow_part_in_part` | boolean | No | Let other pieces be placed in this piece's holes (default: false — a hole is kept empty). Read by `nfp`, `ga`, `brkga`, `sa`, `gdrr` and `alns`; any other strategy refuses a request that sets it. List the piece before the pieces it takes: `nfp` places in the order given, and the searches try orders |
 | `holes` | number[][][] | No | Interior holes (CW orientation) |
 
 ### Wire Contract: Polylines and Units

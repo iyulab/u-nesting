@@ -1243,6 +1243,26 @@ impl Nester2D {
         if !self.config.strategy.is_offered(Dimension::TwoD) {
             return Err(self.unoffered_strategy());
         }
+        // A piece that allows part-in-part asks the strategy to place in its holes;
+        // one that does not look at holes would run without it and say nothing.
+        let strategy = self.config.strategy;
+        if !strategy.places_in_holes() {
+            if let Some(index) = geometries.iter().position(Geometry2D::allow_part_in_part) {
+                let readers: Vec<&str> = Strategy::offered(Dimension::TwoD)
+                    .into_iter()
+                    .filter(|s| s.places_in_holes())
+                    .map(Strategy::name)
+                    .collect();
+                return Err(Error::invalid_option(
+                    &format!("geometries[{index}].allow_part_in_part"),
+                    format!(
+                        "geometries[{index}].allow_part_in_part is read by {} -- strategy \"{}\" does not place in holes; leave it out",
+                        readers.join(", "),
+                        strategy.name()
+                    ),
+                ));
+            }
+        }
         Ok(())
     }
 

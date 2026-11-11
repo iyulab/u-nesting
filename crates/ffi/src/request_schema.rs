@@ -158,7 +158,7 @@ fn the_2d_request_schema_has_the_keys_the_request_takes() {
         "geometries": [{
             "id": "plate", "polygon": [[0, 0], [10, 0], [10, 5], [0, 5]],
             "holes": [[[1, 1], [2, 1], [2, 2]]], "quantity": 1,
-            "rotations": [0, 90], "allow_flip": false
+            "rotations": [0, 90], "allow_flip": false, "allow_part_in_part": false
         }],
         "boundary": {"width": 50, "height": 50},
         "config": Value::Object(every_setting())

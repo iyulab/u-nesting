@@ -82,6 +82,11 @@
           "type": "boolean",
           "description": "Whether flipping/mirroring is allowed",
           "default": false
+        },
+        "allow_part_in_part": {
+          "type": "boolean",
+          "description": "Whether other pieces may be placed in this piece's holes. Read by the strategies that place by no-fit polygons (nfp, ga, brkga, sa, gdrr, alns); any other strategy refuses a request that sets it. List the piece before the pieces it takes: nfp places in the order given, and the searches try orders.",
+          "default": false
         }
       }
     },

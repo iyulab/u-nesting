@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Part-in-part: a piece can take other pieces in its holes. Set `allow_part_in_part` on the piece
+  (`Geometry2D::with_part_in_part` in Rust, `allow_part_in_part` in a request; off by default, so a hole is
+  kept empty unless asked). The strategies that place by no-fit polygons -- `nfp`, `ga`, `brkga`, `sa`,
+  `gdrr`, `alns` -- then place a piece wholly inside a hole of an already placed one, at the least position
+  the hole allows, keeping `spacing` from the material around it; a hole of any shape is judged exactly
+  (inside its convex hull and clear of each notch), not by its vertices. Any other strategy refuses a request
+  that sets it (`invalid_option`, naming `geometries[i].allow_part_in_part`) rather than running without it.
+  List the piece before the pieces it takes: `nfp` places in the order given and the searches try orders.
+  The `pocket` module exposes the geometry (`compute_pockets`, `Pocket`), and `Nfp` carries `pockets`.
+
 ### Fixed
 
 - The cutting crate described common-edge detection as edges that "are cut in a single pass", which reduces pierce

@@ -332,6 +332,7 @@ public class ContractTests
                 Quantity = 2,
                 Rotations = [0, 90],
                 AllowFlip = true,
+                AllowPartInPart = true,
             },
         ],
         Boundary = boundary,

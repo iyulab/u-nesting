@@ -223,6 +223,7 @@ interface Request2D {
     polygon: [number, number][];       // Vertices (CCW)
     quantity?: number;                  // Default: 1
     allow_flip?: boolean;              // Default: false
+    allow_part_in_part?: boolean;      // Default: false. Other pieces may go in this piece's holes (nfp, ga, brkga, sa, gdrr, alns read it; others refuse)
     rotations?: number[];              // Allowed rotation angles in degrees (at least one;
                                        //   omit for a fixed orientation — [] is refused)
     holes?: [number, number][][];      // Interior holes

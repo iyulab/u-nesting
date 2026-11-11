@@ -1660,6 +1660,40 @@ mod tests {
         }
     }
 
+    /// A frame that fills the sheet takes three chips in its hole when it allows
+    /// part-in-part; a strategy that does not place in holes refuses the request
+    /// instead of running without it, naming the geometry.
+    #[test]
+    fn part_in_part_places_chips_in_a_hole_and_other_strategies_refuse_it() {
+        let request = |strategy: &str, allow: bool| {
+            serde_json::json!({
+                "geometries": [
+                    {"id": "frame", "polygon": [[0,0],[30,0],[30,30],[0,30]],
+                     "holes": [[[6,6],[24,6],[24,24],[6,24]]], "allow_part_in_part": allow},
+                    {"id": "chip", "polygon": [[0,0],[6,0],[6,5],[0,5]], "quantity": 3},
+                ],
+                "boundary": {"width": 30, "height": 30},
+                "config": {"strategy": strategy, "spacing": 1.0}
+            })
+            .to_string()
+        };
+        let placed = solve_2d_internal(&request("nfp", true));
+        assert!(placed.success, "{:?}", placed.error);
+        assert_eq!(placed.placements.len(), 4, "{:?}", placed.unplaced);
+        let closed = solve_2d_internal(&request("nfp", false));
+        assert!(closed.success && closed.placements.len() < 4);
+
+        let refused = solve_2d_internal(&request("blf", true));
+        assert!(!refused.success);
+        assert_eq!(refused.code.as_deref(), Some("invalid_option"));
+        assert_eq!(
+            refused.details.and_then(|d| d.parameter).as_deref(),
+            Some("geometries[0].allow_part_in_part")
+        );
+        // Left out, the same strategy solves it.
+        assert!(solve_2d_internal(&request("blf", false)).success);
+    }
+
     /// An empty angle list allows no orientation. It used to be read as 0°
     /// here while the core documented an empty list as "any angle".
     #[test]
@@ -2128,6 +2162,7 @@ mod tests {
                 quantity: 2,
                 rotations: None,
                 allow_flip: false,
+                allow_part_in_part: false,
             }],
             solve_result: solve_response,
             cutting_config: None,
@@ -2167,6 +2202,7 @@ mod tests {
                 quantity: 1,
                 rotations: None,
                 allow_flip: false,
+                allow_part_in_part: false,
             }],
             solve_result: solve_response,
             cutting_config: Some(CuttingConfigRequest {
@@ -2255,6 +2291,7 @@ mod tests {
                 quantity: 1,
                 rotations: None,
                 allow_flip: false,
+                allow_part_in_part: false,
             }],
             solve_result: solve_response,
             cutting_config: None,

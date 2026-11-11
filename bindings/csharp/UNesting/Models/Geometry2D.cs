@@ -49,6 +49,16 @@ public class Geometry2D
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
     public bool AllowFlip { get; set; }
 
+    /// <summary>
+    /// Whether other pieces may be placed in this piece's holes; a hole is kept empty by default.
+    /// Read by the strategies that place by no-fit polygons (<c>nfp</c>, <c>ga</c>, <c>brkga</c>,
+    /// <c>sa</c>, <c>gdrr</c>, <c>alns</c>); any other strategy refuses a request that sets it
+    /// (<c>invalid_option</c>). List the piece before the pieces it takes: <c>nfp</c> places in the
+    /// order given, and the searches try orders.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool AllowPartInPart { get; set; }
+
     /// <summary>A <paramref name="width"/> × <paramref name="height"/> rectangle with its corner at the origin.</summary>
     public static Geometry2D Rectangle(string id, double width, double height, int quantity = 1) => new()
     {

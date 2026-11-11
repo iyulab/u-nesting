@@ -255,6 +255,15 @@ pub struct Geometry2DRequest {
     #[serde(default)]
     #[cfg_attr(feature = "tsify", tsify(optional))]
     pub allow_flip: bool,
+
+    /// Let other pieces be placed in this piece's holes (default: a hole is kept
+    /// empty). Read by the strategies that place by no-fit polygons -- `nfp`,
+    /// `ga`, `brkga`, `sa`, `gdrr`, `alns`; any other strategy refuses a request
+    /// that sets it (`invalid_option`). List the piece before the pieces it
+    /// takes: `nfp` places in the order given, and the searches try orders.
+    #[serde(default)]
+    #[cfg_attr(feature = "tsify", tsify(optional))]
+    pub allow_part_in_part: bool,
 }
 
 /// 2D boundary request.

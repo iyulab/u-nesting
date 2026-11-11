@@ -143,6 +143,7 @@ Solve a 2D nesting problem.
   - `quantity` (int): Number of copies (default: 1)
   - `rotations` (list): Allowed rotation angles in degrees — at least one; omit it for a fixed orientation (an empty list is refused)
   - `allow_flip` (bool): Allow horizontal flip
+  - `allow_part_in_part` (bool): Let other pieces be placed in this piece's holes (default: false). Read by `nfp`, `ga`, `brkga`, `sa`, `gdrr` and `alns`; any other strategy refuses a request that sets it
   - `holes` (list): Interior holes as list of polygons
 - `boundary`: Sheet definition
   - `width`, `height` (float): Rectangle dimensions, OR
