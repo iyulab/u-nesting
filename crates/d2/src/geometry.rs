@@ -27,6 +27,10 @@ pub struct Geometry2D {
     /// Rotation constraint.
     rotation_constraint: RotationConstraint<f64>,
 
+    /// Whether other pieces may be placed in this piece's holes.
+    #[cfg_attr(feature = "serde", serde(default))]
+    allow_part_in_part: bool,
+
     /// Whether the geometry can be flipped (mirrored).
     allow_flip: bool,
 
@@ -59,6 +63,7 @@ impl Geometry2D {
             holes: Vec::new(),
             quantity: 1,
             rotation_constraint: RotationConstraint::None,
+            allow_part_in_part: false,
             allow_flip: false,
             priority: 0,
             cached_area: None,
@@ -111,6 +116,13 @@ impl Geometry2D {
     /// Allows flipping (mirroring) the geometry.
     pub fn with_flip(mut self, allow: bool) -> Self {
         self.allow_flip = allow;
+        self
+    }
+
+    /// Allows other pieces to be placed in this piece's holes (see
+    /// [`crate::pocket`]). Off by default: a hole is kept empty.
+    pub fn with_part_in_part(mut self, allow: bool) -> Self {
+        self.allow_part_in_part = allow;
         self
     }
 
@@ -179,6 +191,11 @@ impl Geometry2D {
     /// Returns whether flipping is allowed.
     pub fn allow_flip(&self) -> bool {
         self.allow_flip
+    }
+
+    /// Returns whether other pieces may be placed in this piece's holes.
+    pub fn allow_part_in_part(&self) -> bool {
+        self.allow_part_in_part
     }
 
     /// Clears all cached values.

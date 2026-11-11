@@ -105,6 +105,23 @@ pub(crate) fn nfps_against_placed(
                         // Grown before caching: an offset commutes with the
                         // rotation and translation below.
                         .map(|nfp| offset_nfp(&nfp, spacing))
+                        // A piece that allows part-in-part leaves its holes open to
+                        // `geom`: the pockets are cached with the NFP they are carved from
+                        // (the cache holds one geometry per id, so one setting).
+                        .map(|nfp| {
+                            if p.geometry.allow_part_in_part() && !p.geometry.holes().is_empty() {
+                                nfp.with_pockets(crate::pocket::compute_pockets(
+                                    &p.geometry,
+                                    geom,
+                                    relative,
+                                    p.mirrored,
+                                    mirror,
+                                    spacing,
+                                ))
+                            } else {
+                                nfp
+                            }
+                        })
                     },
                 )
                 .ok()?;

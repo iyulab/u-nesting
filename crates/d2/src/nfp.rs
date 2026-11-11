@@ -58,6 +58,7 @@ pub fn rotate_nfp(nfp: &Nfp, angle: f64) -> Nfp {
                     .collect()
             })
             .collect(),
+        pockets: nfp.pockets.iter().map(|p| p.rotated(angle)).collect(),
     }
 }
 
@@ -74,6 +75,7 @@ pub fn translate_nfp(nfp: &Nfp, offset: (f64, f64)) -> Nfp {
                     .collect()
             })
             .collect(),
+        pockets: nfp.pockets.iter().map(|p| p.translated(offset)).collect(),
     }
 }
 
@@ -83,6 +85,11 @@ pub struct Nfp {
     /// The computed NFP polygon(s).
     /// Multiple polygons can result from non-convex shapes.
     pub polygons: Vec<Vec<(f64, f64)>>,
+    /// Where a piece lies inside a hole of the stationary piece, a place the
+    /// polygons would otherwise forbid (see [`crate::pocket`]). Empty unless the
+    /// stationary piece allows part-in-part; a position in a pocket is not
+    /// blocked by this NFP.
+    pub pockets: Vec<crate::pocket::Pocket>,
 }
 
 impl Nfp {
@@ -90,6 +97,7 @@ impl Nfp {
     pub fn new() -> Self {
         Self {
             polygons: Vec::new(),
+            pockets: Vec::new(),
         }
     }
 
@@ -97,12 +105,22 @@ impl Nfp {
     pub fn from_polygon(polygon: Vec<(f64, f64)>) -> Self {
         Self {
             polygons: vec![polygon],
+            pockets: Vec::new(),
         }
     }
 
     /// Creates an NFP with multiple polygons.
     pub fn from_polygons(polygons: Vec<Vec<(f64, f64)>>) -> Self {
-        Self { polygons }
+        Self {
+            polygons,
+            pockets: Vec::new(),
+        }
+    }
+
+    /// The same NFP with `pockets` carved out of it.
+    pub fn with_pockets(mut self, pockets: Vec<crate::pocket::Pocket>) -> Self {
+        self.pockets = pockets;
+        self
     }
 
     /// Returns true if the NFP is empty.
@@ -1196,9 +1214,23 @@ pub fn find_bottom_left_placement(
 
     // A point outside a polygon's bounding box is outside the polygon; most NFPs
     // are nowhere near a given candidate.
-    let boxes: Vec<(f64, f64, f64, f64)> = nfp_polygons
+    let boxes: Vec<Vec<(f64, f64, f64, f64)>> = nfps
         .iter()
-        .map(|polygon| bounding_box(polygon))
+        .map(|nfp| nfp.polygons.iter().map(|p| bounding_box(p)).collect())
+        .collect();
+
+    // The pockets' outlines: where a hole's free space begins and ends, so their
+    // vertices and crossings are corners of the feasible region as well.
+    let pocket_polygons: Vec<&Vec<(f64, f64)>> = nfps
+        .iter()
+        .flat_map(|nfp| nfp.pockets.iter())
+        .flat_map(|pocket| {
+            pocket
+                .fit
+                .polygons
+                .iter()
+                .chain(pocket.bays.iter().flat_map(|bay| bay.polygons.iter()))
+        })
         .collect();
 
     let valid = |point: (f64, f64)| {
@@ -1207,18 +1239,21 @@ pub fn find_bottom_left_placement(
             .polygons
             .iter()
             .any(|p| point_in_polygon(point, p) || point_on_polygon_boundary(point, p));
-        // Must be strictly outside every NFP (touching is allowed, overlapping is not)
+        // Must be strictly outside every NFP (touching is allowed, overlapping is not),
+        // or in a pocket of it: a hole of the placed piece that the point's piece fits in.
         in_ifp
-            && nfp_polygons
-                .iter()
-                .zip(&boxes)
-                .all(|(polygon, &(min_x, min_y, max_x, max_y))| {
-                    point.0 <= min_x
-                        || point.0 >= max_x
-                        || point.1 <= min_y
-                        || point.1 >= max_y
-                        || !point_in_polygon(point, polygon)
-                })
+            && nfps.iter().zip(&boxes).all(|(nfp, boxes)| {
+                let overlaps = nfp.polygons.iter().zip(boxes).any(
+                    |(polygon, &(min_x, min_y, max_x, max_y))| {
+                        point.0 > min_x
+                            && point.0 < max_x
+                            && point.1 > min_y
+                            && point.1 < max_y
+                            && point_in_polygon(point, polygon)
+                    },
+                );
+                !overlaps || nfp.pockets.iter().any(|pocket| pocket.contains(point))
+            })
     };
 
     // The vertices first: the first valid one bounds the search. A crossing can
@@ -1229,6 +1264,7 @@ pub fn find_bottom_left_placement(
         .polygons
         .iter()
         .chain(nfp_polygons.iter().copied())
+        .chain(pocket_polygons.iter().copied())
         .flatten()
         .copied()
         .filter(|p| p.0.is_finite() && p.1.is_finite())
@@ -1248,6 +1284,17 @@ pub fn find_bottom_left_placement(
     for (i, a) in nfp_polygons.iter().enumerate() {
         for b in &nfp_polygons[i + 1..] {
             push_edge_crossings(a, b, axis, reach_limit, &mut crossings);
+        }
+    }
+    // A pocket's outline against the sheet, the other NFPs and the other pockets.
+    for (i, pocket) in pocket_polygons.iter().enumerate() {
+        for other in ifp
+            .polygons
+            .iter()
+            .chain(nfp_polygons.iter().copied())
+            .chain(pocket_polygons[i + 1..].iter().copied())
+        {
+            push_edge_crossings(pocket, other, axis, reach_limit, &mut crossings);
         }
     }
     crossings.retain(|p| p.0.is_finite() && p.1.is_finite());
@@ -1495,11 +1542,51 @@ pub fn verify_no_overlap_mirrored(
         let placed_polygon = placed.translated_exterior();
 
         if polygons_overlap(&transformed, &placed_polygon) {
+            // Inside a hole of a piece that allows part-in-part is not an overlap:
+            // the outlines cross, the material does not.
+            if placed.geometry.allow_part_in_part()
+                && !placed.geometry.holes().is_empty()
+                && !overlaps_material(&transformed, placed)
+            {
+                continue;
+            }
             return false; // Overlap detected
         }
     }
 
     true // No overlap
+}
+
+/// Whether the piece with outline `piece` shares area with the material of
+/// `placed` -- its exterior minus its holes -- by the area of the intersection.
+fn overlaps_material(piece: &[(f64, f64)], placed: &PlacedGeometry) -> bool {
+    let ring = |points: &[(f64, f64)]| -> Vec<[f64; 2]> {
+        let base = if placed.mirrored {
+            crate::polygon_ops::mirror_polygon(points)
+        } else {
+            points.to_vec()
+        };
+        rotate_polygon(&base, placed.rotation)
+            .into_iter()
+            .map(|(x, y)| [x + placed.position.0, y + placed.position.1])
+            .collect()
+    };
+    let material: Vec<Vec<[f64; 2]>> = std::iter::once(ring(placed.geometry.exterior()))
+        .chain(placed.geometry.holes().iter().map(|hole| ring(hole)))
+        .collect();
+    let piece_ring: Vec<Vec<[f64; 2]>> = vec![piece.iter().map(|&(x, y)| [x, y]).collect()];
+    let common: f64 = piece_ring
+        .overlay(&material, OverlayRule::Intersect, FillRule::EvenOdd)
+        .iter()
+        .flatten()
+        .map(|contour| {
+            let points: Vec<(f64, f64)> = contour.iter().map(|p| (p[0], p[1])).collect();
+            crate::polygon_ops::signed_area2(&points) / 2.0
+        })
+        .sum::<f64>()
+        .abs();
+    // Pieces in contact leave slivers when the overlay snaps its integer grid.
+    common > crate::polygon_ops::signed_area2(piece).abs() / 2.0 * 1e-6
 }
 
 // ============================================================================

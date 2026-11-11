@@ -602,6 +602,80 @@ mod tests {
         }
     }
 
+    /// A frame that fills the sheet with a hole that takes the chips: with
+    /// part-in-part allowed every strategy puts the chips in the hole and the
+    /// checker -- which judges a piece in a hole by the hole -- finds nothing
+    /// wrong; without it the chips have nowhere to go.
+    #[test]
+    fn part_in_part_puts_chips_in_the_frame_s_hole_for_every_strategy() {
+        use crate::nester::Nester2D;
+        use u_nesting_core::solver::{Config, Solver, Strategy};
+
+        let frame = |allow: bool| {
+            Geometry2D::rectangle("frame", 30.0, 30.0)
+                .with_hole(vec![(6.0, 6.0), (24.0, 6.0), (24.0, 24.0), (6.0, 24.0)])
+                .with_part_in_part(allow)
+        };
+        let chips = Geometry2D::rectangle("chip", 6.0, 5.0).with_quantity(3);
+        let boundary = Boundary2D::rectangle(30.0, 30.0);
+        let rules = LayoutRules {
+            spacing: 1.0,
+            margin: 0.0,
+            multi_sheet: false,
+        };
+        // The strategies that place by no-fit polygons. The row packer (`BottomLeftFill`)
+        // reads the sheet as boxes and the exact solvers as a grid: neither sees a hole.
+        let nfp_based = [
+            Strategy::NfpGuided,
+            Strategy::GeneticAlgorithm,
+            Strategy::Brkga,
+            Strategy::SimulatedAnnealing,
+            Strategy::Gdrr,
+            Strategy::Alns,
+        ];
+        for strategy in nfp_based {
+            let mut config = Config::default()
+                .with_strategy(strategy)
+                .with_spacing(1.0)
+                .with_time_limit(2_000);
+            if strategy.reads_setting(u_nesting_core::solver::Dimension::TwoD, "population_size") {
+                config = config.with_population_size(6).with_max_generations(4);
+            }
+            if strategy.reads_setting(u_nesting_core::solver::Dimension::TwoD, "seed") {
+                config = config.with_seed(7);
+            }
+            // One nester per solve: its no-fit cache is keyed by geometry id, and the two
+            // frames share one.
+            let closed = vec![frame(false), chips.clone()];
+            let result = Nester2D::new(config.clone())
+                .solve(&closed, &boundary)
+                .expect("solved");
+            assert!(
+                result.placements.len() < 4,
+                "{strategy:?}: the chips cannot all be placed when the hole is kept empty"
+            );
+
+            let open = vec![frame(true), chips.clone()];
+            let result = Nester2D::new(config)
+                .solve(&open, &boundary)
+                .expect("solved");
+            let v = check_layout(
+                &open,
+                &boundary,
+                &rules,
+                &result.placements,
+                &result.unplaced,
+            );
+            assert!(v.is_empty(), "{strategy:?}: {v:?}");
+            assert_eq!(
+                result.placements.len(),
+                4,
+                "{strategy:?}: the frame and all three chips: {:?}",
+                result.unplaced
+            );
+        }
+    }
+
     #[test]
     fn a_valid_layout_has_no_violations() {
         let g = [square("a", 10.0, 2)];

@@ -90,12 +90,17 @@ fn strictly_inside(point: (f64, f64), polygon: &[(f64, f64)]) -> bool {
 /// fit in -- a hole the piece cannot fit in at all has none. Both pieces are
 /// transformed as [`crate::nfp::compute_nfp_mirrored`] transforms them: mirrored
 /// first when asked, and the orbiting piece then turned by `rotation`.
+///
+/// `spacing` is the clearance the piece keeps from the material around the hole:
+/// the pocket is that much smaller (the hull is shrunk by `spacing`, the bays'
+/// no-fit polygons are grown by it -- as a no-fit polygon is, against a piece).
 pub fn compute_pockets(
     stationary: &Geometry2D,
     orbiting: &Geometry2D,
     rotation: f64,
     mirror_stationary: bool,
     mirror_orbiting: bool,
+    spacing: f64,
 ) -> Vec<Pocket> {
     let orb = orbiting.exterior();
     if stationary.holes().is_empty() || orb.len() < 3 {
@@ -118,21 +123,31 @@ pub fn compute_pockets(
             } else {
                 hole.clone()
             };
-            pocket_in(&ensure_ccw(&hole), &rotated_orbiting)
+            pocket_in(&ensure_ccw(&hole), &rotated_orbiting, spacing)
         })
         .collect()
 }
 
 /// The pocket of `piece` (already turned) in one hole `hole` (counter-clockwise),
 /// or `None` when the piece cannot fit in it.
-fn pocket_in(hole: &[(f64, f64)], piece: &[(f64, f64)]) -> Option<Pocket> {
+fn pocket_in(hole: &[(f64, f64)], piece: &[(f64, f64)], spacing: f64) -> Option<Pocket> {
     let hull = hull_indices(hole);
     if hull.len() < 3 {
         return None;
     }
     let hull_ring: Vec<(f64, f64)> = hull.iter().map(|&i| hole[i]).collect();
+    // Everything outside the hull is material, so the clearance from it is a
+    // smaller hull; the bays, which are material too, grow their no-fit polygons.
+    let kept = if spacing > 0.0 {
+        crate::polygon_ops::offset_polygon(&hull_ring, -spacing)
+            .into_iter()
+            .max_by(|a, b| signed_area2(a).abs().total_cmp(&signed_area2(b).abs()))
+            .map(|ring| ensure_ccw(&ring))?
+    } else {
+        hull_ring.clone()
+    };
     // No position at all when the hull is too small for the piece.
-    let fit = compute_minkowski_erosion(&hull_ring, piece).ok()?;
+    let fit = compute_minkowski_erosion(&kept, piece).ok()?;
     if fit.is_empty() {
         return None;
     }
@@ -170,7 +185,7 @@ fn pocket_in(hole: &[(f64, f64)], piece: &[(f64, f64)]) -> Option<Pocket> {
             continue;
         }
         if let Ok(nfp) = compute_nfp_general(bay, piece) {
-            bays.push(nfp);
+            bays.push(crate::placement_utils::offset_nfp(&nfp, spacing));
         }
     }
     Some(Pocket { fit, bays })
@@ -259,7 +274,7 @@ mod tests {
     fn assert_pocket_matches_oracle(hole: Vec<(f64, f64)>, w: f64, h: f64) {
         let pieces = frame(hole.clone());
         let piece = rect_piece(w, h);
-        let pockets = compute_pockets(&pieces, &piece, 0.0, false, false);
+        let pockets = compute_pockets(&pieces, &piece, 0.0, false, false, 0.0);
         let piece_ring = piece.exterior().to_vec();
         let (mut inside, mut outside) = (0, 0);
         let mut x = -3.137;
@@ -306,7 +321,7 @@ mod tests {
         assert!(corners.iter().all(|&q| point_in_polygon(q, &c)));
         let piece = rect_piece(4.0, 15.0);
         assert!(!lies_inside(piece.exterior(), (24.0, 9.5), &c));
-        let pockets = compute_pockets(&frame(c.clone()), &piece, 0.0, false, false);
+        let pockets = compute_pockets(&frame(c.clone()), &piece, 0.0, false, false, 0.0);
         assert!(!pockets.iter().any(|p| p.contains((24.0, 9.5))));
         assert_pocket_matches_oracle(c.clone(), 4.0, 15.0);
         assert_pocket_matches_oracle(c, 6.0, 3.0);
@@ -316,7 +331,7 @@ mod tests {
     fn touching_a_hole_s_edge_is_allowed_and_overlapping_it_is_not() {
         let square_hole = frame(square(10.0, 10.0, 30.0, 30.0));
         let piece = rect_piece(8.0, 8.0);
-        let pocket = &compute_pockets(&square_hole, &piece, 0.0, false, false)[0];
+        let pocket = &compute_pockets(&square_hole, &piece, 0.0, false, false, 0.0)[0];
         // Against the hole's left and bottom edges, and its right and top edges.
         assert!(pocket.contains((10.0, 10.0)) && pocket.contains((22.0, 22.0)));
         assert!(!pocket.contains((9.99, 10.0)) && !pocket.contains((22.01, 22.0)));
@@ -333,7 +348,7 @@ mod tests {
             (32.0, 32.0),
             (8.0, 32.0),
         ];
-        let pockets = compute_pockets(&frame(c), &rect_piece(4.0, 4.0), 0.0, false, false);
+        let pockets = compute_pockets(&frame(c), &rect_piece(4.0, 4.0), 0.0, false, false, 0.0);
         assert!(pockets.iter().any(|p| p.contains((16.0, 18.0))));
         assert!(!pockets.iter().any(|p| p.contains((16.5, 18.0))));
     }
@@ -361,25 +376,119 @@ mod tests {
     #[test]
     fn a_convex_hole_has_no_bays_and_a_piece_too_big_has_no_pocket() {
         let g = frame(square(10.0, 10.0, 30.0, 30.0));
-        let pockets = compute_pockets(&g, &rect_piece(8.0, 8.0), 0.0, false, false);
+        let pockets = compute_pockets(&g, &rect_piece(8.0, 8.0), 0.0, false, false, 0.0);
         assert_eq!(pockets.len(), 1);
         assert!(pockets[0].bays.is_empty());
-        assert!(compute_pockets(&g, &rect_piece(21.0, 5.0), 0.0, false, false).is_empty());
+        assert!(compute_pockets(&g, &rect_piece(21.0, 5.0), 0.0, false, false, 0.0).is_empty());
         // No holes, no pockets.
         let solid = Geometry2D::rectangle("solid", 40.0, 40.0);
-        assert!(compute_pockets(&solid, &rect_piece(2.0, 2.0), 0.0, false, false).is_empty());
+        assert!(compute_pockets(&solid, &rect_piece(2.0, 2.0), 0.0, false, false, 0.0).is_empty());
     }
 
     #[test]
     fn a_pocket_follows_the_stationary_piece() {
         let g = frame(square(10.0, 10.0, 30.0, 30.0));
-        let pocket = &compute_pockets(&g, &rect_piece(8.0, 8.0), 0.0, false, false)[0];
+        let pocket = &compute_pockets(&g, &rect_piece(8.0, 8.0), 0.0, false, false, 0.0)[0];
         assert!(pocket.contains((15.0, 15.0)));
         let moved = pocket.translated((100.0, 50.0));
         assert!(moved.contains((115.0, 65.0)) && !moved.contains((15.0, 15.0)));
         // A quarter turn about the origin takes (15, 15) to (-15, 15).
         let turned = pocket.rotated(std::f64::consts::FRAC_PI_2);
         assert!(turned.contains((-15.0, 15.0)) && !turned.contains((15.0, 15.0)));
+    }
+
+    #[test]
+    fn the_search_takes_the_pocket_s_least_corner() {
+        use crate::nfp::{
+            compute_ifp, compute_nfp_mirrored, find_bottom_left_placement, PackingAxis,
+        };
+
+        // A 30 x 30 sheet under a frame (40 x 40) whose hole (6..24) takes a 6 x 5 chip: the
+        // frame's no-fit polygon covers every position the sheet allows, so a placement
+        // exists only in the pocket, and its least corner is the pocket's own. The
+        // sample step is too coarse for the grid fallback to find it by luck.
+        let g = frame(square(6.0, 6.0, 24.0, 24.0));
+        let chip = rect_piece(6.0, 5.0);
+        let sheet = [(0.0, 0.0), (30.0, 0.0), (30.0, 30.0), (0.0, 30.0)];
+        let ifp = compute_ifp(&sheet, &chip, 0.0).unwrap();
+        let bare = compute_nfp_mirrored(&g, &chip, 0.0, false, false).unwrap();
+        assert_eq!(
+            find_bottom_left_placement(&ifp, &[&bare], 1000.0, PackingAxis::X),
+            None,
+            "without the pocket the hole reads as filled"
+        );
+        let pockets = compute_pockets(&g, &chip, 0.0, false, false, 0.0);
+        let carved = bare.with_pockets(pockets);
+        assert_eq!(
+            find_bottom_left_placement(&ifp, &[&carved], 1000.0, PackingAxis::X),
+            Some((6.0, 6.0))
+        );
+    }
+
+    #[test]
+    fn the_overlap_check_lets_a_piece_into_a_hole_only_where_the_hole_is_open() {
+        use crate::nfp::{verify_no_overlap_mirrored, PlacedGeometry};
+
+        let open = frame(square(6.0, 6.0, 24.0, 24.0)).with_part_in_part(true);
+        let shut = frame(square(6.0, 6.0, 24.0, 24.0));
+        let chip = rect_piece(6.0, 5.0);
+        let verify = |frame: &Geometry2D, at: (f64, f64)| {
+            let placed = [PlacedGeometry::new(frame.clone(), (0.0, 0.0), 0.0)];
+            verify_no_overlap_mirrored(&chip, at, 0.0, false, &placed)
+        };
+        // Inside the hole (touching its left edge): the outlines cross, the material does not.
+        assert!(verify(&open, (6.0, 10.0)));
+        assert!(!verify(&shut, (6.0, 10.0)));
+        // Across the hole's edge: material under the chip either way.
+        assert!(!verify(&open, (3.0, 10.0)));
+        // Outside the frame altogether (the helper's frame is 40 x 40).
+        assert!(verify(&open, (50.0, 10.0)) && verify(&shut, (50.0, 10.0)));
+    }
+
+    #[test]
+    fn a_second_chip_in_the_hole_is_placed_at_a_crossing_of_the_pocket_and_the_first() {
+        use crate::nfp::{
+            compute_ifp, compute_nfp_mirrored, find_bottom_left_placement, translate_nfp,
+            PackingAxis,
+        };
+
+        // The frame's pocket for a 6 x 5 chip is x 6..18, y 6..19. A first chip at (6, 6)
+        // forbids x 0..12, y 1..11 to the second; the least point left is where the
+        // pocket's left edge meets the first chip's top edge -- no vertex of either.
+        let g = frame(square(6.0, 6.0, 24.0, 24.0));
+        let chip = rect_piece(6.0, 5.0);
+        let sheet = [(0.0, 0.0), (30.0, 0.0), (30.0, 30.0), (0.0, 30.0)];
+        let ifp = compute_ifp(&sheet, &chip, 0.0).unwrap();
+        let carved = compute_nfp_mirrored(&g, &chip, 0.0, false, false)
+            .unwrap()
+            .with_pockets(compute_pockets(&g, &chip, 0.0, false, false, 0.0));
+        let first = translate_nfp(
+            &compute_nfp_mirrored(&chip, &chip, 0.0, false, false).unwrap(),
+            (6.0, 6.0),
+        );
+        assert_eq!(
+            find_bottom_left_placement(&ifp, &[&carved, &first], 1000.0, PackingAxis::X),
+            Some((6.0, 11.0))
+        );
+    }
+
+    #[test]
+    fn a_turned_frame_carries_its_pockets_with_it() {
+        use crate::nfp::{compute_nfp_mirrored, rotate_nfp, translate_nfp};
+
+        let g = frame(square(10.0, 10.0, 30.0, 30.0));
+        let chip = rect_piece(8.0, 8.0);
+        let carved = compute_nfp_mirrored(&g, &chip, 0.0, false, false)
+            .unwrap()
+            .with_pockets(compute_pockets(&g, &chip, 0.0, false, false, 0.0));
+        assert!(carved.pockets[0].contains((15.0, 15.0)));
+        // A quarter turn about the origin, then a move: (15, 15) goes to (-15, 15), then (85, 65).
+        let placed = translate_nfp(
+            &rotate_nfp(&carved, std::f64::consts::FRAC_PI_2),
+            (100.0, 50.0),
+        );
+        assert!(placed.pockets[0].contains((85.0, 65.0)));
+        assert!(!placed.pockets[0].contains((115.0, 65.0)));
     }
 
     #[test]
