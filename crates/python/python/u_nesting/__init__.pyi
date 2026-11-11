@@ -48,24 +48,40 @@ class Config(TypedDict, total=False):
     multi_sheet: Optional[bool]
 
 class Placement(TypedDict):
-    """Placement result."""
-    geometry_id: str
+    """One placed 2D instance."""
+    id: str
     instance: int
-    position: List[float]
-    rotation: List[float]
-    boundary_index: int
+    x: float
+    y: float
+    rotation: float
+    """Degrees."""
+    sheet_index: int
+    flipped: bool
+
+class Placement3D(TypedDict):
+    """One placed 3D instance."""
+    id: str
+    instance: int
+    bin_index: int
+    x: float
+    y: float
+    z: float
+    orientation: str
+    """An axis permutation, ``"xyz"``, ``"xzy"``, ..."""
 
 class UnplacedReason(TypedDict):
     """Why one geometry is unplaced: ``exceeds_boundary`` (no allowed rotation fits the
     sheet -- more sheets will not help) or ``no_room`` (it fits; the layout was full)."""
-    geometry_id: str
+    id: str
     reason: Literal["exceeds_boundary", "no_room"]
 
 class SolveResult(TypedDict):
-    """Solve operation result. Every refusal is reported here, never raised."""
+    """The 2D solve result, as the C ABI and WebAssembly bindings answer it.
+    Every refusal is reported here, never raised."""
+    version: str
     success: bool
     placements: List[Placement]
-    boundaries_used: int
+    sheets_used: int
     utilization: float
     total_requested: int
     unplaced: List[str]
@@ -91,13 +107,49 @@ class SolveResult(TypedDict):
     ]
     """Why the run stopped; ``None`` on a refusal. ``time_limit`` means the layout
     is the best found when ``time_limit_ms`` ran out."""
-    computation_time_ms: int
+    elapsed_ms: int
     error: Optional[str]
     code: Optional[str]
     """Stable reason a solve was refused (``malformed_input``, ``value_not_finite``,
     ``parameter_out_of_range``, ``invalid_geometry``, ``duplicate_id``, ...)."""
     details: Optional[Dict[str, Any]]
     """The values behind ``code``: ``parameter``, ``id``, ``index``, ``min``, ``max``, ``got``, ..."""
+
+class PackResult(TypedDict):
+    """The 3D solve result: ``SolveResult``'s keys with ``bins_used`` for
+    ``sheets_used``, ``Placement3D`` placements, and no footprint fields."""
+    version: str
+    success: bool
+    placements: List[Placement3D]
+    bins_used: int
+    utilization: float
+    total_requested: int
+    unplaced: List[str]
+    unplaced_reasons: List["UnplacedReason"]
+    unplaced_count: int
+    all_placed: bool
+    stop_reason: Optional[str]
+    elapsed_ms: int
+    error: Optional[str]
+    code: Optional[str]
+    details: Optional[Dict[str, Any]]
+
+class Violation(TypedDict, total=False):
+    """A rule the layout breaks: its stable ``code`` and the values behind it
+    (``id``, ``instance``, ``other``, ``got``, ...); ``codes()["violations"]`` lists them."""
+    code: str
+
+class CheckResult(TypedDict):
+    """The answer to ``check_2d`` / ``check_3d``. A layout that breaks its problem is a
+    result (``feasible`` False, ``violations`` filled), not a refusal; a refused problem
+    or solve result is ``success`` False with ``error`` / ``code`` / ``details``."""
+    version: str
+    success: bool
+    error: Optional[str]
+    code: Optional[str]
+    details: Optional[Dict[str, Any]]
+    feasible: bool
+    violations: List[Violation]
 
 def solve_2d(
     geometries: List[Geometry2D],
@@ -121,7 +173,7 @@ def solve_3d(
     geometries: List[Geometry3D],
     boundary: Boundary3D,
     config: Optional[Config] = None,
-) -> SolveResult:
+) -> PackResult:
     """
     Solve a 3D bin packing problem.
 
@@ -132,6 +184,40 @@ def solve_3d(
 
     Returns:
         Dictionary containing solve results.
+    """
+    ...
+
+def check_2d(
+    geometries: List[Geometry2D],
+    boundary: Boundary2D,
+    solve_result: SolveResult,
+    config: Optional[Config] = None,
+) -> CheckResult:
+    """
+    Check a 2D layout against the problem it answers.
+
+    Args:
+        geometries, boundary, config: The problem, as ``solve_2d`` takes it.
+        solve_result: A successful ``solve_2d`` result for that problem.
+
+    Returns:
+        ``feasible`` and every rule the layout breaks (a piece outside the sheet
+        or its margin, an overlap, a spacing breach, a rotation or flip that
+        was not allowed, a copy count, a piece reported unplaced that was placed).
+    """
+    ...
+
+def check_3d(
+    geometries: List[Geometry3D],
+    boundary: Boundary3D,
+    solve_result: PackResult,
+    config: Optional[Config] = None,
+) -> CheckResult:
+    """
+    Check a 3D packing against the problem it answers, as ``check_2d`` does:
+    every box inside the container and its margin, no overlap or spacing breach,
+    allowed orientations, one container, copies, ``max_mass``, support under
+    ``gravity`` / ``stability``.
     """
     ...
 

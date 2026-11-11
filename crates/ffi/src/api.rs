@@ -577,23 +577,6 @@ fn solve_status(success: bool, code: Option<&str>, stop_reason: Option<StopReaso
 
 /// Assembles a success `SolveResponse` from a solved 2D result.
 ///
-/// Derives every accounting/metric field (`unplaced_count`, `all_placed`,
-/// `used_bounding_box`, `used_utilization`) through the shared `From` impl —
-/// the single source of truth — then fills in the placements the `From` impl
-/// leaves empty. Every 2D solve entry point routes its success case here so the
-/// wire contract cannot drift between them.
-fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveResponse {
-    let placements = result
-        .placements
-        .iter()
-        .cloned()
-        .map(PlacementResponse::from)
-        .collect();
-    let mut resp: SolveResponse = result.into();
-    resp.placements = placements;
-    resp
-}
-
 pub(crate) fn solve_2d_internal(json_str: &str) -> SolveResponse {
     let request: Request2D = match from_json(json_str) {
         Ok(r) => r,
@@ -643,7 +626,7 @@ pub(crate) fn solve_2d_internal(json_str: &str) -> SolveResponse {
                 let (b_min, b_max) = boundary.aabb();
                 result.to_boundary_local(b_max[0] - b_min[0]);
             }
-            build_solve_response(result)
+            SolveResponse::from(result)
         }
         Err(e) => SolveResponse::refused(&e),
     }
@@ -780,7 +763,7 @@ fn solve_2d_with_callback(json_str: &str, callback: &CallbackWrapper) -> SolveRe
             };
             callback.invoke(&done_progress);
 
-            build_solve_response(result)
+            SolveResponse::from(result)
         }
         Err(e) => SolveResponse::refused(&e),
     }

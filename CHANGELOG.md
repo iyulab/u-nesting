@@ -20,6 +20,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The searches (`ga`, `brkga`, `sa`, `gdrr`, `alns`) rank a layout by how many pieces it places before how much area
   it covers, so a hole pays off when it lets more pieces fit; the `part_in_part` example in the `d2` crate measures it.
   The `pocket` module exposes the geometry (`compute_pockets`, `Pocket`), and `Nfp` carries `pockets`.
+- Python: `check_2d(geometries, boundary, solve_result, config=None)` and `check_3d(...)` judge a layout by the
+  rules the nester places under, as the C ABI, WebAssembly and .NET bindings already did: `{feasible,
+  violations}`, a layout that breaks its problem being a result and a refused problem a `success: false` answer
+  with `error`, `code` and `details`. They take a `solve_2d` / `solve_3d` result back as it was answered.
+
+### Changed
+
+- **Breaking** (Python): `solve_2d` and `solve_3d` answer the canonical response the C ABI and the WebAssembly
+  binding answer, instead of a shape of their own -- so a layout read from Python is the layout read anywhere
+  else, and `check_2d` / `check_3d` take it back. The keys move: `geometry_id` -> `id` (in `placements` and
+  `unplaced_reasons`); a placement's `position` list -> `x`, `y` (and `z` in 3D); its `rotation` list in radians ->
+  `rotation`, one number in degrees (2D; in 3D an `orientation` label such as `"xyz"`); `boundary_index` ->
+  `sheet_index` (2D) or `bin_index` (3D); `boundaries_used` -> `sheets_used` (2D) or `bins_used` (3D);
+  `computation_time_ms` -> `elapsed_ms`. New: `version`, and `flipped` on each 2D placement. Gone: the 3D result's
+  `used_bounding_box` and `used_utilization` (always `None` there). Every other key keeps its name and meaning.
+- Rust: `SolveResponse::from(SolveResult<f64>)` carries the placements (it left them empty for each binding to
+  fill, three copies of the same loop) and is implemented for `f64` results only.
 
 ### Fixed
 

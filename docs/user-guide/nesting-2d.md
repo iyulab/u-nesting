@@ -189,9 +189,7 @@ The C interface and WebAssembly response:
 | `stop_reason` | Why the run stopped: `completed`, `optimal`, `target_reached`, `iteration_limit`, `no_improvement`, `time_limit` (the best layout found when `time_limit_ms` ran out) or `cancelled` |
 | `elapsed_ms` | Solving time in milliseconds |
 
-The Python result has the same values under its own names: `geometry_id`,
-`position` and `rotation` (radians) in each placement, `boundary_index` for the
-sheet, `boundaries_used` and `computation_time_ms` (see the
+The Python result is the same response: a dictionary with these keys (see the
 [Python README](../../crates/python/README.md)).
 
 ### Placement Fields
@@ -322,9 +320,9 @@ result = u_nesting.solve_2d(
     config={"strategy": "blf", "multi_sheet": True}
 )
 
-print(f"Used {result['boundaries_used']} sheets")
+print(f"Used {result['sheets_used']} sheets")
 for p in result['placements']:
-    print(f"  {p['geometry_id']} -> sheet {p['boundary_index']}")
+    print(f"  {p['id']} -> sheet {p['sheet_index']}")
 ```
 
 Positions are sheet-local: group placements by sheet to draw one panel per

@@ -170,9 +170,8 @@ The C interface and WebAssembly response:
 | `stop_reason` | Why the run stopped: `completed`, `target_reached`, `iteration_limit`, `no_improvement`, `time_limit` (the best packing found when `time_limit_ms` ran out) or `cancelled` |
 | `elapsed_ms` | Solving time in milliseconds |
 
-The Python result has the same values under its own names: `geometry_id`,
-`position` (`[x, y, z]`) and `rotation` in each placement, `boundaries_used` and
-`computation_time_ms` (see the [Python README](../../crates/python/README.md)).
+The Python result is the same response: a dictionary with these keys (see the
+[Python README](../../crates/python/README.md)).
 
 ### Placement Fields
 

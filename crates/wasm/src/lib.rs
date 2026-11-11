@@ -279,21 +279,6 @@ fn to_js<T: Serialize + ?Sized>(value: &T) -> Result<JsValue, JsValue> {
 
 // --- Internal implementations ---
 
-/// Assembles a success `SolveResponse` from a solved 2D result, deriving every
-/// accounting/metric field through the shared `From` impl (single source of
-/// truth) and then filling in the placements it leaves empty.
-fn build_solve_response(result: u_nesting_core::SolveResult<f64>) -> SolveResponse {
-    let placements = result
-        .placements
-        .iter()
-        .cloned()
-        .map(PlacementResponse::from)
-        .collect();
-    let mut resp: SolveResponse = result.into();
-    resp.placements = placements;
-    resp
-}
-
 fn solve_2d_internal(request: Request2D) -> SolveResponse {
     // Convert geometries
     let geometries = match Geometry2D::from_requests(request.geometries) {
@@ -339,7 +324,7 @@ fn solve_2d_internal(request: Request2D) -> SolveResponse {
                 let (b_min, b_max) = boundary.aabb();
                 result.to_boundary_local(b_max[0] - b_min[0]);
             }
-            build_solve_response(result)
+            SolveResponse::from(result)
         }
         Err(e) => SolveResponse::refused(&e),
     }

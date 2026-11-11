@@ -48,7 +48,7 @@ def main() -> int:
         f"{len(catalog['violations'])} violations"
     )
 
-    result = u_nesting.solve_2d(
+    problem_2d = dict(
         geometries=[
             {
                 "id": "rect",
@@ -59,6 +59,7 @@ def main() -> int:
         boundary={"width": 400, "height": 300},
         config={"strategy": "nfp", "time_limit_ms": 5000},
     )
+    result = u_nesting.solve_2d(**problem_2d)
     if result["error"] is not None:
         raise AssertionError(f"solve_2d reported an error: {result['error']}")
     if not result["all_placed"]:
@@ -67,11 +68,31 @@ def main() -> int:
         )
     print(f"solve_2d placed {len(result['placements'])}/{result['total_requested']}")
 
-    result = u_nesting.solve_3d(
+    # The result is the canonical response: the keys every binding answers.
+    first = result["placements"][0]
+    for key in ("id", "x", "y", "rotation", "sheet_index", "flipped"):
+        if key not in first:
+            raise AssertionError(f"a 2D placement lacks {key!r}: {first}")
+    if "sheets_used" not in result or "elapsed_ms" not in result:
+        raise AssertionError(f"solve_2d answered a shape of its own: {sorted(result)}")
+
+    # The layout it answered is feasible by the checker; two pieces on one spot are not.
+    answer = u_nesting.check_2d(solve_result=result, **problem_2d)
+    if not (answer["success"] and answer["feasible"]):
+        raise AssertionError(f"check_2d judged its own solve infeasible: {answer}")
+    broken = {**result, "placements": [dict(p) for p in result["placements"]]}
+    broken["placements"][1].update(x=first["x"], y=first["y"])
+    answer = u_nesting.check_2d(solve_result=broken, **problem_2d)
+    if not answer["success"] or answer["feasible"] or not answer["violations"]:
+        raise AssertionError(f"check_2d missed two pieces on one spot: {answer}")
+    print(f"check_2d: feasible, and {answer['violations'][0]['code']} on a broken layout")
+
+    problem_3d = dict(
         geometries=[{"id": "box", "dimensions": [100, 50, 30], "quantity": 4}],
         boundary={"dimensions": [400, 300, 200]},
         config={"strategy": "ep"},
     )
+    result = u_nesting.solve_3d(**problem_3d)
     if result["error"] is not None:
         raise AssertionError(f"solve_3d reported an error: {result['error']}")
     if not result["all_placed"]:
@@ -79,6 +100,10 @@ def main() -> int:
             f"solve_3d placed {len(result['placements'])} of {result['total_requested']}"
         )
     print(f"solve_3d placed {len(result['placements'])}/{result['total_requested']}")
+    answer = u_nesting.check_3d(solve_result=result, **problem_3d)
+    if not (answer["success"] and answer["feasible"]):
+        raise AssertionError(f"check_3d judged its own solve infeasible: {answer}")
+    print("check_3d: feasible")
 
     # Unknown keys must be rejected rather than silently ignored; a wheel built
     # against a stale contract would quietly accept them. A refusal comes back

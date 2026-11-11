@@ -35,14 +35,15 @@
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use u_nesting_core::api_types::{
-    from_value, CodeCatalog, ConfigRequest, RefusalDetails, Request2D, Request3D, StrategyCatalog,
+    from_value, Check2DRequest, Check3DRequest, CheckResponse, CodeCatalog, ConfigRequest,
+    Pack3DResponse, Request2D, Request3D, SolveResponse, StrategyCatalog,
 };
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
-use u_nesting_core::{Error, StopReason};
+use u_nesting_core::Error;
 use u_nesting_d2::{Boundary2D, Geometry2D, Nester2D};
 use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
 
@@ -52,143 +53,16 @@ use u_nesting_d3::{Boundary3D, Geometry3D, Packer3D};
 // that an unknown key (a misspelled `quantity`, say) is rejected here exactly as
 // it is elsewhere rather than silently falling back to a default.
 //
-// Outputs deliberately do **not** follow: the response types below are
-// dimension-agnostic (`position`/`rotation` are vectors, so one shape serves 2D
-// and 3D), whereas the canonical responses are split into flat 2D and 3D
-// variants with different key names. Unifying them would rename keys in a
-// published API, which is a decision for a release boundary, not a refactor.
+// Outputs follow them too: `solve_2d` answers the canonical `SolveResponse` and
+// `solve_3d` the `Pack3DResponse`, built by the code the C and WebAssembly
+// bindings call, so a layout read from Python is the layout read anywhere else
+// -- and it is what `check_2d` / `check_3d` take back.
 
-/// Placement output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct PlacementOutput {
-    geometry_id: String,
-    instance: usize,
-    position: Vec<f64>,
-    rotation: Vec<f64>,
-    boundary_index: usize,
-}
-
-/// Why one geometry is unplaced.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct UnplacedReasonOutput {
-    geometry_id: String,
-    reason: String,
-}
-
-/// Solve result output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SolveOutput {
-    success: bool,
-    placements: Vec<PlacementOutput>,
-    boundaries_used: usize,
-    utilization: f64,
-    /// Total geometry instances requested (Σ quantity). `placements` is
-    /// instance-level while `unplaced` is deduplicated geometry IDs; the
-    /// instance-level unplaced count is `total_requested - len(placements)`.
-    #[serde(default)]
-    total_requested: usize,
-    unplaced: Vec<String>,
-    /// Why each of `unplaced` is unplaced, in the same order: `{"geometry_id": ...,
-    /// "reason": "exceeds_boundary" | "no_room"}` -- `exceeds_boundary`: no allowed rotation fits
-    /// the sheet, more sheets will not help; `no_room`: it fits, the layout was full.
-    #[serde(default)]
-    unplaced_reasons: Vec<UnplacedReasonOutput>,
-    /// Instance-level count of unplaced instances (`total_requested - len(placements)`).
-    /// Satisfies `len(placements) + unplaced_count == total_requested`. Unlike the
-    /// deduplicated `unplaced` ID list, this never undercounts a multi-quantity geometry.
-    #[serde(default)]
-    unplaced_count: usize,
-    /// Whether every requested instance was placed. Prefer this over `success`
-    /// (which only reports that the solve completed without error) to detect
-    /// partial packing.
-    #[serde(default)]
-    all_placed: bool,
-    /// Used-footprint bounding box `[width, height]`. Boundary-padding
-    /// independent, unlike `utilization`. `None` where there is no such
-    /// footprint: a multi-sheet solve, nothing placed, 3D, or a refusal --
-    /// never `[0, 0]`.
-    #[serde(default)]
-    used_bounding_box: Option<[f64; 2]>,
-    /// Packing-density metric: `piece_area / (used_w × used_h)` against the used
-    /// bounding box. The denominator shrinks on **both** axes, so this is **not**
-    /// a fixed-width stock-efficiency figure — for fixed-width stock
-    /// (fabric/coil/sheet) the unused width is real waste. Fixed-width consumers
-    /// should compute `piece_area / (boundary_width × used_bounding_box[1])`.
-    /// `None` exactly where `used_bounding_box` is.
-    #[serde(default)]
-    used_utilization: Option<f64>,
-    /// Why the run stopped (`completed`, `optimal`, `target_reached`,
-    /// `iteration_limit`, `no_improvement`, `time_limit`, `cancelled`);
-    /// `None` on a refusal.
-    stop_reason: Option<StopReason>,
-    computation_time_ms: u64,
-    error: Option<String>,
-    /// Stable name of the reason the solve was refused (`invalid_geometry`,
-    /// `duplicate_id`, `parameter_out_of_range`, ...); `None` on success.
-    code: Option<String>,
-    /// The values behind `code` -- the setting, the geometry id, the
-    /// positions; `None` on success.
-    details: Option<RefusalDetails>,
-}
-
-impl SolveOutput {
-    /// The output for a refused problem: the message, its `code` and the
-    /// values behind it, a setting named by its path (`config.spacing`, see
-    /// [`ConfigRequest::locate`]).
-    fn refused(e: &Error) -> Self {
-        let e = &ConfigRequest::locate(e);
-        SolveOutput {
-            success: false,
-            placements: vec![],
-            boundaries_used: 0,
-            utilization: 0.0,
-            total_requested: 0,
-            unplaced: vec![],
-            unplaced_reasons: vec![],
-            unplaced_count: 0,
-            all_placed: false,
-            used_bounding_box: None,
-            used_utilization: None,
-            stop_reason: None,
-            computation_time_ms: 0,
-            error: Some(e.to_string()),
-            code: Some(e.code().to_string()),
-            details: Some(RefusalDetails::of(e)),
-        }
-    }
-
-    /// The output as the Python dict a solve returns.
-    fn into_py(self, py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
-        let output_json = serde_json::to_string(&self)
-            .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
-        py.import("json")?.call_method1("loads", (output_json,))
-    }
-
-    /// Fills the derived accounting/metric fields from a solved result, applying
-    /// the same instance-level invariant as the FFI/WASM `From` impl.
-    fn accounting(
-        result: &u_nesting_core::SolveResult<f64>,
-    ) -> (usize, bool, Option<[f64; 2]>, Option<f64>) {
-        let unplaced_count = result
-            .total_requested
-            .saturating_sub(result.placements.len());
-        let [uw, uh] = result.used_bounding_box;
-        let used_area = uw * uh;
-        let (used_bounding_box, used_utilization) = if used_area > 0.0 {
-            (
-                Some(result.used_bounding_box),
-                Some(result.total_piece_area / used_area),
-            )
-        } else {
-            (None, None)
-        };
-        (
-            unplaced_count,
-            unplaced_count == 0,
-            used_bounding_box,
-            used_utilization,
-        )
-    }
+/// `response` as the Python value its JSON text is.
+fn into_py<'py, T: Serialize>(py: Python<'py>, response: &T) -> PyResult<Bound<'py, PyAny>> {
+    let json = serde_json::to_string(response)
+        .map_err(|e| PyValueError::new_err(format!("Serialization error: {}", e)))?;
+    py.import("json")?.call_method1("loads", (json,))
 }
 
 /// Solve a 2D nesting problem.
@@ -216,13 +90,15 @@ impl SolveOutput {
 ///           multi_sheet)
 ///
 /// Returns:
-///     Dictionary with keys: success, placements, boundaries_used,
-///     utilization, total_requested, unplaced, unplaced_reasons, unplaced_count, all_placed,
-///     used_bounding_box, used_utilization, stop_reason, computation_time_ms,
-///     error, code,
-///     details. Every refusal -- a malformed or unknown key, a setting out of
-///     range, a geometry or boundary the solver cannot use -- comes back here
-///     with `success` False; nothing is raised.
+///     The canonical 2D response, as the C ABI and WebAssembly bindings answer
+///     it: a dictionary with keys version, success, error, code, details,
+///     placements (each `{id, instance, x, y, rotation, sheet_index, flipped}`,
+///     `rotation` in degrees), sheets_used, utilization, total_requested,
+///     unplaced, unplaced_reasons (each `{id, reason}`), unplaced_count,
+///     all_placed, used_bounding_box, used_utilization, stop_reason, elapsed_ms.
+///     Every refusal -- a malformed or unknown key, a setting out of range, a
+///     geometry or boundary the solver cannot use -- comes back here with
+///     `success` False; nothing is raised.
 #[pyfunction]
 #[pyo3(signature = (geometries, boundary, config=None))]
 fn solve_2d<'py>(
@@ -231,11 +107,11 @@ fn solve_2d<'py>(
     boundary: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let output = match request_json(geometries, boundary, config) {
+    let response = match request_json(geometries, boundary, config) {
         Ok(request) => solve_2d_request(request),
-        Err(e) => SolveOutput::refused(&e),
+        Err(e) => SolveResponse::refused(&e),
     };
-    output.into_py(py)
+    into_py(py, &response)
 }
 
 /// Solve a 3D bin packing problem.
@@ -256,7 +132,10 @@ fn solve_2d<'py>(
 ///         multi_sheet)
 ///
 /// Returns:
-///     The dictionary solve_2d returns; every refusal comes back in it.
+///     The canonical 3D response, as the C ABI and WebAssembly bindings answer
+///     it: the keys `solve_2d` returns with `sheets_used` as `bins_used` and
+///     placements `{id, instance, bin_index, x, y, z, orientation}`; every
+///     refusal comes back in it.
 #[pyfunction]
 #[pyo3(signature = (geometries, boundary, config=None))]
 fn solve_3d<'py>(
@@ -265,11 +144,68 @@ fn solve_3d<'py>(
     boundary: &Bound<'_, PyAny>,
     config: Option<&Bound<'_, PyAny>>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let output = match request_json(geometries, boundary, config) {
+    let response = match request_json(geometries, boundary, config) {
         Ok(request) => solve_3d_request(request),
-        Err(e) => SolveOutput::refused(&e),
+        Err(e) => Pack3DResponse::refused(&e),
     };
-    output.into_py(py)
+    into_py(py, &response)
+}
+
+/// Check a 2D layout against the problem it answers.
+///
+/// Args:
+///     geometries, boundary, config: the problem, exactly as `solve_2d` takes it.
+///     solve_result: a successful `solve_2d` result for that problem.
+///
+/// Returns:
+///     `{version, success, error, code, details, feasible, violations}`; each
+///     violation is `{code, ...}` naming the rule the layout breaks (a piece
+///     outside the sheet or its margin, an overlap, a spacing breach, a rotation
+///     or a flip that was not allowed, a copy count, a piece left unplaced that
+///     was placed). A layout that breaks its problem is a result (`feasible`
+///     False), not a refusal. A problem `solve_2d` refuses, or a `solve_result`
+///     that is itself a refusal, comes back with `success` False; nothing is
+///     raised.
+#[pyfunction]
+#[pyo3(signature = (geometries, boundary, solve_result, config=None))]
+fn check_2d<'py>(
+    py: Python<'py>,
+    geometries: &Bound<'_, PyAny>,
+    boundary: &Bound<'_, PyAny>,
+    solve_result: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let response = match check_json(geometries, boundary, solve_result, config) {
+        Ok(request) => check_2d_request(request),
+        Err(e) => CheckResponse::refused(&e),
+    };
+    into_py(py, &response)
+}
+
+/// Check a 3D packing against the problem it answers.
+///
+/// Args:
+///     geometries, boundary, config: the problem, exactly as `solve_3d` takes it.
+///     solve_result: a successful `solve_3d` result for that problem.
+///
+/// Returns:
+///     The dictionary `check_2d` returns: every box inside the container and its
+///     margin, no overlap or spacing breach, allowed orientations, one container,
+///     copy counts, `max_mass`, support under `gravity` / `stability`.
+#[pyfunction]
+#[pyo3(signature = (geometries, boundary, solve_result, config=None))]
+fn check_3d<'py>(
+    py: Python<'py>,
+    geometries: &Bound<'_, PyAny>,
+    boundary: &Bound<'_, PyAny>,
+    solve_result: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let response = match check_json(geometries, boundary, solve_result, config) {
+        Ok(request) => check_3d_request(request),
+        Err(e) => CheckResponse::refused(&e),
+    };
+    into_py(py, &response)
 }
 
 /// How deep a request's values may nest. The deepest a request goes is a
@@ -332,6 +268,25 @@ fn request_json(
         }
     }
     Ok(serde_json::Value::Object(request))
+}
+
+/// The request a check's arguments make: `{problem, solve_result}`, the problem
+/// as [`request_json`] reads it and the result, a Python value, as JSON with the
+/// same refusals.
+fn check_json(
+    geometries: &Bound<'_, PyAny>,
+    boundary: &Bound<'_, PyAny>,
+    solve_result: &Bound<'_, PyAny>,
+    config: Option<&Bound<'_, PyAny>>,
+) -> Result<serde_json::Value, Error> {
+    let problem = request_json(geometries, boundary, config)?;
+    let solve_result = to_json(
+        solve_result,
+        &Slot::Field("solve_result".to_string()),
+        None,
+        0,
+    )?;
+    Ok(serde_json::json!({ "problem": problem, "solve_result": solve_result }))
 }
 
 /// `value` as a JSON value, refusing what JSON cannot hold. `id` is the id of
@@ -433,49 +388,8 @@ fn to_json(
     Err(not_json(format!("a {kind} is not a JSON value")))
 }
 
-/// The output for a solved layout.
-fn solved_output(result: u_nesting_core::SolveResult<f64>) -> SolveOutput {
-    let (unplaced_count, all_placed, used_bounding_box, used_utilization) =
-        SolveOutput::accounting(&result);
-    SolveOutput {
-        success: true,
-        placements: result
-            .placements
-            .into_iter()
-            .map(|p| PlacementOutput {
-                geometry_id: p.geometry_id,
-                instance: p.instance,
-                position: p.position,
-                rotation: p.rotation,
-                boundary_index: p.boundary_index,
-            })
-            .collect(),
-        boundaries_used: result.boundaries_used,
-        utilization: result.utilization,
-        total_requested: result.total_requested,
-        unplaced: result.unplaced,
-        unplaced_reasons: result
-            .unplaced_reasons
-            .into_iter()
-            .map(|(geometry_id, reason)| UnplacedReasonOutput {
-                geometry_id,
-                reason: reason.name().to_string(),
-            })
-            .collect(),
-        unplaced_count,
-        all_placed,
-        used_bounding_box,
-        used_utilization,
-        stop_reason: Some(result.stop_reason),
-        computation_time_ms: result.computation_time_ms,
-        error: None,
-        code: None,
-        details: None,
-    }
-}
-
-/// A 2D request, read and solved; every refusal is the output's.
-fn solve_2d_request(json: serde_json::Value) -> SolveOutput {
+/// A 2D request, read and solved; every refusal is the response's.
+fn solve_2d_request(json: serde_json::Value) -> SolveResponse {
     let solve = || -> u_nesting_core::Result<u_nesting_core::SolveResult<f64>> {
         let request: Request2D = from_value(json)?;
         let geometries = Geometry2D::from_requests(request.geometries)?;
@@ -502,12 +416,12 @@ fn solve_2d_request(json: serde_json::Value) -> SolveOutput {
             nester.solve(&geometries, &boundary)
         }
     };
-    solve().map_or_else(|e| SolveOutput::refused(&e), solved_output)
+    solve().map_or_else(|e| SolveResponse::refused(&e), SolveResponse::from)
 }
 
-/// A 3D request, read and solved; every refusal is the output's.
-fn solve_3d_request(json: serde_json::Value) -> SolveOutput {
-    let solve = || -> u_nesting_core::Result<u_nesting_core::SolveResult<f64>> {
+/// A 3D request, read and solved; every refusal is the response's.
+fn solve_3d_request(json: serde_json::Value) -> Pack3DResponse {
+    let solve = || -> u_nesting_core::Result<Pack3DResponse> {
         let request: Request3D = from_value(json)?;
         let geometries = Geometry3D::from_requests(request.geometries)?;
         let boundary = Boundary3D::from_request(request.boundary);
@@ -515,9 +429,26 @@ fn solve_3d_request(json: serde_json::Value) -> SolveOutput {
             .config
             .as_ref()
             .map_or_else(|| Ok(Config::default()), ConfigRequest::to_config_3d)?;
-        Packer3D::new(config).solve(&geometries, &boundary)
+        let result = Packer3D::new(config).solve(&geometries, &boundary)?;
+        Ok(u_nesting_d3::build_pack3d_response(&result, &geometries))
     };
-    solve().map_or_else(|e| SolveOutput::refused(&e), solved_output)
+    solve().unwrap_or_else(|e| Pack3DResponse::refused(&e))
+}
+
+/// A 2D check request, read and answered by the pipeline every binding calls.
+fn check_2d_request(json: serde_json::Value) -> CheckResponse {
+    from_value::<Check2DRequest>(json).map_or_else(
+        |e| CheckResponse::refused(&e),
+        u_nesting_d2::check::check_2d,
+    )
+}
+
+/// A 3D check request, read and answered by the pipeline every binding calls.
+fn check_3d_request(json: serde_json::Value) -> CheckResponse {
+    from_value::<Check3DRequest>(json).map_or_else(
+        |e| CheckResponse::refused(&e),
+        u_nesting_d3::check::check_3d,
+    )
 }
 
 /// Get the library version.
@@ -559,6 +490,8 @@ fn codes(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
 fn u_nesting(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_2d, m)?)?;
     m.add_function(wrap_pyfunction!(solve_3d, m)?)?;
+    m.add_function(wrap_pyfunction!(check_2d, m)?)?;
+    m.add_function(wrap_pyfunction!(check_3d, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_function(wrap_pyfunction!(available_strategies, m)?)?;
     m.add_function(wrap_pyfunction!(codes, m)?)?;
@@ -567,7 +500,7 @@ fn u_nesting(m: &Bound<'_, PyModule>) -> PyResult<()> {
 
 /// Tests for the interpreter-independent half of the binding: reading and
 /// solving the request the arguments make, configuration building, and
-/// derived output accounting.
+/// the responses.
 ///
 /// The `#[pyfunction]` entry points add only the conversion of Python values
 /// to that request ([`request_json`]), which needs a live interpreter;
@@ -585,8 +518,6 @@ mod tests {
     use u_nesting_core::api_types::{
         Boundary2DRequest, Boundary3DRequest, Geometry2DRequest, Geometry3DRequest,
     };
-    use u_nesting_core::placement::Placement;
-    use u_nesting_core::SolveResult;
 
     use u_nesting_core::solver::Strategy;
 
@@ -751,63 +682,6 @@ mod tests {
         assert_eq!(config.seed, Some(99));
     }
 
-    // ---- SolveOutput::accounting ----
-
-    fn result_with(placed: usize, requested: usize) -> SolveResult<f64> {
-        let mut result = SolveResult::new();
-        result.placements = (0..placed)
-            .map(|i| Placement::new_2d("part".to_string(), i, 0.0, 0.0, 0.0))
-            .collect();
-        result.total_requested = requested;
-        result
-    }
-
-    #[test]
-    fn partial_packing_reports_instance_level_shortfall() {
-        let (unplaced_count, all_placed, _, _) = SolveOutput::accounting(&result_with(3, 5));
-        assert_eq!(unplaced_count, 2);
-        assert!(!all_placed);
-    }
-
-    #[test]
-    fn complete_packing_reports_all_placed() {
-        let (unplaced_count, all_placed, _, _) = SolveOutput::accounting(&result_with(5, 5));
-        assert_eq!(unplaced_count, 0);
-        assert!(all_placed);
-    }
-
-    #[test]
-    fn shortfall_saturates_instead_of_underflowing() {
-        // `total_requested` is set at the top-level entry point; a solver path
-        // that ever reports more placements than requested must not wrap around.
-        let (unplaced_count, all_placed, _, _) = SolveOutput::accounting(&result_with(4, 0));
-        assert_eq!(unplaced_count, 0);
-        assert!(all_placed);
-    }
-
-    #[test]
-    fn used_utilization_guards_against_empty_footprint() {
-        let mut result = result_with(0, 2);
-        result.total_piece_area = 100.0;
-        result.used_bounding_box = [0.0, 0.0];
-        let (_, _, bbox, used_utilization) = SolveOutput::accounting(&result);
-        assert_eq!(bbox, None, "an empty footprint is not defined, not zero");
-        assert_eq!(
-            used_utilization, None,
-            "must not divide by a zero footprint"
-        );
-    }
-
-    #[test]
-    fn used_utilization_is_area_over_used_bounding_box() {
-        let mut result = result_with(1, 1);
-        result.total_piece_area = 50.0;
-        result.used_bounding_box = [10.0, 20.0];
-        let (_, _, bbox, used_utilization) = SolveOutput::accounting(&result);
-        assert_eq!(bbox, Some([10.0, 20.0]));
-        assert_eq!(used_utilization, Some(0.25));
-    }
-
     // ---- input deserialization defaults ----
 
     #[test]
@@ -906,7 +780,7 @@ mod tests {
             ))
             .expect("a whole number is the right shape");
             let e = Geometry3D::from_requests(inputs).expect_err("below 1");
-            let out = serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+            let out = serde_json::to_value(SolveResponse::refused(&e)).expect("serialize");
             assert_eq!(out["success"], false);
             assert_eq!(out["code"], "parameter_out_of_range");
             assert_eq!(
@@ -947,7 +821,8 @@ mod tests {
     /// result dict, naming the field -- the solver's refusals.
     #[test]
     fn the_solver_refuses_an_empty_list_and_a_flat_boundary() {
-        let refused = |e: Error| serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+        let refused =
+            |e: Error| serde_json::to_value(SolveResponse::refused(&e)).expect("serialize");
         let e = Nester2D::new(Config::default())
             .solve(&[], &Boundary2D::rectangle(10.0, 10.0))
             .expect_err("nothing to place");
@@ -988,7 +863,7 @@ mod tests {
             )
             .expect_err("2D only");
         assert_eq!(e.parameter(), Some("strategy"));
-        let out = serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+        let out = serde_json::to_value(SolveResponse::refused(&e)).expect("serialize");
         assert_eq!(out["code"], "invalid_option");
         assert_eq!(out["details"]["parameter"], "config.strategy");
         assert!(
@@ -1004,7 +879,7 @@ mod tests {
             ..config_input()
         }))
         .expect_err("negative");
-        let out = serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+        let out = serde_json::to_value(SolveResponse::refused(&e)).expect("serialize");
         assert_eq!(out["details"]["parameter"], "config.spacing");
 
         // 3D has no sheets: the 2D setting is refused, not ignored.
@@ -1015,7 +890,7 @@ mod tests {
         .to_config_3d()
         .expect_err("2D only");
         assert_eq!(
-            serde_json::to_value(SolveOutput::refused(&e)).expect("serialize")["details"]
+            serde_json::to_value(SolveResponse::refused(&e)).expect("serialize")["details"]
                 ["parameter"],
             "config.multi_sheet"
         );
@@ -1108,7 +983,8 @@ mod tests {
     /// it belongs to.
     #[test]
     fn a_number_that_is_not_finite_is_named_where_it_sits() {
-        let refused = |e: Error| serde_json::to_value(SolveOutput::refused(&e)).expect("serialize");
+        let refused =
+            |e: Error| serde_json::to_value(SolveResponse::refused(&e)).expect("serialize");
         let out = refused(Slot::Field("config.spacing".into()).not_finite(None, f64::NAN));
         assert_eq!(out["code"], "value_not_finite");
         assert_eq!(
@@ -1131,5 +1007,62 @@ mod tests {
             out["error"],
             "geometries[0].polygon[2][1]: expected a finite number, got inf"
         );
+    }
+
+    const PROBLEM_2D: &str = r#"{"geometries": [{"id": "p", "polygon": [[0, 0], [4, 0], [4, 2], [0, 2]], "quantity": 3}],
+        "boundary": {"width": 10, "height": 10}}"#;
+    const PROBLEM_3D: &str = r#"{"geometries": [{"id": "b", "dimensions": [1, 2, 3], "quantity": 2}],
+        "boundary": {"dimensions": [5, 5, 5]}, "config": {"strategy": "ep"}}"#;
+
+    /// A solve answers the canonical response -- the keys the C ABI and the
+    /// WebAssembly binding answer -- which is what a check takes back.
+    #[test]
+    fn a_solved_layout_is_the_canonical_response_and_checks_feasible() {
+        let solved = serde_json::to_value(solve_2d_request(text(PROBLEM_2D))).expect("serialize");
+        assert_eq!(solved["placements"][0]["id"], "p");
+        assert!(solved["placements"][0]["x"].is_number());
+        assert!(solved["sheets_used"].is_number());
+        assert!(solved.get("boundaries_used").is_none(), "{solved}");
+        let answer = check_2d_request(serde_json::json!({
+            "problem": text(PROBLEM_2D), "solve_result": solved }));
+        assert!(answer.success, "{:?}", answer.error);
+        assert!(answer.feasible, "{:?}", answer.violations);
+
+        let packed = serde_json::to_value(solve_3d_request(text(PROBLEM_3D))).expect("serialize");
+        assert!(packed["bins_used"].is_number(), "{packed}");
+        let answer = check_3d_request(serde_json::json!({
+            "problem": text(PROBLEM_3D), "solve_result": packed }));
+        assert!(answer.success, "{:?}", answer.error);
+        assert!(answer.feasible, "{:?}", answer.violations);
+    }
+
+    /// A layout that breaks its problem is a result the check reports, not a
+    /// refusal.
+    #[test]
+    fn a_broken_layout_is_reported_not_refused() {
+        let mut solved =
+            serde_json::to_value(solve_2d_request(text(PROBLEM_2D))).expect("serialize");
+        let (x, y) = (
+            solved["placements"][0]["x"].clone(),
+            solved["placements"][0]["y"].clone(),
+        );
+        solved["placements"][1]["x"] = x;
+        solved["placements"][1]["y"] = y;
+        let answer = check_2d_request(serde_json::json!({
+            "problem": text(PROBLEM_2D), "solve_result": solved }));
+        assert!(answer.success, "{:?}", answer.error);
+        assert!(!answer.feasible);
+        assert!(!answer.violations.is_empty());
+    }
+
+    /// A result that is itself a refusal has no layout to check.
+    #[test]
+    fn a_refused_solve_result_is_refused_by_the_check() {
+        let refused = serde_json::to_value(solve_2d_request(text(r#"{}"#))).expect("serialize");
+        assert_eq!(refused["success"], false);
+        let answer = check_2d_request(serde_json::json!({
+            "problem": text(PROBLEM_2D), "solve_result": refused }));
+        assert!(!answer.success);
+        assert_eq!(answer.code.as_deref(), Some("invalid_option"));
     }
 }

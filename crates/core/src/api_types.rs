@@ -754,8 +754,8 @@ impl From<crate::Placement<f64>> for PlacementResponse {
     }
 }
 
-impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
-    fn from(r: crate::SolveResult<S>) -> Self {
+impl From<crate::SolveResult<f64>> for SolveResponse {
+    fn from(r: crate::SolveResult<f64>) -> Self {
         // Instance-level accounting: `placements` is instance-level, `total_requested`
         // is Σ quantity. `unplaced_count` is derived from these (not from the
         // deduplicated `unplaced` ID list, which undercounts multi-quantity geoms).
@@ -777,7 +777,11 @@ impl<S: Into<f64> + Copy> From<crate::SolveResult<S>> for SolveResponse {
             error: None,
             code: None,
             details: None,
-            placements: Vec::new(), // Converted separately due to type constraints
+            placements: r
+                .placements
+                .into_iter()
+                .map(PlacementResponse::from)
+                .collect(),
             sheets_used: r.boundaries_used,
             utilization: r.utilization,
             total_requested: r.total_requested,
@@ -2458,12 +2462,12 @@ mod dto_strictness_tests {
         r.total_piece_area = 60.0;
         r.used_bounding_box = [10.0, 12.0];
 
-        // The `From` impl derives accounting from the result's placement count
-        // (6), then leaves `placements` for the binding to fill. The invariant
-        // `placed + unplaced_count == total` therefore holds against the source
-        // placement count, not `resp.placements` (empty at this layer).
+        // The `From` impl derives the accounting from the result's placement
+        // count (6) and carries those placements over: `placed + unplaced_count
+        // == total_requested` holds against `resp.placements` itself.
         let placed = 6;
         let resp = super::SolveResponse::from(r);
+        assert_eq!(resp.placements.len(), placed, "the placements are carried");
         assert_eq!(resp.unplaced_count, 14, "instance-level unplaced count");
         assert_eq!(
             placed + resp.unplaced_count,
