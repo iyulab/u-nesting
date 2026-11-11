@@ -17,7 +17,24 @@ import re
 import sys
 from pathlib import Path
 
-README = Path(__file__).resolve().parent.parent / "crates" / "python" / "README.md"
+PACKAGE = Path(__file__).resolve().parent.parent / "crates" / "python"
+README = PACKAGE / "README.md"
+STUB = PACKAGE / "python" / "u_nesting" / "__init__.pyi"
+
+
+def check_stub_exports(exported) -> None:
+    """The type stub declares exactly the functions the package exports.
+
+    A function the stub leaves out is one a type checker reports as missing while
+    it runs; one the stub declares and the package lacks is the reverse.
+    """
+    declared = set(re.findall(r"^def (\w+)\(", STUB.read_text(encoding="utf-8"), flags=re.M))
+    exported = set(exported)
+    if declared != exported:
+        raise AssertionError(
+            f"{STUB.name} and the package disagree: only in the stub "
+            f"{sorted(declared - exported)}, only in the package {sorted(exported - declared)}"
+        )
 
 
 def run_readme_examples() -> int:
@@ -180,6 +197,7 @@ def main() -> int:
         raise AssertionError(f"a setting blf does not read was not refused: {result}")
     print(f"unread setting rejected: {result['details']['parameter']}")
 
+    check_stub_exports(u_nesting.__all__)
     print(f"README examples ran: {run_readme_examples()}")
     print("wheel smoke test passed")
     return 0
