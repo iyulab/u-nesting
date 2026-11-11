@@ -11,7 +11,7 @@
 //!
 //! - inside the hull: the hull is convex, so the moving piece is inside when its
 //!   vertices are -- an erosion of the hull by the piece's vertices, exact
-//!   ([`compute_minkowski_erosion`]). The same erosion by `H` itself would not be:
+//!   (the inner-fit erosion the sheet boundary uses). The same erosion by `H` itself would not be:
 //!   with a non-convex `H` every vertex can be inside while an edge crosses the
 //!   notch between them;
 //! - clear of each bay: a bay is a simple polygon, so its no-fit polygon with the
