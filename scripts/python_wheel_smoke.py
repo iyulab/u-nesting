@@ -11,7 +11,40 @@ Usage:
     python scripts/python_wheel_smoke.py
 """
 
+import contextlib
+import io
+import re
 import sys
+from pathlib import Path
+
+README = Path(__file__).resolve().parent.parent / "crates" / "python" / "README.md"
+
+
+def run_readme_examples() -> int:
+    """Run the Python examples the README teaches, against the installed wheel.
+
+    An example that imports the package is self-contained and runs as written; a
+    README whose examples run is one whose examples a reader can paste. A README
+    with no such example fails: nothing proves the examples still run.
+    """
+    text = README.read_text(encoding="utf-8")
+    blocks = re.findall(r"^```python\r?\n(.*?)^```", text, flags=re.S | re.M)
+    ran = 0
+    for number, code in enumerate(blocks, start=1):
+        if not re.search(r"^\s*(import u_nesting|from u_nesting)\b", code, re.M):
+            continue
+        with contextlib.redirect_stdout(io.StringIO()):
+            try:
+                exec(compile(code, f"README python block {number}", "exec"), {})
+            except Exception as error:  # noqa: BLE001 -- name the example, whatever failed
+                raise AssertionError(
+                    f"README python block {number} does not run: "
+                    f"{type(error).__name__}: {error}\n{code}"
+                ) from error
+        ran += 1
+    if ran == 0:
+        raise AssertionError(f"{README} has no self-contained python example to run")
+    return ran
 
 
 def main() -> int:
@@ -147,6 +180,7 @@ def main() -> int:
         raise AssertionError(f"a setting blf does not read was not refused: {result}")
     print(f"unread setting rejected: {result['details']['parameter']}")
 
+    print(f"README examples ran: {run_readme_examples()}")
     print("wheel smoke test passed")
     return 0
 
