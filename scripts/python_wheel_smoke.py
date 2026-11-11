@@ -87,6 +87,20 @@ def main() -> int:
         raise AssertionError(f"check_2d missed two pieces on one spot: {answer}")
     print(f"check_2d: feasible, and {answer['violations'][0]['code']} on a broken layout")
 
+    # The cutting path of the layout: one step per contour, nothing skipped.
+    cut = u_nesting.optimize_cutting_path(problem_2d["geometries"], result)
+    if not cut["success"] or not cut["sequence"] or cut["skipped_contours"]:
+        raise AssertionError(f"optimize_cutting_path failed on its own solve: {cut}")
+    if not cut["total_cut_distance"] > 0:
+        raise AssertionError(f"a cutting path without cut distance: {cut}")
+    print(f"optimize_cutting_path: {len(cut['sequence'])} steps, {cut['total_pierces']} pierces")
+    # Refused, not raised: a setting out of range is named by its path.
+    cut = u_nesting.optimize_cutting_path(
+        problem_2d["geometries"], result, {"pierce_candidates": 0}
+    )
+    if cut["success"] or cut["details"]["parameter"] != "cutting_config.pierce_candidates":
+        raise AssertionError(f"a pierce_candidates of 0 was not refused by path: {cut}")
+
     problem_3d = dict(
         geometries=[{"id": "box", "dimensions": [100, 50, 30], "quantity": 4}],
         boundary={"dimensions": [400, 300, 200]},

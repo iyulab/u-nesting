@@ -24,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   rules the nester places under, as the C ABI, WebAssembly and .NET bindings already did: `{feasible,
   violations}`, a layout that breaks its problem being a result and a refused problem a `success: false` answer
   with `error`, `code` and `details`. They take a `solve_2d` / `solve_3d` result back as it was answered.
+- Python: `optimize_cutting_path(geometries, solve_result, cutting_config=None)` -- the cutting path of a 2D layout,
+  as the C ABI, WebAssembly and .NET bindings already answered it (same response, same refusals).
 
 ### Changed
 
@@ -36,7 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `computation_time_ms` -> `elapsed_ms`. New: `version`, and `flipped` on each 2D placement. Gone: the 3D result's
   `used_bounding_box` and `used_utilization` (always `None` there). Every other key keeps its name and meaning.
 - Rust: `SolveResponse::from(SolveResult<f64>)` carries the placements (it left them empty for each binding to
-  fill, three copies of the same loop) and is implemented for `f64` results only.
+  fill, three copies of the same loop) and is implemented for `f64` results only. The cutting request is read back
+  and optimized by one function, `u_nesting_cutting::optimize_solved` (`serde` feature), that the C ABI, WebAssembly
+  and Python bindings call, in place of two copies of its body.
 
 ### Fixed
 

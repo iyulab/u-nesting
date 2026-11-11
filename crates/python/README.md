@@ -267,6 +267,36 @@ answer = u_nesting.check_2d(solve_result=solved, **problem)
 assert not answer["feasible"] and answer["violations"]
 ```
 
+### `optimize_cutting_path(geometries, solve_result, cutting_config=None) -> dict`
+
+Optimize the cutting path of a 2D layout for a laser, plasma or knife cutter: the order of
+the contours (holes before the parts around them), where each is pierced, and the rapid
+travel between them. `geometries` are the problem's geometries as `solve_2d` takes them;
+`solve_result` is a successful `solve_2d` result for it.
+
+`cutting_config` (optional): `kerf_width`, `pierce_weight`, `max_2opt_iterations`,
+`time_limit_ms` (the budget of the improvement phase, default 5000, `0` = unlimited),
+`rapid_speed`, `cut_speed` (units/s, for the time estimate), `exterior_direction` /
+`interior_direction` (`"ccw"`, `"cw"` or `"auto"`), `home_position` (`[x, y]`),
+`pierce_candidates`, `tolerance`.
+
+**Returns:** `{"version", "success", "error", "code", "details", "sequence",
+"total_cut_distance", "total_rapid_distance", "total_pierces", "estimated_time_seconds",
+"efficiency", "computation_time_ms", "skipped_contours"}` -- the response the C ABI and the
+WebAssembly binding answer. `skipped_contours` lists the contours of placed parts the plan
+cannot cut and why. Every refusal comes back with `success` False; nothing is raised.
+
+```python
+import u_nesting
+
+geometries = [{"id": "p", "polygon": [[0, 0], [40, 0], [40, 20], [0, 20]], "quantity": 3}]
+# A kerf is cut out of the gap between parts: nest with a spacing at least as wide.
+solved = u_nesting.solve_2d(geometries, {"width": 100, "height": 100}, {"spacing": 1.0})
+cut = u_nesting.optimize_cutting_path(geometries, solved, {"kerf_width": 0.2})
+assert cut["success"], cut["error"]
+print(len(cut["sequence"]), cut["total_pierces"], cut["estimated_time_seconds"])
+```
+
 ### `check_3d(geometries, boundary, solve_result, config=None) -> dict`
 
 Check a 3D packing against the problem it answers, as `check_2d` does: every box inside the

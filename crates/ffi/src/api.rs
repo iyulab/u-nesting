@@ -903,54 +903,11 @@ fn optimize_cutting_path_internal(json_str: &str) -> CuttingResponse {
         Ok(r) => r,
         Err(e) => return CuttingResponse::refused(&e),
     };
-
-    // Validate the solve result
-    if !request.solve_result.success {
-        return CuttingResponse::refused(&Error::invalid_option(
-            "solve_result",
-            "the solve result is a refusal (success: false); give a successful one to cut"
-                .to_string(),
-        ));
-    }
-
-    // Convert geometries
-    let geometries = match Geometry2D::from_requests(request.geometries) {
-        Ok(g) => g,
-        Err(e) => return CuttingResponse::refused(&e),
-    };
-
-    // Reconstruct SolveResult from the response
-    let mut solve_result = u_nesting_core::SolveResult::<f64>::new();
-    for p in &request.solve_result.placements {
-        solve_result.placements.push(u_nesting_core::Placement {
-            geometry_id: p.geometry_id.clone(),
-            instance: p.instance,
-            position: vec![p.x, p.y],
-            rotation: vec![p.rotation.to_radians()],
-            boundary_index: p.sheet_index,
-            mirrored: p.flipped,
-            rotation_index: None,
-        });
-    }
-    solve_result.boundaries_used = request.solve_result.sheets_used;
-    solve_result.utilization = request.solve_result.utilization;
-
-    // Build cutting config
-    let cutting_config =
-        match u_nesting_cutting::CuttingConfig::from_request(request.cutting_config.as_ref()) {
-            Ok(c) => c,
-            Err(e) => return CuttingResponse::refused(&e),
-        };
-
-    // Run cutting path optimization
-    let result =
-        match u_nesting_cutting::optimize_cutting_path(&solve_result, &geometries, &cutting_config)
-        {
-            Ok(r) => r,
-            Err(e) => return CuttingResponse::refused(&e),
-        };
-
-    result.to_response()
+    u_nesting_cutting::optimize_solved(
+        &request.solve_result,
+        || Geometry2D::from_requests(request.geometries),
+        request.cutting_config.as_ref(),
+    )
 }
 
 #[cfg(test)]

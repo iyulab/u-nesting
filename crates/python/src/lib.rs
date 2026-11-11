@@ -39,7 +39,8 @@ use serde::Serialize;
 
 use u_nesting_core::api_types::{
     from_value, Check2DRequest, Check3DRequest, CheckResponse, CodeCatalog, ConfigRequest,
-    Pack3DResponse, Request2D, Request3D, SolveResponse, StrategyCatalog,
+    CuttingRequest, CuttingResponse, Pack3DResponse, Request2D, Request3D, SolveResponse,
+    StrategyCatalog,
 };
 use u_nesting_core::geometry::Boundary;
 use u_nesting_core::solver::{Config, Solver};
@@ -147,6 +148,43 @@ fn solve_3d<'py>(
     let response = match request_json(geometries, boundary, config) {
         Ok(request) => solve_3d_request(request),
         Err(e) => Pack3DResponse::refused(&e),
+    };
+    into_py(py, &response)
+}
+
+/// Optimize the cutting path of a 2D layout: the order in which to cut the
+/// contours of the placed parts, where to pierce each, and how far the head
+/// travels.
+///
+/// Args:
+///     geometries: The geometries of the problem, as `solve_2d` takes them.
+///     solve_result: A successful `solve_2d` result for that problem.
+///     cutting_config: Optional dictionary with keys kerf_width, pierce_weight,
+///         max_2opt_iterations, time_limit_ms (the budget of the improvement
+///         phase, default 5000; 0 = unlimited), rapid_speed, cut_speed,
+///         exterior_direction / interior_direction ("ccw", "cw" or "auto"),
+///         home_position ([x, y]), pierce_candidates, tolerance.
+///
+/// Returns:
+///     The canonical cutting response, as the C ABI and WebAssembly bindings
+///     answer it: version, success, error, code, details, sequence (the
+///     ordered cut steps), total_cut_distance, total_rapid_distance,
+///     total_pierces, estimated_time_seconds, efficiency, computation_time_ms,
+///     skipped_contours (contours the plan cannot cut, and why). Every refusal
+///     -- an unknown or malformed key, a setting out of range, a `solve_result`
+///     that is itself a refusal -- comes back here with `success` False;
+///     nothing is raised.
+#[pyfunction]
+#[pyo3(signature = (geometries, solve_result, cutting_config=None))]
+fn optimize_cutting_path<'py>(
+    py: Python<'py>,
+    geometries: &Bound<'_, PyAny>,
+    solve_result: &Bound<'_, PyAny>,
+    cutting_config: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Bound<'py, PyAny>> {
+    let response = match cutting_json(geometries, solve_result, cutting_config) {
+        Ok(request) => cutting_request(request),
+        Err(e) => CuttingResponse::refused(&e),
     };
     into_py(py, &response)
 }
@@ -287,6 +325,28 @@ fn check_json(
         0,
     )?;
     Ok(serde_json::json!({ "problem": problem, "solve_result": solve_result }))
+}
+
+/// The request a cutting call's arguments make: `{geometries, solve_result,
+/// cutting_config}`, read as the other requests are.
+fn cutting_json(
+    geometries: &Bound<'_, PyAny>,
+    solve_result: &Bound<'_, PyAny>,
+    cutting_config: Option<&Bound<'_, PyAny>>,
+) -> Result<serde_json::Value, Error> {
+    let mut request = serde_json::Map::new();
+    let parts = [
+        ("geometries", Some(geometries)),
+        ("solve_result", Some(solve_result)),
+        ("cutting_config", cutting_config),
+    ];
+    for (key, value) in parts {
+        if let Some(value) = value {
+            let value = to_json(value, &Slot::Field(key.to_string()), None, 0)?;
+            request.insert(key.to_string(), value);
+        }
+    }
+    Ok(serde_json::Value::Object(request))
 }
 
 /// `value` as a JSON value, refusing what JSON cannot hold. `id` is the id of
@@ -435,6 +495,18 @@ fn solve_3d_request(json: serde_json::Value) -> Pack3DResponse {
     solve().unwrap_or_else(|e| Pack3DResponse::refused(&e))
 }
 
+/// A cutting request, read and answered by the pipeline every binding calls.
+fn cutting_request(json: serde_json::Value) -> CuttingResponse {
+    match from_value::<CuttingRequest>(json) {
+        Ok(request) => u_nesting_cutting::optimize_solved(
+            &request.solve_result,
+            || Geometry2D::from_requests(request.geometries),
+            request.cutting_config.as_ref(),
+        ),
+        Err(e) => CuttingResponse::refused(&e),
+    }
+}
+
 /// A 2D check request, read and answered by the pipeline every binding calls.
 fn check_2d_request(json: serde_json::Value) -> CheckResponse {
     from_value::<Check2DRequest>(json).map_or_else(
@@ -490,6 +562,7 @@ fn codes(py: Python<'_>) -> PyResult<Bound<'_, PyAny>> {
 fn u_nesting(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(solve_2d, m)?)?;
     m.add_function(wrap_pyfunction!(solve_3d, m)?)?;
+    m.add_function(wrap_pyfunction!(optimize_cutting_path, m)?)?;
     m.add_function(wrap_pyfunction!(check_2d, m)?)?;
     m.add_function(wrap_pyfunction!(check_3d, m)?)?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
@@ -1064,5 +1137,32 @@ mod tests {
             "problem": text(PROBLEM_2D), "solve_result": refused }));
         assert!(!answer.success);
         assert_eq!(answer.code.as_deref(), Some("invalid_option"));
+    }
+
+    /// The cutting path of a solved layout: the request is the problem's
+    /// geometries and the response a solve answered.
+    #[test]
+    fn a_solved_layout_is_cut_and_a_bad_setting_is_named_by_its_path() {
+        let problem = text(PROBLEM_2D);
+        let solved = serde_json::to_value(solve_2d_request(problem.clone())).expect("serialize");
+        let request = |config: serde_json::Value| {
+            let mut request = serde_json::json!({
+                "geometries": problem["geometries"].clone(), "solve_result": solved.clone() });
+            if !config.is_null() {
+                request["cutting_config"] = config;
+            }
+            serde_json::to_value(cutting_request(request)).expect("serialize")
+        };
+        let cut = request(serde_json::Value::Null);
+        assert_eq!(cut["success"], true, "{cut}");
+        assert_eq!(cut["sequence"].as_array().map(Vec::len), Some(3), "{cut}");
+        assert!(cut["total_cut_distance"].as_f64().unwrap_or(0.0) > 0.0);
+
+        let refused = request(serde_json::json!({ "pierce_candidates": 0 }));
+        assert_eq!(refused["success"], false);
+        assert_eq!(
+            refused["details"]["parameter"],
+            "cutting_config.pierce_candidates"
+        );
     }
 }

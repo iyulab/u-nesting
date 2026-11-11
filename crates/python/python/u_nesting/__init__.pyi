@@ -187,6 +187,55 @@ def solve_3d(
     """
     ...
 
+class CuttingConfig(TypedDict, total=False):
+    """Cutting path configuration."""
+    kerf_width: float
+    pierce_weight: float
+    max_2opt_iterations: int
+    time_limit_ms: int
+    """Budget of the improvement phase; ``0`` = unlimited, default 5000."""
+    rapid_speed: float
+    cut_speed: float
+    exterior_direction: Literal["ccw", "cw", "auto"]
+    interior_direction: Literal["ccw", "cw", "auto"]
+    home_position: List[float]
+    pierce_candidates: int
+    tolerance: float
+
+class CuttingResult(TypedDict):
+    """The answer to ``optimize_cutting_path``. Every refusal is reported here, never raised."""
+    version: str
+    success: bool
+    error: Optional[str]
+    code: Optional[str]
+    details: Optional[Dict[str, Any]]
+    sequence: List[Dict[str, Any]]
+    """The ordered cut steps."""
+    total_cut_distance: float
+    total_rapid_distance: float
+    total_pierces: int
+    estimated_time_seconds: float
+    efficiency: float
+    computation_time_ms: int
+    skipped_contours: List[Dict[str, Any]]
+    """Contours of placed parts the plan cannot cut, and why."""
+
+def optimize_cutting_path(
+    geometries: List[Geometry2D],
+    solve_result: SolveResult,
+    cutting_config: Optional[CuttingConfig] = None,
+) -> CuttingResult:
+    """
+    Optimize the cutting path of a 2D layout: the order to cut the contours of the
+    placed parts, where to pierce each, and how far the head travels.
+
+    Args:
+        geometries: The geometries of the problem, as ``solve_2d`` takes them.
+        solve_result: A successful ``solve_2d`` result for that problem.
+        cutting_config: Optional cutting settings.
+    """
+    ...
+
 def check_2d(
     geometries: List[Geometry2D],
     boundary: Boundary2D,
