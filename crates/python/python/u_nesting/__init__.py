@@ -26,7 +26,7 @@ Example:
     ... )
 """
 
-from .u_nesting import solve_2d, solve_3d, version, available_strategies
+from .u_nesting import solve_2d, solve_3d, version, available_strategies, codes
 
-__all__ = ["solve_2d", "solve_3d", "version", "available_strategies"]
+__all__ = ["solve_2d", "solve_3d", "version", "available_strategies", "codes"]
 __version__ = version()

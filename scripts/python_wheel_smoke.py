@@ -25,6 +25,29 @@ def main() -> int:
     if not strategies:
         raise AssertionError("available_strategies() returned an empty list")
 
+    # The package re-exports the native module's functions by name; one that is
+    # left out is documented but not callable as `u_nesting.<name>`.
+    import u_nesting.u_nesting as native
+
+    native_functions = {
+        name
+        for name in dir(native)
+        if callable(getattr(native, name)) and not name.startswith("_")
+    }
+    missing = native_functions - set(u_nesting.__all__)
+    if missing:
+        raise AssertionError(
+            f"the package does not export its native functions: {sorted(missing)}"
+        )
+
+    catalog = u_nesting.codes()
+    if not catalog["refusals"] or not catalog["violations"]:
+        raise AssertionError(f"codes() answered an empty catalog: {catalog}")
+    print(
+        f"codes(): {len(catalog['refusals'])} refusals, "
+        f"{len(catalog['violations'])} violations"
+    )
+
     result = u_nesting.solve_2d(
         geometries=[
             {

@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Python: `u_nesting.codes()` -- the code catalog the README and the type stubs document -- was not callable. The
+  package's `__init__` re-exported four of the native module's five functions and left `codes` out, so
+  `import u_nesting; u_nesting.codes()` raised `AttributeError` (only `u_nesting.u_nesting.codes` worked). It is
+  exported now, and the wheel smoke test fails if the package leaves out any function of the native module, and
+  calls `codes()`.
 - The cutting crate described common-edge detection as edges that "are cut in a single pass", which reduces pierce
   count and cutting time. It is detection only: the sequence uses a detected edge as an adjacency bonus, and every
   contour is still cut along its whole perimeter, so a shared edge is cut twice and `total_cut_distance`, the pierce
