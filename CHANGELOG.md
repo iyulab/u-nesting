@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (inside its convex hull and clear of each notch), not by its vertices. Any other strategy refuses a request
   that sets it (`invalid_option`, naming `geometries[i].allow_part_in_part`) rather than running without it.
   List the piece before the pieces it takes: `nfp` places in the order given and the searches try orders.
+  The searches (`ga`, `brkga`, `sa`, `gdrr`, `alns`) rank a layout by how many pieces it places before how much area
+  it covers, so a hole pays off when it lets more pieces fit; the `part_in_part` example in the `d2` crate measures it.
   The `pocket` module exposes the geometry (`compute_pockets`, `Pocket`), and `Nfp` carries `pockets`.
 
 ### Fixed
