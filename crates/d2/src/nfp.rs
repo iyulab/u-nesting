@@ -1081,6 +1081,24 @@ pub fn point_outside_all_nfps(point: (f64, f64), nfps: &[&Nfp]) -> bool {
     true
 }
 
+/// Whether `point` is inside `polygon` -- whose bounding box is `bbox` -- and not on
+/// its outline: the test for "overlapping" a no-fit polygon, where touching is
+/// allowed. A point outside the box or on its edge is outside (a ray-cast alone
+/// puts some outline points in and some out), and the box rules out most polygons
+/// without a ray-cast.
+pub(crate) fn strictly_inside(
+    point: (f64, f64),
+    polygon: &[(f64, f64)],
+    bbox: (f64, f64, f64, f64),
+) -> bool {
+    let (min_x, min_y, max_x, max_y) = bbox;
+    point.0 > min_x
+        && point.0 < max_x
+        && point.1 > min_y
+        && point.1 < max_y
+        && point_in_polygon(point, polygon)
+}
+
 /// Checks if a point is on the boundary of a polygon (not strictly inside or outside).
 pub(crate) fn point_on_polygon_boundary(point: (f64, f64), polygon: &[(f64, f64)]) -> bool {
     let (px, py) = point;
@@ -1243,15 +1261,11 @@ pub fn find_bottom_left_placement(
         // or in a pocket of it: a hole of the placed piece that the point's piece fits in.
         in_ifp
             && nfps.iter().zip(&boxes).all(|(nfp, boxes)| {
-                let overlaps = nfp.polygons.iter().zip(boxes).any(
-                    |(polygon, &(min_x, min_y, max_x, max_y))| {
-                        point.0 > min_x
-                            && point.0 < max_x
-                            && point.1 > min_y
-                            && point.1 < max_y
-                            && point_in_polygon(point, polygon)
-                    },
-                );
+                let overlaps = nfp
+                    .polygons
+                    .iter()
+                    .zip(boxes)
+                    .any(|(polygon, &bbox)| strictly_inside(point, polygon, bbox));
                 !overlaps || nfp.pockets.iter().any(|pocket| pocket.contains(point))
             })
     };

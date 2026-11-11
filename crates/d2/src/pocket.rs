@@ -25,7 +25,7 @@
 use crate::geometry::Geometry2D;
 use crate::nfp::{
     bounding_box, compute_minkowski_erosion, compute_nfp_general, ensure_ccw, point_in_polygon,
-    point_on_polygon_boundary, rotate_nfp, rotate_polygon, translate_nfp, Nfp,
+    point_on_polygon_boundary, rotate_nfp, rotate_polygon, strictly_inside, translate_nfp, Nfp,
 };
 use crate::polygon_ops::{mirror_polygon, signed_area2};
 
@@ -53,7 +53,7 @@ impl Pocket {
                 .bays
                 .iter()
                 .flat_map(|bay| bay.polygons.iter())
-                .any(|p| strictly_inside(point, p))
+                .any(|p| strictly_inside(point, p, bounding_box(p)))
     }
 
     /// The pocket with the stationary piece turned by `angle` about the origin.
@@ -71,19 +71,6 @@ impl Pocket {
             bays: self.bays.iter().map(|b| translate_nfp(b, offset)).collect(),
         }
     }
-}
-
-/// Whether `point` is inside `polygon` and not on its outline -- the test the
-/// placement search applies to a no-fit polygon, where touching is allowed:
-/// outside the bounding box, or on its edge, is outside (a ray-cast alone puts
-/// some outline points in and some out).
-fn strictly_inside(point: (f64, f64), polygon: &[(f64, f64)]) -> bool {
-    let (min_x, min_y, max_x, max_y) = bounding_box(polygon);
-    point.0 > min_x
-        && point.0 < max_x
-        && point.1 > min_y
-        && point.1 < max_y
-        && point_in_polygon(point, polygon)
 }
 
 /// The pockets `orbiting` has in the holes of `stationary`, one per hole it can
@@ -272,8 +259,12 @@ mod tests {
     /// Every grid position (off the lattice the shapes' coordinates sit on, so
     /// none touches a hole edge) agrees with the oracle.
     fn assert_pocket_matches_oracle(hole: Vec<(f64, f64)>, w: f64, h: f64) {
+        assert_piece_matches_oracle(hole, rect_piece(w, h));
+    }
+
+    /// The same for any piece.
+    fn assert_piece_matches_oracle(hole: Vec<(f64, f64)>, piece: Geometry2D) {
         let pieces = frame(hole.clone());
-        let piece = rect_piece(w, h);
         let pockets = compute_pockets(&pieces, &piece, 0.0, false, false, 0.0);
         let piece_ring = piece.exterior().to_vec();
         let (mut inside, mut outside) = (0, 0);
@@ -351,6 +342,54 @@ mod tests {
         let pockets = compute_pockets(&frame(c), &rect_piece(4.0, 4.0), 0.0, false, false, 0.0);
         assert!(pockets.iter().any(|p| p.contains((16.0, 18.0))));
         assert!(!pockets.iter().any(|p| p.contains((16.5, 18.0))));
+    }
+
+    #[test]
+    fn a_piece_that_is_not_a_rectangle_is_judged_by_its_own_outline() {
+        // An L-shaped piece in the C: the bay's no-fit polygon is an L, not its box.
+        let c = vec![
+            (8.0, 8.0),
+            (32.0, 8.0),
+            (32.0, 16.0),
+            (20.0, 16.0),
+            (20.0, 24.0),
+            (32.0, 24.0),
+            (32.0, 32.0),
+            (8.0, 32.0),
+        ];
+        let l = Geometry2D::new("l").with_polygon(vec![
+            (0.0, 0.0),
+            (9.0, 0.0),
+            (9.0, 4.0),
+            (4.0, 4.0),
+            (4.0, 9.0),
+            (0.0, 9.0),
+        ]);
+        assert_piece_matches_oracle(c, l);
+    }
+
+    #[test]
+    fn touching_a_notch_from_every_side_is_allowed() {
+        // A C that opens to the left: the notch is x 8..20, y 16..24, the spine is
+        // x 20..32, the arms y 8..16 and y 24..32. A 4 x 4 chip against its right,
+        // bottom and top faces touches the notch and is inside the hole.
+        let c = vec![
+            (8.0, 8.0),
+            (32.0, 8.0),
+            (32.0, 32.0),
+            (8.0, 32.0),
+            (8.0, 24.0),
+            (20.0, 24.0),
+            (20.0, 16.0),
+            (8.0, 16.0),
+        ];
+        let pockets = compute_pockets(&frame(c), &rect_piece(4.0, 4.0), 0.0, false, false, 0.0);
+        let free = |at: (f64, f64)| pockets.iter().any(|p| p.contains(at));
+        assert!(free((20.0, 18.0)), "against the notch's right face");
+        assert!(free((12.0, 12.0)), "against the notch's bottom face");
+        assert!(free((12.0, 24.0)), "against the notch's top face");
+        // A hair into the notch from each side.
+        assert!(!free((19.9, 18.0)) && !free((12.0, 12.1)) && !free((12.0, 23.9)));
     }
 
     #[test]
