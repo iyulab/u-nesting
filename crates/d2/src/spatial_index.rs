@@ -243,6 +243,28 @@ mod tests {
         assert_eq!(index.len(), 0);
     }
 
+    /// However many entries an index is loaded with, it takes later insertions and
+    /// still answers: `rstar` 0.13.0 built trees with leaves on different levels at
+    /// some sizes (25-27 and 97-111 entries in 2D) and the next insertion panicked.
+    #[test]
+    fn a_loaded_index_takes_later_insertions_at_every_size() {
+        // Positions from a small generator: spread over the plane, no two alike.
+        let entry = |i: usize| {
+            let h = (i as u64 + 1).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+            let (x, y) = ((h >> 40) as f64 / 1.0e3, (h & 0xFF_FFFF) as f64 / 1.0e3);
+            SpatialEntry2D::new(i, format!("e{i}"), [x, y, x + 2.0, y + 2.0])
+        };
+        for loaded in 0..=130 {
+            let mut index = SpatialIndex2D::with_entries((0..loaded).map(entry).collect());
+            for i in loaded..loaded + 60 {
+                index.insert(entry(i));
+            }
+            assert_eq!(index.len(), loaded + 60, "loaded with {loaded}");
+            let all = index.query_aabb([-1.0, -1.0], [1.0e9, 1.0e9]);
+            assert_eq!(all.len(), loaded + 60, "loaded with {loaded}");
+        }
+    }
+
     #[test]
     fn test_spatial_index_insert() {
         let mut index = SpatialIndex2D::new();
