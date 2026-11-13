@@ -640,11 +640,16 @@ impl ReportGenerator {
 
             for (i, si) in report.comparison.strategies.iter().enumerate() {
                 md.push_str(&format!("| {} |", si));
-                for j in 0..report.comparison.strategies.len() {
+                let row = &report.comparison.win_matrix[i];
+                for (j, wins) in row
+                    .iter()
+                    .enumerate()
+                    .take(report.comparison.strategies.len())
+                {
                     if i == j {
                         md.push_str(" - |");
                     } else {
-                        md.push_str(&format!(" {} |", report.comparison.win_matrix[i][j]));
+                        md.push_str(&format!(" {} |", wins));
                     }
                 }
                 md.push('\n');
