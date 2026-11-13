@@ -20,7 +20,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-u-nesting = "0.29"  # 2D nesting and 3D packing (features `d2`, `d3`)
+u-nesting = "0.30"  # 2D nesting and 3D packing (features `d2`, `d3`)
 ```
 
 ### C/C++ (FFI)
