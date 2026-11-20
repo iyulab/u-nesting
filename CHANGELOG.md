@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- The strategies that place by no-fit polygons (`nfp`, `ga`, `brkga`, `sa`, `gdrr`, `alns`) take the length of an
+  edge once per edge, not once per pair of edges, when they look for where two outlines cross. Layouts are
+  unchanged to the last bit. A 60-part `nfp` run takes about two thirds of the time natively and about a fifth of the
+  time in the WebAssembly build, where `hypot` (and the fused multiply-add under it) is a software routine, so
+  the cost per pair mattered most there.
+
 ## [0.30.0] - 2026-11-14
 
 ### Added

@@ -1416,17 +1416,37 @@ fn push_edge_crossings(
             .collect()
     };
     let (a_edges, b_edges) = (near(a), near(b));
+    // An edge's length is asked once per edge, not once per pair: `hypot` is a
+    // library routine (on wasm32 a software one built on a software `fma`), and
+    // asked inside the double loop it was most of the time of a nesting run.
+    struct Edge {
+        start: (f64, f64),
+        step: (f64, f64),
+        length: f64,
+    }
+    let b_steps: Vec<Edge> = b_edges
+        .iter()
+        .map(|&j| {
+            let (q, q2) = (b[j], b[(j + 1) % b.len()]);
+            let (sx, sy) = (q2.0 - q.0, q2.1 - q.1);
+            Edge {
+                start: q,
+                step: (sx, sy),
+                length: sx.hypot(sy),
+            }
+        })
+        .collect();
     for &i in &a_edges {
         let (p, p2) = (a[i], a[(i + 1) % a.len()]);
         let (rx, ry) = (p2.0 - p.0, p2.1 - p.1);
-        for &j in &b_edges {
-            let (q, q2) = (b[j], b[(j + 1) % b.len()]);
-            let (sx, sy) = (q2.0 - q.0, q2.1 - q.1);
+        let r_len = rx.hypot(ry);
+        for edge in &b_steps {
+            let (q, (sx, sy), s_len) = (edge.start, edge.step, edge.length);
             let denom = rx * sy - ry * sx;
             // Parallel when the sine of the angle between the edges is nothing:
             // the cross product is that times both lengths, so a fixed floor on
             // it (a length squared) tells parallel edges only in one unit.
-            if denom.abs() <= 1e-14 * rx.hypot(ry) * sx.hypot(sy) {
+            if denom.abs() <= 1e-14 * r_len * s_len {
                 continue; // parallel: no single crossing point
             }
             let (qpx, qpy) = (q.0 - p.0, q.1 - p.1);
