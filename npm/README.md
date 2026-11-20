@@ -244,7 +244,8 @@ interface Request2D {
                                        //   (omitted: 500 for sa, 1000 for gdrr and alns)
     crossover_rate?: number;           // GA crossover rate (default: 0.85)
     mutation_rate?: number;            // GA mutation rate (default: 0.05)
-    time_limit_ms?: number;            // Time limit in ms for the whole solve
+    time_limit_ms?: number;            // Time limit in ms for the whole solve (default 30000; 0 = none:
+                                       //   a search then runs to its own budget)
     target_utilization?: number;       // Stop early if reached
     seed?: number;                     // RNG seed of ga, brkga, sa, gdrr, alns (see below)
     multi_sheet?: boolean;             // Spill overflow onto extra sheets (default: false)
@@ -264,7 +265,10 @@ search uses the budget it is tuned for:
 | 3D `brkga` | 50 | 100 |
 
 The other strategies have no population and do not read them. A run also ends on
-`time_limit_ms` and when the best layout stops improving.
+`time_limit_ms` and when the best layout stops improving. **`time_limit_ms` is 30 000 (30 s) when
+you leave it out**: a run that needs longer -- `nfp` on a few hundred
+parts, say -- ends with `stop_reason` `"time_limit"` and the parts placed by then, which can be
+fewer than a plain `blf` fill places. Pass a larger value, or `0` for none.
 
 A search never returns a layout worse than a simple fill of the same request: it
 is floored at that fill (fewer pieces placed, then a longer strip in 2D or a
